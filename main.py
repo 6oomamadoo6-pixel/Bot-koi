@@ -920,4 +920,191 @@ async def button_handler(
 
             text = (
                 "🔴 لیست مسدودی شما خالی است.\n\n"
-                "در حال حاضر هیچ کاربری را بلاک 
+                "در حال حاضر هیچ کاربری را بلاک نکرده‌اید."
+            )
+
+        else:
+
+            parts = []
+
+            for blocked_id, anon_code, unblock_code in blocked_users:
+
+                anon_code = anon_code or "نامشخص"
+
+                parts.append(
+                    f"کاربر {anon_code} در لیست مسدودی شما است.\n"
+                    f"رفع مسدودی : unblock_{unblock_code}"
+                )
+
+            text = (
+                "🔴 لیست مسدودی شما:\n\n"
+                + "\n\n────────────\n\n".join(parts)
+                + "\n\n"
+                "برای رفع مسدودی، دستور مربوط به همان کاربر "
+                "را ارسال کنید."
+            )
+
+        await query.edit_message_text(
+            text,
+            reply_markup=back_keyboard()
+        )
+
+        return
+
+    # -----------------------------------------
+    # REPLY
+    # -----------------------------------------
+
+    if data.startswith("reply_"):
+
+        try:
+            target_id = int(
+                data.split("_", 1)[1]
+            )
+        except (ValueError, IndexError):
+            return
+
+        if target_id == user_id:
+            return
+
+        context.user_data.clear()
+        context.user_data["reply_to"] = target_id
+
+        await query.message.reply_text(
+            "💬 پاسخ ناشناس خود را بنویسید:",
+            reply_markup=ForceReply(selective=True)
+        )
+
+        return
+
+    # -----------------------------------------
+    # BLOCK
+    # -----------------------------------------
+
+    if data.startswith("block_"):
+
+        try:
+            blocked_id = int(
+                data.split("_", 1)[1]
+            )
+        except (ValueError, IndexError):
+            return
+
+        if blocked_id == user_id:
+            return
+
+        unblock_code = block_user(
+            user_id,
+            blocked_id
+        )
+
+        await query.edit_message_text(
+            "🚫 کاربر با موفقیت بلاک شد.\n\n"
+            "کد رفع مسدودی این کاربر:\n"
+            f"unblock_{unblock_code}",
+            reply_markup=back_keyboard()
+        )
+
+        return
+
+
+# =========================================================
+# ERROR HANDLER
+# =========================================================
+
+async def error_handler(
+    update: object,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    print(
+        "BOT ERROR:",
+        repr(context.error)
+    )
+
+
+# =========================================================
+# MAIN
+# =========================================================
+
+def main():
+
+    print("================================")
+    print("GOLDEN CHAT IS STARTING...")
+    print("================================")
+
+    if not BOT_TOKEN:
+        print("ERROR: BOT_TOKEN IS NOT SET!")
+        print("Set BOT_TOKEN in Railway Variables.")
+        return
+
+    init_db()
+
+    try:
+
+        app = (
+            Application
+            .builder()
+            .token(BOT_TOKEN)
+            .build()
+        )
+
+        # /start
+        app.add_handler(
+            CommandHandler(
+                "start",
+                start
+            )
+        )
+
+        # Inline buttons
+        app.add_handler(
+            CallbackQueryHandler(
+                button_handler
+            )
+        )
+
+        # /unblock_xxxxx
+        app.add_handler(
+            MessageHandler(
+                filters.COMMAND,
+                handle_message
+            )
+        )
+
+        # Normal messages
+        app.add_handler(
+            MessageHandler(
+                filters.TEXT & ~filters.COMMAND,
+                handle_message
+            )
+        )
+
+        app.add_error_handler(
+            error_handler
+        )
+
+        print("BOT TOKEN FOUND")
+        print("STARTING TELEGRAM POLLING...")
+        print("================================")
+
+        app.run_polling(
+            drop_pending_updates=True,
+            allowed_updates=Update.ALL_TYPES
+        )
+
+    except Exception as e:
+
+        print("================================")
+        print("FATAL BOT ERROR:")
+        print(repr(e))
+        print("================================")
+
+        raise
+
+
+# =========================================================
+# RUN
+# =========================================================
+
+if __name__ == "__main__":
+    main()
