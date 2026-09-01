@@ -8,7 +8,6 @@ from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    ForceReply,
 )
 
 from telegram.ext import (
@@ -29,8 +28,13 @@ from telegram.error import TelegramError
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-CHANNEL = "@hidemychatRobot0"
-CHANNEL_URL = "https://t.me/hidemychatRobot0"
+# کانال 1
+CHANNEL_1 = "@hidemychatRobot0"
+CHANNEL_1_URL = "https://t.me/hidemychatRobot0"
+
+# کانال 2
+CHANNEL_2 = "@DoNi0r"
+CHANNEL_2_URL = "https://t.me/DoNi0r"
 
 DB_NAME = "bot.db"
 
@@ -49,6 +53,7 @@ def init_db():
     conn = get_db()
     cur = conn.cursor()
 
+    # Users
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -56,10 +61,12 @@ def init_db():
             full_name TEXT,
             link_code TEXT UNIQUE NOT NULL,
             anon_code TEXT UNIQUE NOT NULL,
+            display_name TEXT,
             created_at TEXT NOT NULL
         )
     """)
 
+    # Blocks
     cur.execute("""
         CREATE TABLE IF NOT EXISTS blocks (
             blocker_id INTEGER NOT NULL,
@@ -68,6 +75,15 @@ def init_db():
             PRIMARY KEY (blocker_id, blocked_id)
         )
     """)
+
+    # Migration برای دیتابیس قدیمی
+    cur.execute("PRAGMA table_info(users)")
+    columns = {row[1] for row in cur.fetchall()}
+
+    if "display_name" not in columns:
+        cur.execute(
+            "ALTER TABLE users ADD COLUMN display_name TEXT"
+        )
 
     conn.commit()
     conn.close()
@@ -78,39 +94,59 @@ def init_db():
 # =========================================================
 
 def generate_anon_code():
+
     conn = get_db()
     cur = conn.cursor()
 
-    while True:
-        code = "".join(random.choices(string.digits, k=7))
+    try:
+        while True:
 
-        cur.execute(
-            "SELECT 1 FROM users WHERE anon_code = ?",
-            (code,)
-        )
+            code = "".join(
+                random.choices(
+                    string.digits,
+                    k=7
+                )
+            )
 
-        if cur.fetchone() is None:
-            conn.close()
-            return code
+            cur.execute(
+                "SELECT 1 FROM users WHERE anon_code = ?",
+                (code,)
+            )
+
+            if cur.fetchone() is None:
+                return code
+
+    finally:
+        conn.close()
 
 
 def generate_unblock_code():
+
     conn = get_db()
     cur = conn.cursor()
 
     chars = string.ascii_lowercase + string.digits
 
-    while True:
-        code = "".join(random.choices(chars, k=10))
+    try:
+        while True:
 
-        cur.execute(
-            "SELECT 1 FROM blocks WHERE unblock_code = ?",
-            (code,)
-        )
+            code = "".join(
+                random.choices(
+                    chars,
+                    k=10
+                )
+            )
 
-        if cur.fetchone() is None:
-            conn.close()
-            return code
+            cur.execute(
+                "SELECT 1 FROM blocks WHERE unblock_code = ?",
+                (code,)
+            )
+
+            if cur.fetchone() is None:
+                return code
+
+    finally:
+        conn.close()
 
 
 # =========================================================
@@ -118,21 +154,31 @@ def generate_unblock_code():
 # =========================================================
 
 def get_or_create_user(user):
+
     conn = get_db()
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT link_code, anon_code
+        SELECT
+            link_code,
+            anon_code,
+            display_name
         FROM users
         WHERE user_id = ?
-    """, (user.id,))
+    """, (
+        user.id,
+    ))
 
     row = cur.fetchone()
 
+    # کاربر قبلی
     if row:
+
         cur.execute("""
             UPDATE users
-            SET username = ?, full_name = ?
+            SET
+                username = ?,
+                full_name = ?
             WHERE user_id = ?
         """, (
             user.username,
@@ -143,9 +189,15 @@ def get_or_create_user(user):
         conn.commit()
         conn.close()
 
-        return row[0], row[1]
+        return (
+            row[0],
+            row[1],
+            row[2]
+        )
 
+    # کاربر جدید
     link_code = str(user.id)
+
     anon_code = generate_anon_code()
 
     cur.execute("""
@@ -156,41 +208,56 @@ def get_or_create_user(user):
             full_name,
             link_code,
             anon_code,
+            display_name,
             created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
     """, (
         user.id,
         user.username,
         user.full_name,
         link_code,
         anon_code,
+        None,
         datetime.now().isoformat()
     ))
 
     conn.commit()
     conn.close()
 
-    return link_code, anon_code
+    return (
+        link_code,
+        anon_code,
+        None
+    )
 
 
 def get_user_by_link(link_code):
+
     conn = get_db()
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT user_id, full_name, anon_code
+        SELECT
+            user_id,
+            full_name,
+            anon_code,
+            display_name
         FROM users
         WHERE link_code = ?
-    """, (link_code,))
+    """, (
+        link_code,
+    ))
 
     row = cur.fetchone()
+
     conn.close()
 
     return row
 
 
 def get_anon_code(user_id):
+
     conn = get_db()
     cur = conn.cursor()
 
@@ -198,9 +265,12 @@ def get_anon_code(user_id):
         SELECT anon_code
         FROM users
         WHERE user_id = ?
-    """, (user_id,))
+    """, (
+        user_id,
+    ))
 
     row = cur.fetchone()
+
     conn.close()
 
     if row:
@@ -209,39 +279,93 @@ def get_anon_code(user_id):
     return "0000000"
 
 
+def get_display_name(user_id):
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT
+            display_name,
+            full_name
+        FROM users
+        WHERE user_id = ?
+    """, (
+        user_id,
+    ))
+
+    row = cur.fetchone()
+
+    conn.close()
+
+    if not row:
+        return "کاربر"
+
+    if row[0]:
+        return row[0]
+
+    if row[1]:
+        return row[1]
+
+    return "کاربر"
+
+
+def set_display_name(user_id, name):
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        UPDATE users
+        SET display_name = ?
+        WHERE user_id = ?
+    """, (
+        name,
+        user_id
+    ))
+
+    conn.commit()
+    conn.close()
+
+
 # =========================================================
 # BLOCK SYSTEM
 # =========================================================
 
 def is_blocked(blocker_id, blocked_id):
+
     conn = get_db()
     cur = conn.cursor()
 
     cur.execute("""
         SELECT 1
         FROM blocks
-        WHERE blocker_id = ?
-        AND blocked_id = ?
+        WHERE
+            blocker_id = ?
+            AND blocked_id = ?
     """, (
         blocker_id,
         blocked_id
     ))
 
     result = cur.fetchone()
+
     conn.close()
 
     return result is not None
 
 
 def block_user(blocker_id, blocked_id):
+
     conn = get_db()
     cur = conn.cursor()
 
     cur.execute("""
         SELECT unblock_code
         FROM blocks
-        WHERE blocker_id = ?
-        AND blocked_id = ?
+        WHERE
+            blocker_id = ?
+            AND blocked_id = ?
     """, (
         blocker_id,
         blocked_id
@@ -250,7 +374,9 @@ def block_user(blocker_id, blocked_id):
     existing = cur.fetchone()
 
     if existing:
+
         conn.close()
+
         return existing[0]
 
     code = generate_unblock_code()
@@ -276,14 +402,16 @@ def block_user(blocker_id, blocked_id):
 
 
 def unblock_user(blocker_id, code):
+
     conn = get_db()
     cur = conn.cursor()
 
     cur.execute("""
         SELECT blocked_id
         FROM blocks
-        WHERE blocker_id = ?
-        AND unblock_code = ?
+        WHERE
+            blocker_id = ?
+            AND unblock_code = ?
     """, (
         blocker_id,
         code
@@ -292,13 +420,16 @@ def unblock_user(blocker_id, code):
     row = cur.fetchone()
 
     if not row:
+
         conn.close()
+
         return False
 
     cur.execute("""
         DELETE FROM blocks
-        WHERE blocker_id = ?
-        AND unblock_code = ?
+        WHERE
+            blocker_id = ?
+            AND unblock_code = ?
     """, (
         blocker_id,
         code
@@ -311,6 +442,7 @@ def unblock_user(blocker_id, code):
 
 
 def get_blocked_users(blocker_id):
+
     conn = get_db()
     cur = conn.cursor()
 
@@ -321,36 +453,65 @@ def get_blocked_users(blocker_id):
             b.unblock_code
         FROM blocks b
         LEFT JOIN users u
-        ON u.user_id = b.blocked_id
+            ON u.user_id = b.blocked_id
         WHERE b.blocker_id = ?
         ORDER BY b.rowid DESC
-    """, (blocker_id,))
+    """, (
+        blocker_id,
+    ))
 
     rows = cur.fetchall()
+
     conn.close()
 
     return rows
 
 
 # =========================================================
-# MEMBERSHIP
+# FORCE JOIN
 # =========================================================
 
 async def is_member(bot, user_id):
+
+    valid_statuses = (
+        "member",
+        "administrator",
+        "creator"
+    )
+
     try:
-        member = await bot.get_chat_member(
-            chat_id=CHANNEL,
+
+        member_1 = await bot.get_chat_member(
+            chat_id=CHANNEL_1,
             user_id=user_id
         )
 
-        return member.status in (
-            "member",
-            "administrator",
-            "creator"
+        member_2 = await bot.get_chat_member(
+            chat_id=CHANNEL_2,
+            user_id=user_id
+        )
+
+        channel_1_ok = (
+            member_1.status in valid_statuses
+        )
+
+        channel_2_ok = (
+            member_2.status in valid_statuses
+        )
+
+        return (
+            channel_1_ok
+            and
+            channel_2_ok
         )
 
     except TelegramError as e:
-        print("MEMBERSHIP CHECK ERROR:", e)
+
+        print(
+            "FORCE JOIN ERROR:",
+            repr(e)
+        )
+
         return False
 
 
@@ -358,7 +519,36 @@ async def is_member(bot, user_id):
 # KEYBOARDS
 # =========================================================
 
+def join_keyboard():
+
+    return InlineKeyboardMarkup([
+
+        [
+            InlineKeyboardButton(
+                "چنل 1 : کانال رسمی گلدن چت",
+                url=CHANNEL_1_URL
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "چنل 2 : کانال ( اجباری ) 📢",
+                url=CHANNEL_2_URL
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "جوین شدم ✅",
+                callback_data="check_join"
+            )
+        ]
+
+    ])
+
+
 def back_keyboard():
+
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
@@ -369,90 +559,116 @@ def back_keyboard():
     ])
 
 
-def join_keyboard():
+def cancel_send_keyboard():
+
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
-                "عضویت در کانال 📢",
-                url=CHANNEL_URL
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "جوین شدم ✅",
-                callback_data="check_join"
+                "لغو ارسال پیام ❌",
+                callback_data="cancel_send"
             )
         ]
     ])
 
 
+# =========================================================
+# MAIN PANEL
+# =========================================================
+
 def main_keyboard():
+
     return InlineKeyboardMarkup([
+
         [
             InlineKeyboardButton(
                 "دریافت لینک ناشناس 🔗",
                 callback_data="copy_link"
             )
         ],
+
+        [
+            InlineKeyboardButton(
+                "تنظیمات نام ⚙️",
+                callback_data="name_settings"
+            ),
+
+            InlineKeyboardButton(
+                "تبلیغات 📢",
+                callback_data="ads"
+            )
+        ],
+
         [
             InlineKeyboardButton(
                 "لیست مسدودی 🔴",
                 callback_data="block_list"
             )
         ],
+
         [
             InlineKeyboardButton(
                 "چنل پشتیبانی ✅",
-                url=CHANNEL_URL
-            )
-        ],
-        [
+                url=CHANNEL_1_URL
+            ),
+
             InlineKeyboardButton(
                 "راهنما 🤔",
                 callback_data="help"
             )
         ]
+
     ])
 
 
 # =========================================================
-# MESSAGES
+# JOIN MESSAGE
 # =========================================================
 
 async def send_join_message(update, context):
+
     text = (
         "درود و عرض ادب! 👋\n"
-        "خوش اومدی 🌹\n\n"
-        "برای ادامه استفاده از ربات، "
-        "ابتدا داخل کانال زیر عضو شو:"
+        "به گلدن چت خوش اومدی ❤️\n\n"
+        "برای استفاده از ربات ابتدا "
+        "در هر دو کانال زیر عضو شو 👇"
     )
 
     if update.callback_query:
+
         await update.callback_query.edit_message_text(
             text,
             reply_markup=join_keyboard()
         )
+
     else:
+
         await update.message.reply_text(
             text,
             reply_markup=join_keyboard()
         )
 
 
+# =========================================================
+# MAIN PANEL MESSAGE
+# =========================================================
+
 async def send_main_panel(update, context):
+
     text = (
         "درودد مجدد 👋\n"
-        "ممنون که ربات ما رو انتخاب کردی ❤️\n\n"
-        "میتونی با پنل شیشه‌ای زیر "
-        "از قابلیت‌های ربات استفاده کنی:"
+        "ممنون که گلدن چت رو انتخاب کردی ❤️\n\n"
+        "از پنل شیشه‌ای زیر استفاده کن 👇"
     )
 
     if update.callback_query:
+
         await update.callback_query.edit_message_text(
             text,
             reply_markup=main_keyboard()
         )
+
     else:
+
         await update.message.reply_text(
             text,
             reply_markup=main_keyboard()
@@ -463,48 +679,64 @@ async def send_main_panel(update, context):
 # START
 # =========================================================
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
     user = update.effective_user
 
     get_or_create_user(user)
 
-    # -----------------------------------------
-    # /start WITH LINK
-    # -----------------------------------------
+    # =====================================================
+    # START WITH LINK
+    # =====================================================
 
     if context.args:
+
         target_code = context.args[0].strip()
 
+        # جوین اجباری
         if not await is_member(
             context.bot,
             user.id
         ):
+
             await send_join_message(
                 update,
                 context
             )
+
             return
 
-        target = get_user_by_link(target_code)
+        target = get_user_by_link(
+            target_code
+        )
 
         if not target:
+
             await update.message.reply_text(
-                "❌ این لینک نامعتبر یا منقضی شده است.",
+                "❌ این لینک نامعتبر است.",
                 reply_markup=back_keyboard()
             )
+
             return
 
         target_id = target[0]
 
-        # -----------------------------------------
+        display_name = target[3]
+
+        # =================================================
         # SELF LINK
-        # -----------------------------------------
+        # =================================================
 
         if target_id == user.id:
 
             bot_info = await context.bot.get_me()
 
-            link_code, _ = get_or_create_user(user)
+            link_code, _, _ = get_or_create_user(
+                user
+            )
 
             my_link = (
                 f"https://t.me/"
@@ -512,60 +744,89 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"?start={link_code}"
             )
 
-            text = (
+            await update.message.reply_text(
+
                 "به خودت که نمیتونی پیام بفرستی عزیز 🥹\n\n"
-                "ولی منتظر بمون و لینکتو بیشتر به اشتراک بزار "
-                "و منتظر پیام ناشناست باش😍\n\n"
+
+                "ولی منتظر بمون و لینکتو بیشتر به اشتراک "
+                "بزار و منتظر پیام ناشناست باش😍\n\n"
+
                 "لینک خودت:\n"
-                f"{my_link}"
-            )
 
-            await update.message.reply_text(
-                text,
+                f"{my_link}",
+
                 reply_markup=back_keyboard()
             )
 
             return
 
-        # -----------------------------------------
-        # TARGET BLOCKED USER
-        # -----------------------------------------
+        # =================================================
+        # BLOCK CHECK
+        # =================================================
 
-        if is_blocked(target_id, user.id):
+        if is_blocked(
+            target_id,
+            user.id
+        ):
+
             await update.message.reply_text(
+
                 "❌ شما توسط این کاربر بلاک شده‌اید.",
+
                 reply_markup=back_keyboard()
             )
 
             return
 
-        # -----------------------------------------
+        # =================================================
+        # TARGET NAME
+        # =================================================
+
+        target_name = (
+            display_name
+            if display_name
+            else "کاربر"
+        )
+
+        # =================================================
         # SAVE TARGET
-        # -----------------------------------------
+        # =================================================
 
         context.user_data.clear()
-        context.user_data["target_id"] = target_id
+
+        context.user_data[
+            "target_id"
+        ] = target_id
+
+        # =================================================
+        # SEND SCREEN
+        # =================================================
 
         await update.message.reply_text(
-            "💬 شما در حال ارسال پیام ناشناس هستید.\n\n"
-            "پیام خود را بنویسید:",
-            reply_markup=ForceReply(selective=True)
+
+            f"شما در حال ارسال پیام ناشناس به "
+            f"{target_name} هستید.\n\n"
+            "پیام خود را بنویسید: 💤",
+
+            reply_markup=cancel_send_keyboard()
         )
 
         return
 
-    # -----------------------------------------
-    # NORMAL /START
-    # -----------------------------------------
+    # =====================================================
+    # NORMAL START
+    # =====================================================
 
     if not await is_member(
         context.bot,
         user.id
     ):
+
         await send_join_message(
             update,
             context
         )
+
         return
 
     context.user_data.clear()
@@ -584,20 +845,22 @@ async def handle_message(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
+
     if not update.message:
         return
 
     user = update.effective_user
-    text = update.message.text
+
+    text = (
+        update.message.text or ""
+    ).strip()
 
     if not text:
         return
 
-    text = text.strip()
-
-    # -----------------------------------------
+    # =====================================================
     # UNBLOCK
-    # -----------------------------------------
+    # =====================================================
 
     normalized = text
 
@@ -606,65 +869,131 @@ async def handle_message(
 
     if normalized.startswith("unblock_"):
 
-        code = normalized[len("unblock_"):].strip()
-
-        if not code:
-            await update.message.reply_text(
-                "❌ کد رفع مسدودی وارد نشده است."
-            )
-            return
+        code = normalized[
+            len("unblock_"):
+        ].strip()
 
         if unblock_user(
             user.id,
             code
         ):
+
             await update.message.reply_text(
-                "✅ کاربر با موفقیت از لیست مسدودی حذف شد."
+
+                "✅ کاربر با موفقیت "
+                "از لیست مسدودی حذف شد.",
+
+                reply_markup=back_keyboard()
             )
+
         else:
+
             await update.message.reply_text(
-                "❌ کد رفع مسدودی نامعتبر است."
+
+                "❌ کد رفع مسدودی نامعتبر است.",
+
+                reply_markup=back_keyboard()
             )
 
         return
 
-    # -----------------------------------------
-    # MEMBERSHIP
-    # -----------------------------------------
+    # =====================================================
+    # FORCE JOIN
+    # =====================================================
 
     if not await is_member(
         context.bot,
         user.id
     ):
+
         await send_join_message(
             update,
             context
         )
+
         return
 
-    # -----------------------------------------
-    # ANONYMOUS MESSAGE
-    # -----------------------------------------
+    # =====================================================
+    # SET NAME
+    # =====================================================
 
-    if "target_id" in context.user_data:
+    if context.user_data.get(
+        "setting_name"
+    ):
 
-        target_id = context.user_data["target_id"]
+        name = text.strip()
 
-        # Check block again
-        if is_blocked(
-            target_id,
-            user.id
-        ):
-            context.user_data.clear()
+        if len(name) < 1:
 
             await update.message.reply_text(
-                "❌ شما توسط این کاربر بلاک شده‌اید.",
+
+                "❌ اسم نمی‌تواند خالی باشد.\n\n"
+                "دوباره اسم موردنظرت را بفرست:",
+
                 reply_markup=back_keyboard()
             )
 
             return
 
-        anon_code = get_anon_code(user.id)
+        if len(name) > 30:
+
+            await update.message.reply_text(
+
+                "❌ اسم حداکثر باید ۳۰ کاراکتر باشد.\n\n"
+                "دوباره ارسال کن:",
+
+                reply_markup=back_keyboard()
+            )
+
+            return
+
+        set_display_name(
+            user.id,
+            name
+        )
+
+        context.user_data.clear()
+
+        await update.message.reply_text(
+
+            f"✅ اسم شما با موفقیت روی "
+            f"«{name}» تنظیم شد.",
+
+            reply_markup=back_keyboard()
+        )
+
+        return
+
+    # =====================================================
+    # ANONYMOUS MESSAGE
+    # =====================================================
+
+    if "target_id" in context.user_data:
+
+        target_id = context.user_data[
+            "target_id"
+        ]
+
+        # دوباره بررسی بلاک
+        if is_blocked(
+            target_id,
+            user.id
+        ):
+
+            context.user_data.clear()
+
+            await update.message.reply_text(
+
+                "❌ شما توسط این کاربر بلاک شده‌اید.",
+
+                reply_markup=back_keyboard()
+            )
+
+            return
+
+        anon_code = get_anon_code(
+            user.id
+        )
 
         keyboard = InlineKeyboardMarkup([
             [
@@ -672,6 +1001,7 @@ async def handle_message(
                     "پاسخ 💬",
                     callback_data=f"reply_{user.id}"
                 ),
+
                 InlineKeyboardButton(
                     "بلاک 🚫",
                     callback_data=f"block_{user.id}"
@@ -682,429 +1012,26 @@ async def handle_message(
         try:
 
             await context.bot.send_message(
+
                 chat_id=target_id,
+
                 text=(
                     f"کاربر {anon_code} "
                     f"برای شما پیام ناشناسی ارسال کرد:\n\n"
                     f"{text}"
                 ),
+
                 reply_markup=keyboard
             )
 
             await update.message.reply_text(
+
                 "✅ پیام ناشناس با موفقیت ارسال شد.",
+
                 reply_markup=back_keyboard()
             )
 
         except TelegramError as e:
 
             print(
-                "ANONYMOUS SEND ERROR:",
-                e
-            )
-
-            await update.message.reply_text(
-                "❌ ارسال پیام انجام نشد."
-            )
-
-        context.user_data.clear()
-
-        return
-
-    # -----------------------------------------
-    # ANONYMOUS REPLY
-    # -----------------------------------------
-
-    if "reply_to" in context.user_data:
-
-        target_id = context.user_data["reply_to"]
-
-        try:
-
-            await context.bot.send_message(
-                chat_id=target_id,
-                text=(
-                    "💬 پاسخ ناشناس:\n\n"
-                    f"{text}"
-                )
-            )
-
-            await update.message.reply_text(
-                "✅ پاسخ ناشناس ارسال شد.",
-                reply_markup=back_keyboard()
-            )
-
-        except TelegramError as e:
-
-            print(
-                "REPLY SEND ERROR:",
-                e
-            )
-
-            await update.message.reply_text(
-                "❌ ارسال پاسخ انجام نشد."
-            )
-
-        context.user_data.clear()
-
-        return
-
-    # -----------------------------------------
-    # NORMAL TEXT
-    # -----------------------------------------
-
-    await update.message.reply_text(
-        "از منوی ربات استفاده کن 👇",
-        reply_markup=main_keyboard()
-    )
-
-
-# =========================================================
-# BUTTON HANDLER
-# =========================================================
-
-async def button_handler(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-    query = update.callback_query
-
-    if not query:
-        return
-
-    await query.answer()
-
-    data = query.data
-    user_id = query.from_user.id
-
-    # -----------------------------------------
-    # BACK
-    # -----------------------------------------
-
-    if data == "back_main":
-
-        context.user_data.clear()
-
-        if not await is_member(
-            context.bot,
-            user_id
-        ):
-            await send_join_message(
-                update,
-                context
-            )
-            return
-
-        await send_main_panel(
-            update,
-            context
-        )
-
-        return
-
-    # -----------------------------------------
-    # CHECK JOIN
-    # -----------------------------------------
-
-    if data == "check_join":
-
-        if await is_member(
-            context.bot,
-            user_id
-        ):
-
-            context.user_data.clear()
-
-            await send_main_panel(
-                update,
-                context
-            )
-
-        else:
-
-            await query.answer(
-                "هنوز عضو کانال نشدی ❌",
-                show_alert=True
-            )
-
-        return
-
-    # -----------------------------------------
-    # COPY LINK
-    # -----------------------------------------
-
-    if data == "copy_link":
-
-        if not await is_member(
-            context.bot,
-            user_id
-        ):
-            await send_join_message(
-                update,
-                context
-            )
-            return
-
-        bot_info = await context.bot.get_me()
-
-        link_code, _ = get_or_create_user(
-            query.from_user
-        )
-
-        link = (
-            f"https://t.me/"
-            f"{bot_info.username}"
-            f"?start={link_code}"
-        )
-
-        text = (
-            "🔗 لینک اختصاصی شما:\n\n"
-            f"{link}\n\n"
-            "این لینک رو برای دیگران بفرست "
-            "تا به صورت ناشناس برات پیام بفرستن."
-        )
-
-        await query.edit_message_text(
-            text,
-            reply_markup=back_keyboard()
-        )
-
-        return
-
-    # -----------------------------------------
-    # HELP
-    # -----------------------------------------
-
-    if data == "help":
-
-        text = (
-            "📖 راهنمای ربات\n\n"
-            "۱️⃣ لینک ناشناست رو دریافت کن.\n\n"
-            "۲️⃣ لینک رو برای دیگران بفرست.\n\n"
-            "۳️⃣ هرکس لینک رو باز کنه می‌تونه "
-            "به صورت ناشناس برات پیام بفرسته.\n\n"
-            "۴️⃣ برای هر پیام می‌تونی پاسخ بدی "
-            "یا فرستنده رو بلاک کنی.\n\n"
-            "۵️⃣ کاربران بلاک‌شده از قسمت "
-            "«لیست مسدودی» قابل مشاهده و رفع بلاک هستند."
-        )
-
-        await query.edit_message_text(
-            text,
-            reply_markup=back_keyboard()
-        )
-
-        return
-
-    # -----------------------------------------
-    # BLOCK LIST
-    # -----------------------------------------
-
-    if data == "block_list":
-
-        if not await is_member(
-            context.bot,
-            user_id
-        ):
-            await send_join_message(
-                update,
-                context
-            )
-            return
-
-        blocked_users = get_blocked_users(
-            user_id
-        )
-
-        if not blocked_users:
-
-            text = (
-                "🔴 لیست مسدودی شما خالی است.\n\n"
-                "در حال حاضر هیچ کاربری را بلاک نکرده‌اید."
-            )
-
-        else:
-
-            parts = []
-
-            for blocked_id, anon_code, unblock_code in blocked_users:
-
-                anon_code = anon_code or "نامشخص"
-
-                parts.append(
-                    f"کاربر {anon_code} در لیست مسدودی شما است.\n"
-                    f"رفع مسدودی : unblock_{unblock_code}"
-                )
-
-            text = (
-                "🔴 لیست مسدودی شما:\n\n"
-                + "\n\n────────────\n\n".join(parts)
-                + "\n\n"
-                "برای رفع مسدودی، دستور مربوط به همان کاربر "
-                "را ارسال کنید."
-            )
-
-        await query.edit_message_text(
-            text,
-            reply_markup=back_keyboard()
-        )
-
-        return
-
-    # -----------------------------------------
-    # REPLY
-    # -----------------------------------------
-
-    if data.startswith("reply_"):
-
-        try:
-            target_id = int(
-                data.split("_", 1)[1]
-            )
-        except (ValueError, IndexError):
-            return
-
-        if target_id == user_id:
-            return
-
-        context.user_data.clear()
-        context.user_data["reply_to"] = target_id
-
-        await query.message.reply_text(
-            "💬 پاسخ ناشناس خود را بنویسید:",
-            reply_markup=ForceReply(selective=True)
-        )
-
-        return
-
-    # -----------------------------------------
-    # BLOCK
-    # -----------------------------------------
-
-    if data.startswith("block_"):
-
-        try:
-            blocked_id = int(
-                data.split("_", 1)[1]
-            )
-        except (ValueError, IndexError):
-            return
-
-        if blocked_id == user_id:
-            return
-
-        unblock_code = block_user(
-            user_id,
-            blocked_id
-        )
-
-        await query.edit_message_text(
-            "🚫 کاربر با موفقیت بلاک شد.\n\n"
-            "کد رفع مسدودی این کاربر:\n"
-            f"unblock_{unblock_code}",
-            reply_markup=back_keyboard()
-        )
-
-        return
-
-
-# =========================================================
-# ERROR HANDLER
-# =========================================================
-
-async def error_handler(
-    update: object,
-    context: ContextTypes.DEFAULT_TYPE
-):
-    print(
-        "BOT ERROR:",
-        repr(context.error)
-    )
-
-
-# =========================================================
-# MAIN
-# =========================================================
-
-def main():
-
-    print("================================")
-    print("GOLDEN CHAT IS STARTING...")
-    print("================================")
-
-    if not BOT_TOKEN:
-        print("ERROR: BOT_TOKEN IS NOT SET!")
-        print("Set BOT_TOKEN in Railway Variables.")
-        return
-
-    init_db()
-
-    try:
-
-        app = (
-            Application
-            .builder()
-            .token(BOT_TOKEN)
-            .build()
-        )
-
-        # /start
-        app.add_handler(
-            CommandHandler(
-                "start",
-                start
-            )
-        )
-
-        # Inline buttons
-        app.add_handler(
-            CallbackQueryHandler(
-                button_handler
-            )
-        )
-
-        # /unblock_xxxxx
-        app.add_handler(
-            MessageHandler(
-                filters.COMMAND,
-                handle_message
-            )
-        )
-
-        # Normal messages
-        app.add_handler(
-            MessageHandler(
-                filters.TEXT & ~filters.COMMAND,
-                handle_message
-            )
-        )
-
-        app.add_error_handler(
-            error_handler
-        )
-
-        print("BOT TOKEN FOUND")
-        print("STARTING TELEGRAM POLLING...")
-        print("================================")
-
-        app.run_polling(
-            drop_pending_updates=True,
-            allowed_updates=Update.ALL_TYPES
-        )
-
-    except Exception as e:
-
-        print("================================")
-        print("FATAL BOT ERROR:")
-        print(repr(e))
-        print("================================")
-
-        raise
-
-
-# =========================================================
-# RUN
-# =========================================================
-
-if __name__ == "__main__":
-    main()
+   
