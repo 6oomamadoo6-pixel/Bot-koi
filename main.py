@@ -8,7 +8,7 @@ from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    ForceReply,
+    ForceReply
 )
 
 from telegram.ext import (
@@ -17,7 +17,7 @@ from telegram.ext import (
     MessageHandler,
     CallbackQueryHandler,
     ContextTypes,
-    filters,
+    filters
 )
 
 from telegram.error import TelegramError
@@ -33,7 +33,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_1 = "@hidemychatRobot0"
 CHANNEL_1_URL = "https://t.me/hidemychatRobot0"
 
-# کانال 2 - جوین اجباری
+# کانال 2
 CHANNEL_2 = "@DoNi0r"
 CHANNEL_2_URL = "https://t.me/DoNi0r"
 
@@ -45,12 +45,18 @@ DB_NAME = "bot.db"
 # =========================================================
 
 def get_db():
-    conn = sqlite3.connect(DB_NAME, timeout=30)
-    conn.execute("PRAGMA foreign_keys = ON")
+    conn = sqlite3.connect(
+        DB_NAME,
+        timeout=30
+    )
+    conn.execute(
+        "PRAGMA foreign_keys = ON"
+    )
     return conn
 
 
 def init_db():
+
     conn = get_db()
     cur = conn.cursor()
 
@@ -71,19 +77,32 @@ def init_db():
             blocker_id INTEGER NOT NULL,
             blocked_id INTEGER NOT NULL,
             unblock_code TEXT UNIQUE NOT NULL,
-            PRIMARY KEY (blocker_id, blocked_id)
+            PRIMARY KEY (
+                blocker_id,
+                blocked_id
+            )
         )
     """)
 
-    # بررسی دیتابیس قدیمی
-    cur.execute("PRAGMA table_info(users)")
-    columns = {row[1] for row in cur.fetchall()}
+    # -----------------------------------------------------
+    # سازگاری با دیتابیس قدیمی
+    # -----------------------------------------------------
 
-    # اگر display_name در دیتابیس قبلی نبود
+    cur.execute(
+        "PRAGMA table_info(users)"
+    )
+
+    columns = {
+        row[1]
+        for row in cur.fetchall()
+    }
+
     if "display_name" not in columns:
-        cur.execute(
-            "ALTER TABLE users ADD COLUMN display_name TEXT"
-        )
+
+        cur.execute("""
+            ALTER TABLE users
+            ADD COLUMN display_name TEXT
+        """)
 
     conn.commit()
     conn.close()
@@ -96,9 +115,9 @@ def init_db():
 def generate_anon_code():
 
     conn = get_db()
+    cur = conn.cursor()
 
     try:
-        cur = conn.cursor()
 
         while True:
 
@@ -110,7 +129,11 @@ def generate_anon_code():
             )
 
             cur.execute(
-                "SELECT 1 FROM users WHERE anon_code = ?",
+                """
+                SELECT 1
+                FROM users
+                WHERE anon_code = ?
+                """,
                 (code,)
             )
 
@@ -118,20 +141,21 @@ def generate_anon_code():
                 return code
 
     finally:
+
         conn.close()
 
 
 def generate_unblock_code():
 
     conn = get_db()
+    cur = conn.cursor()
+
+    chars = (
+        string.ascii_lowercase
+        + string.digits
+    )
 
     try:
-        cur = conn.cursor()
-
-        chars = (
-            string.ascii_lowercase
-            + string.digits
-        )
 
         while True:
 
@@ -143,7 +167,11 @@ def generate_unblock_code():
             )
 
             cur.execute(
-                "SELECT 1 FROM blocks WHERE unblock_code = ?",
+                """
+                SELECT 1
+                FROM blocks
+                WHERE unblock_code = ?
+                """,
                 (code,)
             )
 
@@ -151,6 +179,7 @@ def generate_unblock_code():
                 return code
 
     finally:
+
         conn.close()
 
 
@@ -163,33 +192,37 @@ def get_or_create_user(user):
     conn = get_db()
     cur = conn.cursor()
 
-    cur.execute("""
+    cur.execute(
+        """
         SELECT
             link_code,
             anon_code,
             display_name
         FROM users
         WHERE user_id = ?
-    """, (
-        user.id,
-    ))
+        """,
+        (user.id,)
+    )
 
     row = cur.fetchone()
 
     # کاربر قبلی
     if row:
 
-        cur.execute("""
+        cur.execute(
+            """
             UPDATE users
             SET
                 username = ?,
                 full_name = ?
             WHERE user_id = ?
-        """, (
-            user.username,
-            user.full_name,
-            user.id
-        ))
+            """,
+            (
+                user.username,
+                user.full_name,
+                user.id
+            )
+        )
 
         conn.commit()
         conn.close()
@@ -205,9 +238,9 @@ def get_or_create_user(user):
 
     anon_code = generate_anon_code()
 
-    cur.execute("""
-        INSERT INTO users
-        (
+    cur.execute(
+        """
+        INSERT INTO users (
             user_id,
             username,
             full_name,
@@ -217,15 +250,17 @@ def get_or_create_user(user):
             created_at
         )
         VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (
-        user.id,
-        user.username,
-        user.full_name,
-        link_code,
-        anon_code,
-        None,
-        datetime.now().isoformat()
-    ))
+        """,
+        (
+            user.id,
+            user.username,
+            user.full_name,
+            link_code,
+            anon_code,
+            None,
+            datetime.now().isoformat()
+        )
+    )
 
     conn.commit()
     conn.close()
@@ -242,7 +277,8 @@ def get_user_by_link(link_code):
     conn = get_db()
     cur = conn.cursor()
 
-    cur.execute("""
+    cur.execute(
+        """
         SELECT
             user_id,
             full_name,
@@ -250,9 +286,9 @@ def get_user_by_link(link_code):
             display_name
         FROM users
         WHERE link_code = ?
-    """, (
-        link_code,
-    ))
+        """,
+        (link_code,)
+    )
 
     row = cur.fetchone()
 
@@ -266,13 +302,14 @@ def get_anon_code(user_id):
     conn = get_db()
     cur = conn.cursor()
 
-    cur.execute("""
+    cur.execute(
+        """
         SELECT anon_code
         FROM users
         WHERE user_id = ?
-    """, (
-        user_id,
-    ))
+        """,
+        (user_id,)
+    )
 
     row = cur.fetchone()
 
@@ -289,14 +326,17 @@ def set_display_name(user_id, name):
     conn = get_db()
     cur = conn.cursor()
 
-    cur.execute("""
+    cur.execute(
+        """
         UPDATE users
         SET display_name = ?
         WHERE user_id = ?
-    """, (
-        name,
-        user_id
-    ))
+        """,
+        (
+            name,
+            user_id
+        )
+    )
 
     conn.commit()
     conn.close()
@@ -306,21 +346,27 @@ def set_display_name(user_id, name):
 # BLOCK SYSTEM
 # =========================================================
 
-def is_blocked(blocker_id, blocked_id):
+def is_blocked(
+    blocker_id,
+    blocked_id
+):
 
     conn = get_db()
     cur = conn.cursor()
 
-    cur.execute("""
+    cur.execute(
+        """
         SELECT 1
         FROM blocks
         WHERE
             blocker_id = ?
             AND blocked_id = ?
-    """, (
-        blocker_id,
-        blocked_id
-    ))
+        """,
+        (
+            blocker_id,
+            blocked_id
+        )
+    )
 
     result = cur.fetchone()
 
@@ -329,21 +375,27 @@ def is_blocked(blocker_id, blocked_id):
     return result is not None
 
 
-def block_user(blocker_id, blocked_id):
+def block_user(
+    blocker_id,
+    blocked_id
+):
 
     conn = get_db()
     cur = conn.cursor()
 
-    cur.execute("""
+    cur.execute(
+        """
         SELECT unblock_code
         FROM blocks
         WHERE
             blocker_id = ?
             AND blocked_id = ?
-    """, (
-        blocker_id,
-        blocked_id
-    ))
+        """,
+        (
+            blocker_id,
+            blocked_id
+        )
+    )
 
     existing = cur.fetchone()
 
@@ -355,19 +407,21 @@ def block_user(blocker_id, blocked_id):
 
     code = generate_unblock_code()
 
-    cur.execute("""
-        INSERT INTO blocks
-        (
+    cur.execute(
+        """
+        INSERT INTO blocks (
             blocker_id,
             blocked_id,
             unblock_code
         )
         VALUES (?, ?, ?)
-    """, (
-        blocker_id,
-        blocked_id,
-        code
-    ))
+        """,
+        (
+            blocker_id,
+            blocked_id,
+            code
+        )
+    )
 
     conn.commit()
     conn.close()
@@ -375,21 +429,27 @@ def block_user(blocker_id, blocked_id):
     return code
 
 
-def unblock_user(blocker_id, code):
+def unblock_user(
+    blocker_id,
+    code
+):
 
     conn = get_db()
     cur = conn.cursor()
 
-    cur.execute("""
+    cur.execute(
+        """
         SELECT blocked_id
         FROM blocks
         WHERE
             blocker_id = ?
             AND unblock_code = ?
-    """, (
-        blocker_id,
-        code
-    ))
+        """,
+        (
+            blocker_id,
+            code
+        )
+    )
 
     row = cur.fetchone()
 
@@ -399,15 +459,18 @@ def unblock_user(blocker_id, code):
 
         return False
 
-    cur.execute("""
+    cur.execute(
+        """
         DELETE FROM blocks
         WHERE
             blocker_id = ?
             AND unblock_code = ?
-    """, (
-        blocker_id,
-        code
-    ))
+        """,
+        (
+            blocker_id,
+            code
+        )
+    )
 
     conn.commit()
     conn.close()
@@ -420,7 +483,8 @@ def get_blocked_users(blocker_id):
     conn = get_db()
     cur = conn.cursor()
 
-    cur.execute("""
+    cur.execute(
+        """
         SELECT
             b.blocked_id,
             u.anon_code,
@@ -430,9 +494,9 @@ def get_blocked_users(blocker_id):
             ON u.user_id = b.blocked_id
         WHERE b.blocker_id = ?
         ORDER BY b.rowid DESC
-    """, (
-        blocker_id,
-    ))
+        """,
+        (blocker_id,)
+    )
 
     rows = cur.fetchall()
 
@@ -445,7 +509,10 @@ def get_blocked_users(blocker_id):
 # FORCE JOIN
 # =========================================================
 
-async def is_member(bot, user_id):
+async def is_member(
+    bot,
+    user_id
+):
 
     valid_statuses = (
         "member",
@@ -456,13 +523,13 @@ async def is_member(bot, user_id):
     try:
 
         member_1 = await bot.get_chat_member(
-            CHANNEL_1,
-            user_id
+            chat_id=CHANNEL_1,
+            user_id=user_id
         )
 
         member_2 = await bot.get_chat_member(
-            CHANNEL_2,
-            user_id
+            chat_id=CHANNEL_2,
+            user_id=user_id
         )
 
         return (
@@ -586,12 +653,16 @@ def main_keyboard():
 # MESSAGES
 # =========================================================
 
-async def send_join_message(update, context):
+async def send_join_message(
+    update,
+    context
+):
 
     text = (
         "درود و عرض ادب! 👋\n"
         "به گلدن چت خوش اومدی ❤️\n\n"
-        "برای استفاده از ربات ابتدا در هر دو کانال زیر عضو شو 👇"
+        "برای ادامه استفاده از ربات "
+        "ابتدا در هر دو کانال زیر عضو شو 👇"
     )
 
     if update.callback_query:
@@ -609,7 +680,10 @@ async def send_join_message(update, context):
         )
 
 
-async def send_main_panel(update, context):
+async def send_main_panel(
+    update,
+    context
+):
 
     text = (
         "درودد مجدد 👋\n"
@@ -645,13 +719,16 @@ async def start(
 
     get_or_create_user(user)
 
-    # =====================================================
+    # -----------------------------------------------------
     # START WITH LINK
-    # =====================================================
+    # -----------------------------------------------------
 
     if context.args:
 
-        target_code = context.args[0].strip()
+        target_code = (
+            context.args[0]
+            .strip()
+        )
 
         if not await is_member(
             context.bot,
@@ -672,7 +749,7 @@ async def start(
         if not target:
 
             await update.message.reply_text(
-                "❌ این لینک نامعتبر یا منقضی شده است.",
+                "❌ این لینک نامعتبر است.",
                 reply_markup=back_keyboard()
             )
 
@@ -680,16 +757,16 @@ async def start(
 
         target_id = target[0]
 
-        # =================================================
+        # -------------------------------------------------
         # SELF LINK
-        # =================================================
+        # -------------------------------------------------
 
         if target_id == user.id:
 
             bot_info = await context.bot.get_me()
 
-            link_code, _, _ = get_or_create_user(
-                user
+            link_code, _, _ = (
+                get_or_create_user(user)
             )
 
             my_link = (
@@ -710,9 +787,9 @@ async def start(
 
             return
 
-        # =================================================
+        # -------------------------------------------------
         # BLOCK CHECK
-        # =================================================
+        # -------------------------------------------------
 
         if is_blocked(
             target_id,
@@ -726,9 +803,9 @@ async def start(
 
             return
 
-        # =================================================
+        # -------------------------------------------------
         # SAVE TARGET
-        # =================================================
+        # -------------------------------------------------
 
         context.user_data.clear()
 
@@ -753,9 +830,9 @@ async def start(
 
         return
 
-    # =====================================================
+    # -----------------------------------------------------
     # NORMAL START
-    # =====================================================
+    # -----------------------------------------------------
 
     if not await is_member(
         context.bot,
@@ -796,9 +873,9 @@ async def handle_message(
 
     text = update.message.text.strip()
 
-    # =====================================================
+    # -----------------------------------------------------
     # UNBLOCK
-    # =====================================================
+    # -----------------------------------------------------
 
     normalized = text
 
@@ -838,9 +915,9 @@ async def handle_message(
 
         return
 
-    # =====================================================
+    # -----------------------------------------------------
     # FORCE JOIN
-    # =====================================================
+    # -----------------------------------------------------
 
     if not await is_member(
         context.bot,
@@ -854,9 +931,9 @@ async def handle_message(
 
         return
 
-    # =====================================================
-    # SET NAME
-    # =====================================================
+    # -----------------------------------------------------
+    # NAME SETTING
+    # -----------------------------------------------------
 
     if context.user_data.get(
         "setting_name"
@@ -867,7 +944,7 @@ async def handle_message(
         if not 1 <= len(name) <= 30:
 
             await update.message.reply_text(
-                "❌ اسم باید بین ۱ تا ۳۰ کاراکتر باشد.\n"
+                "❌ اسم باید بین ۱ تا ۳۰ کاراکتر باشد.\n\n"
                 "دوباره اسم موردنظرت را بفرست:",
                 reply_markup=back_keyboard()
             )
@@ -888,9 +965,9 @@ async def handle_message(
 
         return
 
-    # =====================================================
+    # -----------------------------------------------------
     # ANONYMOUS MESSAGE
-    # =====================================================
+    # -----------------------------------------------------
 
     if "target_id" in context.user_data:
 
@@ -938,7 +1015,7 @@ async def handle_message(
 
                 text=(
                     f"کاربر {anon_code} "
-                    f"برای شما پیام ناشناسی ارسال کرد:\n\n"
+                    "برای شما پیام ناشناسی ارسال کرد:\n\n"
                     f"{text}"
                 ),
 
@@ -966,48 +1043,10 @@ async def handle_message(
 
         return
 
-    # =====================================================
+    # -----------------------------------------------------
     # ANONYMOUS REPLY
-    # =====================================================
+    # -----------------------------------------------------
 
     if "reply_to" in context.user_data:
 
-        target_id = context.user_data[
-            "reply_to"
-        ]
-
-        try:
-
-            await context.bot.send_message(
-
-                chat_id=target_id,
-
-                text=(
-                    "💬 پاسخ ناشناس:\n\n"
-                    f"{text}"
-                )
-            )
-
-            await update.message.reply_text(
-                "✅ پاسخ ناشناس ارسال شد.",
-                reply_markup=back_keyboard()
-            )
-
-        except TelegramError as e:
-
-            print(
-                "REPLY SEND ERROR:",
-                repr(e)
-            )
-
-            await update.message.reply_text(
-                "❌ ارسال پاسخ انجام نشد.",
-                reply_markup=back_keyboard()
-            )
-
-        context.user_data.clear()
-
-        return
-
-    # =====================================================
-    # N
+    
