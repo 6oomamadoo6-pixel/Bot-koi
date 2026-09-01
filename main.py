@@ -4,7 +4,8 @@ from telegram import Update
 BOT_TOKEN = "8965685820:AAGuwWH9XkeIkrydQoJPnrkaUOFK5G9_V58"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("ربات روشن شد و وصل است ✅")
+    await update.message.reply_text("ربات درحال به روز رسانی است زمان احتمالی پایان به روز رسانی : 5:30 صبح
+    تا آن زمان با ما در ارتباط باشید @tmtahav")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
