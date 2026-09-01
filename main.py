@@ -28,7 +28,7 @@ from telegram.error import TelegramError
 # SETTINGS
 # =========================================================
 
-BOT_TOKEN = os.getenv("8965685820:AAG4oFjameIe2M0Eh3L62Cfo9w8ax8zneUkw")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 ADMIN_ID = 6078875175
 
