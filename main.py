@@ -2,7 +2,9 @@ import os
 import random
 import string
 import asyncio
+import time
 from datetime import datetime
+from urllib.parse import urlparse
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -40,71 +42,432 @@ CHANNEL_1_URL = "https://t.me/hidemychatRobot0"
 CHANNEL_2 = "@DoNi0r"
 CHANNEL_2_URL = "https://t.me/DoNi0r"
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+
+# =========================================================
+# DATABASE ENVIRONMENT VARIABLES
+# =========================================================
+
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+DATABASE_PUBLIC_URL = os.getenv("DATABASE_PUBLIC_URL", "").strip()
+
+PGHOST = os.getenv("PGHOST", "").strip()
+PGPORT = os.getenv("PGPORT", "5432").strip()
+PGUSER = os.getenv("PGUSER", "").strip()
+PGPASSWORD = os.getenv("PGPASSWORD", "").strip()
+PGDATABASE = os.getenv("PGDATABASE", "").strip()
 
 
 # =========================================================
-# DATABASE
+# DATABASE SETTINGS
 # =========================================================
+
+DB_CONNECT_TIMEOUT = 15
+DB_RETRY_COUNT = 5
+DB_RETRY_DELAY = 3
+
+
+# =========================================================
+# DATABASE DEBUG
+# =========================================================
+
+def mask_database_url(url):
+    """
+    Password را از URL حذف می‌کند تا داخل Log لو نرود.
+    """
+
+    if not url:
+        return "(empty)"
+
+    try:
+        parsed = urlparse(url)
+
+        if parsed.hostname:
+            host = parsed.hostname
+
+            port = (
+                f":{parsed.port}"
+                if parsed.port
+                else ""
+            )
+
+            database = (
+                parsed.path
+                if parsed.path
+                else ""
+            )
+
+            return (
+                f"{parsed.scheme}://"
+                f"***:***@"
+                f"{host}{port}"
+                f"{database}"
+            )
+
+    except Exception:
+        pass
+
+    return "(hidden)"
+
+
+def print_database_config():
+    """
+    فقط اطلاعات غیرحساس را چاپ می‌کند.
+    """
+
+    print("=" * 60)
+    print("POSTGRESQL CONFIGURATION")
+    print("=" * 60)
+
+    print(
+        "DATABASE_URL:",
+        "SET" if DATABASE_URL else "NOT SET"
+    )
+
+    if DATABASE_URL:
+        print(
+            "DATABASE_URL value:",
+            mask_database_url(DATABASE_URL)
+        )
+
+    print(
+        "DATABASE_PUBLIC_URL:",
+        "SET" if DATABASE_PUBLIC_URL else "NOT SET"
+    )
+
+    print(
+        "PGHOST:",
+        PGHOST if PGHOST else "NOT SET"
+    )
+
+    print(
+        "PGPORT:",
+        PGPORT if PGPORT else "NOT SET"
+    )
+
+    print(
+        "PGUSER:",
+        PGUSER if PGUSER else "NOT SET"
+    )
+
+    print(
+        "PGPASSWORD:",
+        "SET" if PGPASSWORD else "NOT SET"
+    )
+
+    print(
+        "PGDATABASE:",
+        PGDATABASE if PGDATABASE else "NOT SET"
+    )
+
+    print("=" * 60)
+
+
+# =========================================================
+# DATABASE CONNECTION
+# =========================================================
+
+def build_pg_connection_kwargs():
+    """
+    اتصال را از متغیرهای PG می‌سازد.
+    """
+
+    if not PGHOST:
+        return None
+
+    if not PGUSER:
+        return None
+
+    if not PGPASSWORD:
+        return None
+
+    if not PGDATABASE:
+        return None
+
+    return {
+        "host": PGHOST,
+        "port": int(PGPORT or 5432),
+        "user": PGUSER,
+        "password": PGPASSWORD,
+        "dbname": PGDATABASE,
+        "connect_timeout": DB_CONNECT_TIMEOUT,
+    }
+
+
+def connect_with_url(url):
+    """
+    اتصال با DATABASE_URL.
+    """
+
+    if not url:
+        return None
+
+    print(
+        "Trying PostgreSQL URL:",
+        mask_database_url(url)
+    )
+
+    return psycopg2.connect(
+        url,
+        connect_timeout=DB_CONNECT_TIMEOUT
+    )
+
+
+def connect_with_pg_variables():
+    """
+    اتصال با PGHOST / PGPORT / PGUSER / PGPASSWORD / PGDATABASE.
+    """
+
+    kwargs = build_pg_connection_kwargs()
+
+    if not kwargs:
+        return None
+
+    print(
+        "Trying PostgreSQL using PG* variables..."
+    )
+
+    print(
+        f"PGHOST={kwargs['host']} "
+        f"PGPORT={kwargs['port']} "
+        f"PGDATABASE={kwargs['dbname']}"
+    )
+
+    return psycopg2.connect(**kwargs)
+
 
 def db():
-    if not DATABASE_URL:
-        raise RuntimeError(
-            "DATABASE_URL environment variable is not set."
-        )
+    """
+    اتصال اصلی PostgreSQL.
 
-    return psycopg2.connect(DATABASE_URL)
+    ترتیب تلاش:
 
+    1. DATABASE_PUBLIC_URL
+    2. DATABASE_URL
+    3. PGHOST / PGPORT / PGUSER / PGPASSWORD / PGDATABASE
+
+    اگر یک روش شکست خورد، روش بعدی امتحان می‌شود.
+    """
+
+    errors = []
+
+    # -----------------------------------------------------
+    # 1. PUBLIC DATABASE URL
+    # -----------------------------------------------------
+
+    if DATABASE_PUBLIC_URL:
+
+        for attempt in range(1, DB_RETRY_COUNT + 1):
+
+            try:
+
+                conn = connect_with_url(
+                    DATABASE_PUBLIC_URL
+                )
+
+                if conn:
+                    print(
+                        "PostgreSQL connected using "
+                        "DATABASE_PUBLIC_URL."
+                    )
+
+                    return conn
+
+            except Exception as e:
+
+                errors.append(
+                    f"DATABASE_PUBLIC_URL attempt "
+                    f"{attempt}: {repr(e)}"
+                )
+
+                print(
+                    f"DATABASE_PUBLIC_URL failed "
+                    f"(attempt {attempt}/{DB_RETRY_COUNT}): "
+                    f"{e}"
+                )
+
+                if attempt < DB_RETRY_COUNT:
+                    time.sleep(DB_RETRY_DELAY)
+
+    # -----------------------------------------------------
+    # 2. DATABASE_URL
+    # -----------------------------------------------------
+
+    if DATABASE_URL:
+
+        for attempt in range(1, DB_RETRY_COUNT + 1):
+
+            try:
+
+                conn = connect_with_url(
+                    DATABASE_URL
+                )
+
+                if conn:
+                    print(
+                        "PostgreSQL connected using "
+                        "DATABASE_URL."
+                    )
+
+                    return conn
+
+            except Exception as e:
+
+                errors.append(
+                    f"DATABASE_URL attempt "
+                    f"{attempt}: {repr(e)}"
+                )
+
+                print(
+                    f"DATABASE_URL failed "
+                    f"(attempt {attempt}/{DB_RETRY_COUNT}): "
+                    f"{e}"
+                )
+
+                if attempt < DB_RETRY_COUNT:
+                    time.sleep(DB_RETRY_DELAY)
+
+    # -----------------------------------------------------
+    # 3. PG VARIABLES
+    # -----------------------------------------------------
+
+    if (
+        PGHOST
+        and PGUSER
+        and PGPASSWORD
+        and PGDATABASE
+    ):
+
+        for attempt in range(1, DB_RETRY_COUNT + 1):
+
+            try:
+
+                conn = connect_with_pg_variables()
+
+                if conn:
+                    print(
+                        "PostgreSQL connected using "
+                        "PG* variables."
+                    )
+
+                    return conn
+
+            except Exception as e:
+
+                errors.append(
+                    f"PG variables attempt "
+                    f"{attempt}: {repr(e)}"
+                )
+
+                print(
+                    f"PG variables failed "
+                    f"(attempt {attempt}/{DB_RETRY_COUNT}): "
+                    f"{e}"
+                )
+
+                if attempt < DB_RETRY_COUNT:
+                    time.sleep(DB_RETRY_DELAY)
+
+    # -----------------------------------------------------
+    # EVERYTHING FAILED
+    # -----------------------------------------------------
+
+    print("=" * 60)
+    print("POSTGRESQL CONNECTION FAILED")
+    print("=" * 60)
+
+    for error in errors:
+        print(error)
+
+    print("=" * 60)
+
+    raise RuntimeError(
+        "Could not connect to PostgreSQL. "
+        "Check DATABASE_URL / DATABASE_PUBLIC_URL "
+        "or PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE."
+    )
+
+
+# =========================================================
+# DATABASE INITIALIZATION
+# =========================================================
 
 def init_db():
+
     conn = db()
-    cur = conn.cursor()
 
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id BIGINT PRIMARY KEY,
-            username TEXT,
-            full_name TEXT,
-            link_code TEXT UNIQUE,
-            anon_code TEXT UNIQUE,
-            display_name TEXT,
-            created_at TEXT
-        )
-    """)
+    try:
 
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS blocks (
-            blocker_id BIGINT NOT NULL,
-            blocked_id BIGINT NOT NULL,
-            unblock_code TEXT UNIQUE,
-            PRIMARY KEY (blocker_id, blocked_id)
-        )
-    """)
+        cur = conn.cursor()
 
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS anonymous_messages (
-            id BIGSERIAL PRIMARY KEY,
-            sender_id BIGINT NOT NULL,
-            receiver_id BIGINT NOT NULL,
-            message_text TEXT NOT NULL,
-            created_at TEXT
-        )
-    """)
+        # -------------------------------------------------
+        # USERS
+        # -------------------------------------------------
 
-    # مهاجرت احتمالی ستون‌ها
-    cur.execute("""
-        ALTER TABLE users
-        ADD COLUMN IF NOT EXISTS display_name TEXT
-    """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id BIGINT PRIMARY KEY,
+                username TEXT,
+                full_name TEXT,
+                link_code TEXT UNIQUE,
+                anon_code TEXT UNIQUE,
+                display_name TEXT,
+                created_at TEXT
+            )
+        """)
 
-    cur.execute("""
-        ALTER TABLE blocks
-        ADD COLUMN IF NOT EXISTS unblock_code TEXT
-    """)
+        # -------------------------------------------------
+        # BLOCKS
+        # -------------------------------------------------
 
-    conn.commit()
-    cur.close()
-    conn.close()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS blocks (
+                blocker_id BIGINT NOT NULL,
+                blocked_id BIGINT NOT NULL,
+                unblock_code TEXT UNIQUE,
+                PRIMARY KEY (blocker_id, blocked_id)
+            )
+        """)
+
+        # -------------------------------------------------
+        # ANONYMOUS MESSAGES
+        # -------------------------------------------------
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS anonymous_messages (
+                id BIGSERIAL PRIMARY KEY,
+                sender_id BIGINT NOT NULL,
+                receiver_id BIGINT NOT NULL,
+                message_text TEXT NOT NULL,
+                created_at TEXT
+            )
+        """)
+
+        # -------------------------------------------------
+        # MIGRATIONS
+        # -------------------------------------------------
+
+        cur.execute("""
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS display_name TEXT
+        """)
+
+        cur.execute("""
+            ALTER TABLE blocks
+            ADD COLUMN IF NOT EXISTS unblock_code TEXT
+        """)
+
+        conn.commit()
+
+        cur.close()
+
+    except Exception:
+
+        conn.rollback()
+        raise
+
+    finally:
+
+        conn.close()
 
     fill_missing_unblock_codes()
 
@@ -114,52 +477,89 @@ def init_db():
 # =========================================================
 
 def generate_code(length=10):
-    chars = string.ascii_letters + string.digits
-    return "".join(random.choices(chars, k=length))
+
+    chars = (
+        string.ascii_letters
+        + string.digits
+    )
+
+    return "".join(
+        random.choices(
+            chars,
+            k=length
+        )
+    )
 
 
 def generate_anon_code():
+
     while True:
+
         code = "".join(
-            random.choices(string.digits, k=7)
+            random.choices(
+                string.digits,
+                k=7
+            )
         )
 
         conn = db()
-        cur = conn.cursor()
 
-        cur.execute(
-            "SELECT 1 FROM users WHERE anon_code = %s",
-            (code,)
-        )
+        try:
 
-        exists = cur.fetchone()
+            cur = conn.cursor()
 
-        cur.close()
-        conn.close()
+            cur.execute(
+                """
+                SELECT 1
+                FROM users
+                WHERE anon_code = %s
+                """,
+                (code,)
+            )
 
-        if not exists:
-            return code
+            exists = cur.fetchone()
+
+            cur.close()
+
+            if not exists:
+                return code
+
+        finally:
+
+            conn.close()
 
 
 def generate_unblock_code():
+
     while True:
+
         code = generate_code(10)
 
         conn = db()
-        cur = conn.cursor()
 
-        cur.execute(
-            "SELECT 1 FROM blocks WHERE unblock_code = %s",
-            (code,)
-        )
+        try:
 
-        exists = cur.fetchone()
+            cur = conn.cursor()
 
-        cur.close()
-        conn.close()
+            cur.execute(
+                """
+                SELECT 1
+                FROM blocks
+                WHERE unblock_code = %s
+                """,
+                (code,)
+            )
 
-        if not exists:
-            return code
+            exists = cur.fetchone()
+
+            cur.close()
+
+            if not exists:
+                return code
+
+        finally:
+
+            conn.close()
 
 
 # =========================================================
@@ -167,35 +567,49 @@ def generate_unblock_code():
 # =========================================================
 
 def fill_missing_unblock_codes():
+
     conn = db()
-    cur = conn.cursor()
 
-    cur.execute("""
-        SELECT blocker_id, blocked_id
-        FROM blocks
-        WHERE unblock_code IS NULL
-        OR unblock_code = ''
-    """)
+    try:
 
-    rows = cur.fetchall()
-
-    for blocker_id, blocked_id in rows:
-        code = generate_unblock_code()
+        cur = conn.cursor()
 
         cur.execute("""
-            UPDATE blocks
-            SET unblock_code = %s
-            WHERE blocker_id = %s
-            AND blocked_id = %s
-        """, (
-            code,
-            blocker_id,
-            blocked_id
-        ))
+            SELECT blocker_id, blocked_id
+            FROM blocks
+            WHERE unblock_code IS NULL
+            OR unblock_code = ''
+        """)
 
-    conn.commit()
-    cur.close()
-    conn.close()
+        rows = cur.fetchall()
+
+        for blocker_id, blocked_id in rows:
+
+            code = generate_unblock_code()
+
+            cur.execute("""
+                UPDATE blocks
+                SET unblock_code = %s
+                WHERE blocker_id = %s
+                AND blocked_id = %s
+            """, (
+                code,
+                blocker_id,
+                blocked_id
+            ))
+
+        conn.commit()
+
+        cur.close()
+
+    except Exception:
+
+        conn.rollback()
+        raise
+
+    finally:
+
+        conn.close()
 
 
 # =========================================================
@@ -207,166 +621,230 @@ def get_or_create_user(
     username,
     full_name
 ):
+
     conn = db()
-    cur = conn.cursor()
 
-    cur.execute("""
-        SELECT link_code, anon_code
-        FROM users
-        WHERE user_id = %s
-    """, (user_id,))
+    try:
 
-    row = cur.fetchone()
+        cur = conn.cursor()
 
-    if row:
         cur.execute("""
-            UPDATE users
-            SET username = %s,
-                full_name = %s
+            SELECT link_code, anon_code
+            FROM users
             WHERE user_id = %s
+        """, (user_id,))
+
+        row = cur.fetchone()
+
+        if row:
+
+            cur.execute("""
+                UPDATE users
+                SET username = %s,
+                    full_name = %s
+                WHERE user_id = %s
+            """, (
+                username,
+                full_name,
+                user_id
+            ))
+
+            conn.commit()
+
+            cur.close()
+
+            return row[0], row[1]
+
+        link_code = str(user_id)
+        anon_code = generate_anon_code()
+
+        cur.execute("""
+            INSERT INTO users (
+                user_id,
+                username,
+                full_name,
+                link_code,
+                anon_code,
+                display_name,
+                created_at
+            )
+            VALUES (
+                %s, %s, %s, %s, %s, %s, %s
+            )
         """, (
+            user_id,
             username,
             full_name,
+            link_code,
+            anon_code,
+            full_name or "کاربر",
+            datetime.now().isoformat()
+        ))
+
+        conn.commit()
+
+        cur.close()
+
+        return link_code, anon_code
+
+    except Exception:
+
+        conn.rollback()
+        raise
+
+    finally:
+
+        conn.close()
+
+
+def get_user(user_id):
+
+    conn = db()
+
+    try:
+
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT
+                user_id,
+                username,
+                full_name,
+                link_code,
+                anon_code,
+                display_name
+            FROM users
+            WHERE user_id = %s
+        """, (user_id,))
+
+        row = cur.fetchone()
+
+        cur.close()
+
+        return row
+
+    finally:
+
+        conn.close()
+
+
+def get_user_by_link(link_code):
+
+    conn = db()
+
+    try:
+
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT
+                user_id,
+                full_name,
+                display_name,
+                anon_code
+            FROM users
+            WHERE link_code = %s
+        """, (link_code,))
+
+        row = cur.fetchone()
+
+        cur.close()
+
+        return row
+
+    finally:
+
+        conn.close()
+
+
+def get_display_name(user_id):
+
+    conn = db()
+
+    try:
+
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT display_name, full_name
+            FROM users
+            WHERE user_id = %s
+        """, (user_id,))
+
+        row = cur.fetchone()
+
+        cur.close()
+
+        if not row:
+            return "کاربر"
+
+        return (
+            row[0]
+            or row[1]
+            or "کاربر"
+        )
+
+    finally:
+
+        conn.close()
+
+
+def set_display_name(user_id, name):
+
+    conn = db()
+
+    try:
+
+        cur = conn.cursor()
+
+        cur.execute("""
+            UPDATE users
+            SET display_name = %s
+            WHERE user_id = %s
+        """, (
+            name,
             user_id
         ))
 
         conn.commit()
+
         cur.close()
+
+    except Exception:
+
+        conn.rollback()
+        raise
+
+    finally:
+
         conn.close()
-
-        return row[0], row[1]
-
-    link_code = str(user_id)
-    anon_code = generate_anon_code()
-
-    cur.execute("""
-        INSERT INTO users (
-            user_id,
-            username,
-            full_name,
-            link_code,
-            anon_code,
-            display_name,
-            created_at
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
-    """, (
-        user_id,
-        username,
-        full_name,
-        link_code,
-        anon_code,
-        full_name or "کاربر",
-        datetime.now().isoformat()
-    ))
-
-    conn.commit()
-    cur.close()
-    conn.close()
-
-    return link_code, anon_code
-
-
-def get_user(user_id):
-    conn = db()
-    cur = conn.cursor()
-
-    cur.execute("""
-        SELECT
-            user_id,
-            username,
-            full_name,
-            link_code,
-            anon_code,
-            display_name
-        FROM users
-        WHERE user_id = %s
-    """, (user_id,))
-
-    row = cur.fetchone()
-
-    cur.close()
-    conn.close()
-
-    return row
-
-
-def get_user_by_link(link_code):
-    conn = db()
-    cur = conn.cursor()
-
-    cur.execute("""
-        SELECT
-            user_id,
-            full_name,
-            display_name,
-            anon_code
-        FROM users
-        WHERE link_code = %s
-    """, (link_code,))
-
-    row = cur.fetchone()
-
-    cur.close()
-    conn.close()
-
-    return row
-
-
-def get_display_name(user_id):
-    conn = db()
-    cur = conn.cursor()
-
-    cur.execute("""
-        SELECT display_name, full_name
-        FROM users
-        WHERE user_id = %s
-    """, (user_id,))
-
-    row = cur.fetchone()
-
-    cur.close()
-    conn.close()
-
-    if not row:
-        return "کاربر"
-
-    return row[0] or row[1] or "کاربر"
-
-
-def set_display_name(user_id, name):
-    conn = db()
-    cur = conn.cursor()
-
-    cur.execute("""
-        UPDATE users
-        SET display_name = %s
-        WHERE user_id = %s
-    """, (
-        name,
-        user_id
-    ))
-
-    conn.commit()
-    cur.close()
-    conn.close()
 
 
 def get_all_user_ids():
+
     conn = db()
-    cur = conn.cursor()
 
-    cur.execute("""
-        SELECT user_id
-        FROM users
-    """)
+    try:
 
-    rows = cur.fetchall()
+        cur = conn.cursor()
 
-    cur.close()
-    conn.close()
+        cur.execute("""
+            SELECT user_id
+            FROM users
+        """)
 
-    return [row[0] for row in rows]
+        rows = cur.fetchall()
+
+        cur.close()
+
+        return [
+            row[0]
+            for row in rows
+        ]
+
+    finally:
+
+        conn.close()
 
 
 # =========================================================
@@ -378,185 +856,254 @@ def save_anonymous_message(
     receiver_id,
     message_text
 ):
-    conn = db()
-    cur = conn.cursor()
 
-    cur.execute("""
-        INSERT INTO anonymous_messages (
+    conn = db()
+
+    try:
+
+        cur = conn.cursor()
+
+        cur.execute("""
+            INSERT INTO anonymous_messages (
+                sender_id,
+                receiver_id,
+                message_text,
+                created_at
+            )
+            VALUES (%s, %s, %s, %s)
+            RETURNING id
+        """, (
             sender_id,
             receiver_id,
             message_text,
-            created_at
-        )
-        VALUES (%s, %s, %s, %s)
-        RETURNING id
-    """, (
-        sender_id,
-        receiver_id,
-        message_text,
-        datetime.now().isoformat()
-    ))
+            datetime.now().isoformat()
+        ))
 
-    message_id = cur.fetchone()[0]
+        message_id = cur.fetchone()[0]
 
-    conn.commit()
-    cur.close()
-    conn.close()
+        conn.commit()
 
-    return message_id
+        cur.close()
+
+        return message_id
+
+    except Exception:
+
+        conn.rollback()
+        raise
+
+    finally:
+
+        conn.close()
 
 
 def get_anonymous_message(message_id):
+
     conn = db()
-    cur = conn.cursor()
 
-    cur.execute("""
-        SELECT
-            id,
-            sender_id,
-            receiver_id,
-            message_text,
-            created_at
-        FROM anonymous_messages
-        WHERE id = %s
-    """, (message_id,))
+    try:
 
-    row = cur.fetchone()
+        cur = conn.cursor()
 
-    cur.close()
-    conn.close()
+        cur.execute("""
+            SELECT
+                id,
+                sender_id,
+                receiver_id,
+                message_text,
+                created_at
+            FROM anonymous_messages
+            WHERE id = %s
+        """, (message_id,))
 
-    return row
+        row = cur.fetchone()
+
+        cur.close()
+
+        return row
+
+    finally:
+
+        conn.close()
 
 
 # =========================================================
 # BLOCK FUNCTIONS
 # =========================================================
 
-def is_blocked(blocker_id, blocked_id):
+def is_blocked(
+    blocker_id,
+    blocked_id
+):
+
     conn = db()
-    cur = conn.cursor()
 
-    cur.execute("""
-        SELECT 1
-        FROM blocks
-        WHERE blocker_id = %s
-        AND blocked_id = %s
-    """, (
-        blocker_id,
-        blocked_id
-    ))
+    try:
 
-    result = cur.fetchone()
+        cur = conn.cursor()
 
-    cur.close()
-    conn.close()
+        cur.execute("""
+            SELECT 1
+            FROM blocks
+            WHERE blocker_id = %s
+            AND blocked_id = %s
+        """, (
+            blocker_id,
+            blocked_id
+        ))
 
-    return result is not None
+        result = cur.fetchone()
+
+        cur.close()
+
+        return result is not None
+
+    finally:
+
+        conn.close()
 
 
-def block_user(blocker_id, blocked_id):
+def block_user(
+    blocker_id,
+    blocked_id
+):
+
     if blocker_id == blocked_id:
         return False
 
     conn = db()
-    cur = conn.cursor()
 
-    cur.execute("""
-        SELECT 1
-        FROM blocks
-        WHERE blocker_id = %s
-        AND blocked_id = %s
-    """, (
-        blocker_id,
-        blocked_id
-    ))
+    try:
 
-    if cur.fetchone():
-        cur.close()
-        conn.close()
-        return False
+        cur = conn.cursor()
 
-    unblock_code = generate_unblock_code()
+        cur.execute("""
+            SELECT 1
+            FROM blocks
+            WHERE blocker_id = %s
+            AND blocked_id = %s
+        """, (
+            blocker_id,
+            blocked_id
+        ))
 
-    cur.execute("""
-        INSERT INTO blocks (
+        if cur.fetchone():
+
+            cur.close()
+            return False
+
+        unblock_code = generate_unblock_code()
+
+        cur.execute("""
+            INSERT INTO blocks (
+                blocker_id,
+                blocked_id,
+                unblock_code
+            )
+            VALUES (%s, %s, %s)
+        """, (
             blocker_id,
             blocked_id,
             unblock_code
-        )
-        VALUES (%s, %s, %s)
-    """, (
-        blocker_id,
-        blocked_id,
-        unblock_code
-    ))
+        ))
 
-    conn.commit()
-    cur.close()
-    conn.close()
+        conn.commit()
 
-    return True
-
-
-def unblock_by_code(user_id, code):
-    conn = db()
-    cur = conn.cursor()
-
-    cur.execute("""
-        SELECT blocked_id
-        FROM blocks
-        WHERE blocker_id = %s
-        AND unblock_code = %s
-    """, (
-        user_id,
-        code
-    ))
-
-    row = cur.fetchone()
-
-    if not row:
         cur.close()
+
+        return True
+
+    except Exception:
+
+        conn.rollback()
+        raise
+
+    finally:
+
         conn.close()
-        return False
 
-    cur.execute("""
-        DELETE FROM blocks
-        WHERE blocker_id = %s
-        AND unblock_code = %s
-    """, (
-        user_id,
-        code
-    ))
 
-    conn.commit()
-    cur.close()
-    conn.close()
+def unblock_by_code(
+    user_id,
+    code
+):
 
-    return True
+    conn = db()
+
+    try:
+
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT blocked_id
+            FROM blocks
+            WHERE blocker_id = %s
+            AND unblock_code = %s
+        """, (
+            user_id,
+            code
+        ))
+
+        row = cur.fetchone()
+
+        if not row:
+
+            cur.close()
+            return False
+
+        cur.execute("""
+            DELETE FROM blocks
+            WHERE blocker_id = %s
+            AND unblock_code = %s
+        """, (
+            user_id,
+            code
+        ))
+
+        conn.commit()
+
+        cur.close()
+
+        return True
+
+    except Exception:
+
+        conn.rollback()
+        raise
+
+    finally:
+
+        conn.close()
 
 
 def get_block_list(user_id):
+
     conn = db()
-    cur = conn.cursor()
 
-    cur.execute("""
-        SELECT
-            users.anon_code,
-            blocks.unblock_code
-        FROM blocks
-        JOIN users
-        ON users.user_id = blocks.blocked_id
-        WHERE blocks.blocker_id = %s
-        ORDER BY blocks.unblock_code DESC
-    """, (user_id,))
+    try:
 
-    rows = cur.fetchall()
+        cur = conn.cursor()
 
-    cur.close()
-    conn.close()
+        cur.execute("""
+            SELECT
+                users.anon_code,
+                blocks.unblock_code
+            FROM blocks
+            JOIN users
+            ON users.user_id = blocks.blocked_id
+            WHERE blocks.blocker_id = %s
+            ORDER BY blocks.unblock_code DESC
+        """, (user_id,))
 
-    return rows
+        rows = cur.fetchall()
+
+        cur.close()
+
+        return rows
+
+    finally:
+
+        conn.close()
 
 
 # =========================================================
@@ -568,7 +1115,9 @@ async def check_channel_member(
     channel,
     user_id
 ):
+
     try:
+
         member = await bot.get_chat_member(
             chat_id=channel,
             user_id=user_id
@@ -581,19 +1130,28 @@ async def check_channel_member(
         )
 
     except TelegramError as e:
+
         print(
             f"Membership error "
             f"{channel} / {user_id}: {e}"
         )
+
         return False
 
 
-async def is_member(bot, user_id):
+async def is_member(
+    bot,
+    user_id
+):
+
     first = await check_channel_member(
         bot,
         CHANNEL_1,
         user_id
     )
+
+    if not first:
+        return False
 
     second = await check_channel_member(
         bot,
@@ -601,7 +1159,7 @@ async def is_member(bot, user_id):
         user_id
     )
 
-    return first and second
+    return second
 
 
 # =========================================================
@@ -609,6 +1167,7 @@ async def is_member(bot, user_id):
 # =========================================================
 
 def main_reply_keyboard():
+
     return ReplyKeyboardMarkup(
         [
             [
@@ -622,10 +1181,13 @@ def main_reply_keyboard():
 
 
 def back_reply_keyboard():
+
     return ReplyKeyboardMarkup(
         [
             [
-                KeyboardButton("بازگشت 🔙")
+                KeyboardButton(
+                    "بازگشت 🔙"
+                )
             ]
         ],
         resize_keyboard=True
@@ -637,43 +1199,54 @@ def back_reply_keyboard():
 # =========================================================
 
 def find_user_by_input(text):
-    conn = db()
-    cur = conn.cursor()
 
-    if text.isdigit():
+    conn = db()
+
+    try:
+
+        cur = conn.cursor()
+
+        if text.isdigit():
+
+            cur.execute("""
+                SELECT
+                    user_id,
+                    full_name,
+                    display_name
+                FROM users
+                WHERE user_id = %s
+            """, (int(text),))
+
+            row = cur.fetchone()
+
+            if row:
+                cur.close()
+                return row
+
+        username = (
+            text
+            .lstrip("@")
+            .lower()
+        )
+
         cur.execute("""
             SELECT
                 user_id,
                 full_name,
                 display_name
             FROM users
-            WHERE user_id = %s
-        """, (int(text),))
+            WHERE lower(username) = %s
+        """, (username,))
 
         row = cur.fetchone()
 
-        if row:
-            cur.close()
-            conn.close()
-            return row
+        cur.close()
 
-    username = text.lstrip("@").lower()
+        return row
 
-    cur.execute("""
-        SELECT
-            user_id,
-            full_name,
-            display_name
-        FROM users
-        WHERE lower(username) = %s
-    """, (username,))
+    finally:
 
-    row = cur.fetchone()
-
-    cur.close()
-    conn.close()
-
-    return row
+        conn.close()
 
 
 # =========================================================
@@ -681,6 +1254,7 @@ def find_user_by_input(text):
 # =========================================================
 
 def join_keyboard():
+
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
@@ -704,6 +1278,7 @@ def join_keyboard():
 
 
 def back_keyboard():
+
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
@@ -715,6 +1290,7 @@ def back_keyboard():
 
 
 def cancel_keyboard():
+
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
@@ -726,6 +1302,7 @@ def cancel_keyboard():
 
 
 def main_keyboard():
+
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
@@ -763,6 +1340,7 @@ def main_keyboard():
 
 
 def name_settings_keyboard():
+
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
@@ -783,6 +1361,7 @@ def anonymous_message_keyboard(
     message_id,
     sender_id
 ):
+
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
@@ -805,6 +1384,7 @@ async def send_join_message(
     update,
     context
 ):
+
     text = (
         "درود و عرض ادب ! 👋\n"
         "خوش اومدی\n\n"
@@ -815,12 +1395,14 @@ async def send_join_message(
     keyboard = join_keyboard()
 
     if update.message:
+
         await update.message.reply_text(
             text,
             reply_markup=keyboard
         )
 
     elif update.callback_query:
+
         await update.callback_query.edit_message_text(
             text,
             reply_markup=keyboard
@@ -835,6 +1417,7 @@ async def send_main_panel(
     update,
     context
 ):
+
     text = (
         "درودد مجدد 👋\n\n"
         "ممنون که ربات مارو انتخاب کردی ❤️\n\n"
@@ -843,6 +1426,7 @@ async def send_main_panel(
     )
 
     if update.message:
+
         await update.message.reply_text(
             text,
             reply_markup=main_keyboard()
@@ -854,6 +1438,7 @@ async def send_main_panel(
         )
 
     elif update.callback_query:
+
         await update.callback_query.edit_message_text(
             text,
             reply_markup=main_keyboard()
@@ -873,6 +1458,7 @@ async def start(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
+
     user = update.effective_user
 
     if not user or not update.message:
@@ -884,7 +1470,12 @@ async def start(
         user.full_name
     )
 
+    # -----------------------------------------------------
+    # START LINK
+    # -----------------------------------------------------
+
     if context.args:
+
         target_code = context.args[0]
 
         target = get_user_by_link(
@@ -892,14 +1483,17 @@ async def start(
         )
 
         if not target:
+
             await update.message.reply_text(
                 "❌ لینک نامعتبر است."
             )
+
             return
 
         target_id = target[0]
 
         if target_id == user.id:
+
             bot = await context.bot.get_me()
 
             own_link = (
@@ -921,10 +1515,12 @@ async def start(
             context.bot,
             user.id
         ):
+
             await send_join_message(
                 update,
                 context
             )
+
             return
 
         target_name = (
@@ -947,14 +1543,20 @@ async def start(
 
         return
 
+    # -----------------------------------------------------
+    # NORMAL START
+    # -----------------------------------------------------
+
     if not await is_member(
         context.bot,
         user.id
     ):
+
         await send_join_message(
             update,
             context
         )
+
         return
 
     context.user_data.clear()
@@ -973,6 +1575,7 @@ async def broadcast_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
+
     user = update.effective_user
 
     if not user or user.id != ADMIN_ID:
@@ -980,7 +1583,9 @@ async def broadcast_command(
 
     context.user_data.clear()
 
-    context.user_data["waiting_broadcast"] = True
+    context.user_data[
+        "waiting_broadcast"
+    ] = True
 
     await update.message.reply_text(
         "📢 حالت ارسال پیام همگانی فعال شد.\n\n"
@@ -994,6 +1599,7 @@ async def cancel_command(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
+
     user = update.effective_user
 
     if not user or user.id != ADMIN_ID:
@@ -1014,6 +1620,7 @@ async def show_link(
     update,
     context
 ):
+
     user = update.effective_user
 
     get_or_create_user(
@@ -1046,6 +1653,7 @@ async def name_settings(
     update,
     context
 ):
+
     user = update.effective_user
 
     current_name = get_display_name(
@@ -1066,9 +1674,12 @@ async def change_name(
     update,
     context
 ):
+
     context.user_data.clear()
 
-    context.user_data["changing_name"] = True
+    context.user_data[
+        "changing_name"
+    ] = True
 
     await update.callback_query.edit_message_text(
         "✏️ نام جدید خود را ارسال کنید.\n\n"
@@ -1088,6 +1699,7 @@ async def ads_page(
     update,
     context
 ):
+
     await update.callback_query.edit_message_text(
         "📢 تبلیغات فعال نیست.\n\n"
         "به زودی...",
@@ -1103,6 +1715,7 @@ async def block_list_page(
     update,
     context
 ):
+
     user = update.effective_user
 
     rows = get_block_list(
@@ -1110,10 +1723,12 @@ async def block_list_page(
     )
 
     if not rows:
+
         await update.callback_query.edit_message_text(
             "🔴 لیست مسدودی شما خالی است.",
             reply_markup=back_keyboard()
         )
+
         return
 
     parts = [
@@ -1121,6 +1736,7 @@ async def block_list_page(
     ]
 
     for index, row in enumerate(rows):
+
         anon_code = row[0]
         unblock_code = row[1]
 
@@ -1152,6 +1768,7 @@ async def help_page(
     update,
     context
 ):
+
     await update.callback_query.edit_message_text(
         "🤔 راهنمای گلدن چت\n\n"
         "🔗 دریافت لینک ناشناس:\n"
@@ -1176,6 +1793,7 @@ async def button_handler(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
+
     query = update.callback_query
 
     if not query:
@@ -1197,6 +1815,7 @@ async def button_handler(
             context.bot,
             user_id
         ):
+
             context.user_data.clear()
 
             await send_main_panel(
@@ -1205,6 +1824,7 @@ async def button_handler(
             )
 
         else:
+
             await query.answer(
                 "هنوز در هر دو کانال جوین نشده‌ای ❌",
                 show_alert=True
@@ -1224,10 +1844,12 @@ async def button_handler(
             context.bot,
             user_id
         ):
+
             await send_join_message(
                 update,
                 context
             )
+
             return
 
         await send_main_panel(
@@ -1333,15 +1955,21 @@ async def button_handler(
     if data.startswith("reply:"):
 
         try:
+
             anonymous_message_id = int(
                 data.split(":", 1)[1]
             )
 
-        except (ValueError, IndexError):
+        except (
+            ValueError,
+            IndexError
+        ):
+
             await query.answer(
                 "پیام نامعتبر است ❌",
                 show_alert=True
             )
+
             return
 
         anonymous_message = get_anonymous_message(
@@ -1349,10 +1977,12 @@ async def button_handler(
         )
 
         if not anonymous_message:
+
             await query.answer(
                 "این پیام دیگر موجود نیست ❌",
                 show_alert=True
             )
+
             return
 
         message_id = anonymous_message[0]
@@ -1360,27 +1990,39 @@ async def button_handler(
         receiver_id = anonymous_message[2]
 
         if receiver_id != user_id:
+
             await query.answer(
                 "این پیام متعلق به شما نیست ❌",
                 show_alert=True
             )
+
             return
 
         if is_blocked(
             user_id,
             sender_id
         ):
+
             await query.answer(
                 "این کاربر را بلاک کرده‌ای.",
                 show_alert=True
             )
+
             return
 
         context.user_data.clear()
 
-        context.user_data["reply_message_id"] = message_id
-        context.user_data["reply_sender_id"] = sender_id
-        context.user_data["replying"] = True
+        context.user_data[
+            "reply_message_id"
+        ] = message_id
+
+        context.user_data[
+            "reply_sender_id"
+        ] = sender_id
+
+        context.user_data[
+            "replying"
+        ] = True
 
         await query.message.reply_text(
             "پاسخ خود را بنویسید: ✍️",
@@ -1396,22 +2038,30 @@ async def button_handler(
     if data.startswith("block:"):
 
         try:
+
             blocked_id = int(
                 data.split(":", 1)[1]
             )
 
-        except (ValueError, IndexError):
+        except (
+            ValueError,
+            IndexError
+        ):
+
             await query.answer(
                 "کاربر نامعتبر است ❌",
                 show_alert=True
             )
+
             return
 
         if blocked_id == user_id:
+
             await query.answer(
                 "نمی‌توانی خودت را بلاک کنی 😅",
                 show_alert=True
             )
+
             return
 
         success = block_user(
@@ -1420,12 +2070,14 @@ async def button_handler(
         )
 
         if success:
+
             await query.edit_message_text(
                 "🔴 کاربر با موفقیت بلاک شد.",
                 reply_markup=back_keyboard()
             )
 
         else:
+
             await query.answer(
                 "این کاربر قبلاً بلاک شده است.",
                 show_alert=True
@@ -1442,6 +2094,7 @@ async def handle_message(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
+
     user = update.effective_user
     message = update.message
 
@@ -1458,11 +2111,12 @@ async def handle_message(
 
     # =====================================================
     # BROADCAST
-    # مهم: قبل از FORCE JOIN
     # =====================================================
 
     if (
-        context.user_data.get("waiting_broadcast")
+        context.user_data.get(
+            "waiting_broadcast"
+        )
         and user.id == ADMIN_ID
     ):
 
@@ -1480,6 +2134,7 @@ async def handle_message(
         for uid in users:
 
             try:
+
                 await context.bot.send_message(
                     chat_id=uid,
                     text=text
@@ -1488,6 +2143,7 @@ async def handle_message(
                 success += 1
 
             except Exception as e:
+
                 print(
                     f"Broadcast error {uid}: {e}"
                 )
@@ -1516,12 +2172,16 @@ async def handle_message(
         and text.endswith("/")
     ):
 
-        code = text[len("unblock_"):-1]
+        code = text[
+            len("unblock_"):-1
+        ]
 
         if not code:
+
             await message.reply_text(
                 "❌ کد رفع مسدودی نامعتبر است."
             )
+
             return
 
         success = unblock_by_code(
@@ -1530,11 +2190,14 @@ async def handle_message(
         )
 
         if success:
+
             await message.reply_text(
                 "🟢 کاربر با موفقیت از لیست "
                 "مسدودی شما خارج شد."
             )
+
         else:
+
             await message.reply_text(
                 "❌ کد رفع مسدودی نامعتبر است "
                 "یا قبلاً استفاده شده."
@@ -1550,10 +2213,12 @@ async def handle_message(
         context.bot,
         user.id
     ):
+
         await send_join_message(
             update,
             context
         )
+
         return
 
     # =====================================================
@@ -1564,7 +2229,9 @@ async def handle_message(
 
         context.user_data.clear()
 
-        context.user_data["waiting_target"] = True
+        context.user_data[
+            "waiting_target"
+        ] = True
 
         await message.reply_text(
             "آیدی کاربر یا آیدی عددی کاربر رو بفرست.\n\n"
@@ -1595,41 +2262,55 @@ async def handle_message(
     # WAITING TARGET
     # =====================================================
 
-    if context.user_data.get("waiting_target"):
+    if context.user_data.get(
+        "waiting_target"
+    ):
 
         found = find_user_by_input(
             text
         )
 
         if not found:
+
             await message.reply_text(
                 "کاربر توی ربات ما عضو نیست ❌\n"
                 "پس نمیتونی براش پیام بفرستی."
             )
+
             return
 
         target_id = found[0]
 
         if target_id == user.id:
+
             await message.reply_text(
                 "نمی تونی به خودت پیام بفرستی."
             )
+
             return
 
         if is_blocked(
             target_id,
             user.id
         ):
+
             await message.reply_text(
                 "❌ شما توسط این کاربر بلاک شده‌اید."
             )
+
             context.user_data.clear()
+
             return
 
         context.user_data.clear()
 
-        context.user_data["target_id"] = target_id
-        context.user_data["sending_anonymous"] = True
+        context.user_data[
+            "target_id"
+        ] = target_id
+
+        context.user_data[
+            "sending_anonymous"
+        ] = True
 
         await message.reply_text(
             "کاربر توی ربات عضو هست. ✅\n"
@@ -1643,13 +2324,17 @@ async def handle_message(
     # CHANGE NAME
     # =====================================================
 
-    if context.user_data.get("changing_name"):
+    if context.user_data.get(
+        "changing_name"
+    ):
 
         if len(text) > 50:
+
             await message.reply_text(
                 "❌ نام خیلی طولانی است.\n"
                 "حداکثر ۵۰ کاراکتر وارد کنید."
             )
+
             return
 
         set_display_name(
@@ -1671,7 +2356,9 @@ async def handle_message(
     # REPLY
     # =====================================================
 
-    if context.user_data.get("replying"):
+    if context.user_data.get(
+        "replying"
+    ):
 
         anonymous_message_id = (
             context.user_data.get(
@@ -1685,7 +2372,10 @@ async def handle_message(
             )
         )
 
-        if not anonymous_message_id or not sender_id:
+        if (
+            not anonymous_message_id
+            or not sender_id
+        ):
 
             context.user_data.clear()
 
@@ -1740,6 +2430,10 @@ async def handle_message(
             )
 
             return
+
+        # -------------------------------------------------
+        # نام نمایشی گیرنده
+        # -------------------------------------------------
 
         sender_name = get_display_name(
             user.id
@@ -1891,6 +2585,7 @@ async def error_handler(
     update,
     context
 ):
+
     print(
         "BOT ERROR:",
         repr(context.error)
@@ -1903,21 +2598,40 @@ async def error_handler(
 
 def main():
 
+    # -----------------------------------------------------
+    # BOT TOKEN
+    # -----------------------------------------------------
+
     if not BOT_TOKEN:
+
         raise RuntimeError(
-            "BOT_TOKEN environment variable is not set."
+            "BOT_TOKEN environment variable "
+            "is not set."
         )
 
-    if not DATABASE_URL:
-        raise RuntimeError(
-            "DATABASE_URL environment variable is not set."
-        )
+    # -----------------------------------------------------
+    # DATABASE DEBUG
+    # -----------------------------------------------------
 
-    print("Connecting to PostgreSQL...")
+    print_database_config()
+
+    # -----------------------------------------------------
+    # DATABASE TEST
+    # -----------------------------------------------------
+
+    print(
+        "Connecting to PostgreSQL..."
+    )
 
     init_db()
 
-    print("PostgreSQL connected successfully.")
+    print(
+        "PostgreSQL connected successfully."
+    )
+
+    # -----------------------------------------------------
+    # TELEGRAM APPLICATION
+    # -----------------------------------------------------
 
     application = (
         Application
@@ -1925,6 +2639,10 @@ def main():
         .token(BOT_TOKEN)
         .build()
     )
+
+    # -----------------------------------------------------
+    # COMMANDS
+    # -----------------------------------------------------
 
     application.add_handler(
         CommandHandler(
@@ -1947,24 +2665,43 @@ def main():
         )
     )
 
+    # -----------------------------------------------------
+    # CALLBACK
+    # -----------------------------------------------------
+
     application.add_handler(
         CallbackQueryHandler(
             button_handler
         )
     )
 
+    # -----------------------------------------------------
+    # TEXT
+    # -----------------------------------------------------
+
     application.add_handler(
         MessageHandler(
-            filters.TEXT,
+            filters.TEXT
+            & ~filters.COMMAND,
             handle_message
         )
     )
+
+    # -----------------------------------------------------
+    # ERROR
+    # -----------------------------------------------------
 
     application.add_error_handler(
         error_handler
     )
 
-    print("ربات روشن شد...")
+    print(
+        "ربات روشن شد..."
+    )
+
+    # -----------------------------------------------------
+    # RUN
+    # -----------------------------------------------------
 
     application.run_polling(
         drop_pending_updates=False
