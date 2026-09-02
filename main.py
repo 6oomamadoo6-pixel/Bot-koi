@@ -5,7 +5,7 @@ import asyncio
 from datetime import datetime
 
 import psycopg2
-from psycopg2.extras import RealDictCursor
+from psycopg2 import OperationalError
 
 from telegram import (
     Update,
@@ -40,57 +40,35 @@ CHANNEL_1_URL = "https://t.me/hidemychatRobot0"
 CHANNEL_2 = "@DoNi0r"
 CHANNEL_2_URL = "https://t.me/DoNi0r"
 
-# Railway PostgreSQL
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 
 # =========================================================
-# DATABASE CONNECTION
+# DATABASE
 # =========================================================
 
 def db():
-    """
-    اتصال به PostgreSQL.
+    if not DATABASE_URL:
+        raise RuntimeError(
+            "DATABASE_URL environment variable is not set."
+        )
 
-    اول DATABASE_URL را امتحان می‌کند.
-    اگر DATABASE_URL نبود، از متغیرهای PGHOST و ... استفاده می‌کند.
-    """
-
-    if DATABASE_URL:
+    try:
         return psycopg2.connect(
             DATABASE_URL,
             connect_timeout=10
         )
 
-    host = os.getenv("PGHOST")
-    port = os.getenv("PGPORT", "5432")
-    user = os.getenv("PGUSER")
-    password = os.getenv("PGPASSWORD")
-    database = os.getenv("PGDATABASE")
-
-    if not all([host, user, password, database]):
+    except OperationalError as e:
+        print("PostgreSQL connection error:")
+        print(repr(e))
         raise RuntimeError(
-            "PostgreSQL configuration not found.\n"
-            "Set DATABASE_URL or PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE."
-        )
+            "Could not connect to PostgreSQL. "
+            "Check DATABASE_URL in Railway."
+        ) from e
 
-    return psycopg2.connect(
-        host=host,
-        port=port,
-        user=user,
-        password=password,
-        database=database,
-        connect_timeout=10
-    )
-
-
-# =========================================================
-# DATABASE INITIALIZATION
-# =========================================================
 
 def init_db():
-    print("Connecting to PostgreSQL...")
-
     conn = db()
     cur = conn.cursor()
 
@@ -106,7 +84,7 @@ def init_db():
             link_code TEXT UNIQUE,
             anon_code TEXT UNIQUE,
             display_name TEXT,
-            created_at TEXT
+            created_at TIMESTAMP
         )
     """)
 
@@ -133,12 +111,12 @@ def init_db():
             sender_id BIGINT NOT NULL,
             receiver_id BIGINT NOT NULL,
             message_text TEXT NOT NULL,
-            created_at TEXT
+            created_at TIMESTAMP
         )
     """)
 
     # -----------------------------------------------------
-    # MIGRATION: USERS
+    # MIGRATIONS
     # -----------------------------------------------------
 
     cur.execute("""
@@ -146,13 +124,19 @@ def init_db():
         ADD COLUMN IF NOT EXISTS display_name TEXT
     """)
 
-    # -----------------------------------------------------
-    # MIGRATION: BLOCKS
-    # -----------------------------------------------------
+    cur.execute("""
+        ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMP
+    """)
 
     cur.execute("""
         ALTER TABLE blocks
         ADD COLUMN IF NOT EXISTS unblock_code TEXT
+    """)
+
+    cur.execute("""
+        ALTER TABLE anonymous_messages
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMP
     """)
 
     conn.commit()
@@ -162,9 +146,6 @@ def init_db():
 
     fill_missing_unblock_codes()
 
-    print("PostgreSQL connected successfully.")
-    print("Database tables are ready.")
-
 
 # =========================================================
 # CODE GENERATORS
@@ -172,6 +153,7 @@ def init_db():
 
 def generate_code(length=10):
     chars = string.ascii_letters + string.digits
+
     return "".join(
         random.choices(chars, k=length)
     )
@@ -290,7 +272,9 @@ def get_or_create_user(
         SELECT link_code, anon_code
         FROM users
         WHERE user_id = %s
-    """, (user_id,))
+    """, (
+        user_id,
+    ))
 
     row = cur.fetchone()
 
@@ -322,6 +306,8 @@ def get_or_create_user(
 
     anon_code = generate_anon_code()
 
+    display_name = full_name or "کاربر"
+
     cur.execute("""
         INSERT INTO users (
             user_id,
@@ -347,8 +333,8 @@ def get_or_create_user(
         full_name,
         link_code,
         anon_code,
-        full_name or "کاربر",
-        datetime.now().isoformat()
+        display_name,
+        datetime.now()
     ))
 
     conn.commit()
@@ -374,7 +360,9 @@ def get_user(user_id):
             display_name
         FROM users
         WHERE user_id = %s
-    """, (user_id,))
+    """, (
+        user_id,
+    ))
 
     row = cur.fetchone()
 
@@ -397,7 +385,9 @@ def get_user_by_link(link_code):
             anon_code
         FROM users
         WHERE link_code = %s
-    """, (link_code,))
+    """, (
+        link_code,
+    ))
 
     row = cur.fetchone()
 
@@ -418,7 +408,9 @@ def get_display_name(user_id):
             full_name
         FROM users
         WHERE user_id = %s
-    """, (user_id,))
+    """, (
+        user_id,
+    ))
 
     row = cur.fetchone()
 
@@ -428,10 +420,17 @@ def get_display_name(user_id):
     if not row:
         return "کاربر"
 
-    return row[0] or row[1] or "کاربر"
+    return (
+        row[0]
+        or row[1]
+        or "کاربر"
+    )
 
 
-def set_display_name(user_id, name):
+def set_display_name(
+    user_id,
+    name
+):
 
     conn = db()
     cur = conn.cursor()
@@ -503,7 +502,7 @@ def save_anonymous_message(
         sender_id,
         receiver_id,
         message_text,
-        datetime.now().isoformat()
+        datetime.now()
     ))
 
     message_id = cur.fetchone()[0]
@@ -516,7 +515,9 @@ def save_anonymous_message(
     return message_id
 
 
-def get_anonymous_message(message_id):
+def get_anonymous_message(
+    message_id
+):
 
     conn = db()
     cur = conn.cursor()
@@ -530,7 +531,9 @@ def get_anonymous_message(message_id):
             created_at
         FROM anonymous_messages
         WHERE id = %s
-    """, (message_id,))
+    """, (
+        message_id,
+    ))
 
     row = cur.fetchone()
 
@@ -680,10 +683,12 @@ def get_block_list(user_id):
             blocks.unblock_code
         FROM blocks
         JOIN users
-            ON users.user_id = blocks.blocked_id
+        ON users.user_id = blocks.blocked_id
         WHERE blocks.blocker_id = %s
         ORDER BY blocks.unblock_code DESC
-    """, (user_id,))
+    """, (
+        user_id,
+    ))
 
     rows = cur.fetchall()
 
@@ -747,7 +752,7 @@ async def is_member(
 
 
 # =========================================================
-# REPLY KEYBOARDS
+# KEYBOARDS
 # =========================================================
 
 def main_reply_keyboard():
@@ -777,58 +782,6 @@ def back_reply_keyboard():
         resize_keyboard=True
     )
 
-
-# =========================================================
-# FIND USER
-# =========================================================
-
-def find_user_by_input(text):
-
-    conn = db()
-    cur = conn.cursor()
-
-    if text.isdigit():
-
-        cur.execute("""
-            SELECT
-                user_id,
-                full_name,
-                display_name
-            FROM users
-            WHERE user_id = %s
-        """, (int(text),))
-
-        row = cur.fetchone()
-
-        if row:
-
-            cur.close()
-            conn.close()
-
-            return row
-
-    username = text.lstrip("@").lower()
-
-    cur.execute("""
-        SELECT
-            user_id,
-            full_name,
-            display_name
-        FROM users
-        WHERE lower(username) = %s
-    """, (username,))
-
-    row = cur.fetchone()
-
-    cur.close()
-    conn.close()
-
-    return row
-
-
-# =========================================================
-# INLINE KEYBOARDS
-# =========================================================
 
 def join_keyboard():
 
@@ -1041,10 +994,7 @@ async def start(
     if not user or not update.message:
         return
 
-    # -----------------------------------------------------
-    # SAVE USER
-    # -----------------------------------------------------
-
+    # ذخیره / بروزرسانی اطلاعات کاربر
     get_or_create_user(
         user.id,
         user.username,
@@ -1052,7 +1002,7 @@ async def start(
     )
 
     # -----------------------------------------------------
-    # START WITH LINK
+    # START PARAMETER
     # -----------------------------------------------------
 
     if context.args:
@@ -1073,10 +1023,6 @@ async def start(
 
         target_id = target[0]
 
-        # -------------------------------------------------
-        # OWN LINK
-        # -------------------------------------------------
-
         if target_id == user.id:
 
             bot = await context.bot.get_me()
@@ -1095,10 +1041,6 @@ async def start(
             )
 
             return
-
-        # -------------------------------------------------
-        # FORCE JOIN
-        # -------------------------------------------------
 
         if not await is_member(
             context.bot,
@@ -1121,6 +1063,7 @@ async def start(
         context.user_data.clear()
 
         context.user_data["target_id"] = target_id
+
         context.user_data["sending_anonymous"] = True
 
         await update.message.reply_text(
@@ -1195,7 +1138,7 @@ async def cancel_command(
     context.user_data.clear()
 
     await update.message.reply_text(
-        "❌ ارسال پیام همگانی لغو شد."
+        "❌ عملیات لغو شد."
     )
 
 
@@ -1251,7 +1194,7 @@ async def name_settings(
         "⚙️ تنظیمات نام\n\n"
         f"نام فعلی شما:\n"
         f"{current_name}\n\n"
-        "این نام هنگام ارسال پیام ناشناس "
+        "این نام هنگام پاسخ به پیام ناشناس "
         "به فرستنده نمایش داده می‌شود.",
         reply_markup=name_settings_keyboard()
     )
@@ -1323,12 +1266,14 @@ async def block_list_page(
     for index, row in enumerate(rows):
 
         anon_code = row[0]
+
         unblock_code = row[1]
 
         parts.append(
             f"کاربر {anon_code} "
             "در لیست مسدودی شما است.\n"
-            f"رفع مسدودی : unblock_{unblock_code}/"
+            f"رفع مسدودی : "
+            f"unblock_{unblock_code}/"
         )
 
         if index != len(rows) - 1:
@@ -1360,8 +1305,8 @@ async def help_page(
         "لینک اختصاصی خودت را دریافت کن و "
         "برای دیگران بفرست.\n\n"
         "⚙️ تنظیمات نام:\n"
-        "نامی که هنگام باز شدن لینک به "
-        "فرستنده نمایش داده می‌شود را تغییر بده.\n\n"
+        "نامی که هنگام پاسخ به پیام ناشناس "
+        "نمایش داده می‌شود را تغییر بده.\n\n"
         "🔴 لیست مسدودی:\n"
         "کاربرانی که بلاک کرده‌ای در این بخش هستند.\n\n"
         "📢 تبلیغات:\n"
@@ -1570,7 +1515,9 @@ async def button_handler(
             return
 
         message_id = anonymous_message[0]
+
         sender_id = anonymous_message[1]
+
         receiver_id = anonymous_message[2]
 
         if receiver_id != user_id:
@@ -1597,7 +1544,9 @@ async def button_handler(
         context.user_data.clear()
 
         context.user_data["reply_message_id"] = message_id
+
         context.user_data["reply_sender_id"] = sender_id
+
         context.user_data["replying"] = True
 
         await query.message.reply_text(
@@ -1685,7 +1634,7 @@ async def handle_message(
 
     # =====================================================
     # BROADCAST
-    # IMPORTANT: BEFORE FORCE JOIN
+    # باید قبل از FORCE JOIN باشد
     # =====================================================
 
     if (
@@ -1696,6 +1645,7 @@ async def handle_message(
         users = get_all_user_ids()
 
         success = 0
+
         failed = 0
 
         status_msg = await message.reply_text(
@@ -1858,7 +1808,6 @@ async def handle_message(
 
             return
 
-        # بررسی بلاک دوطرفه
         if is_blocked(
             target_id,
             user.id
@@ -1961,7 +1910,9 @@ async def handle_message(
             return
 
         original_sender_id = anonymous_message[1]
+
         receiver_id = anonymous_message[2]
+
         original_text = anonymous_message[3]
 
         if (
@@ -2077,16 +2028,10 @@ async def handle_message(
 
             return
 
-        # -------------------------------------------------
-        # SAVE MESSAGE IN POSTGRESQL
-        # -------------------------------------------------
-
-        anonymous_message_id = (
-            save_anonymous_message(
-                sender_id=user.id,
-                receiver_id=target_id,
-                message_text=text
-            )
+        anonymous_message_id = save_anonymous_message(
+            sender_id=user.id,
+            receiver_id=target_id,
+            message_text=text
         )
 
         row = get_user(
@@ -2160,44 +2105,26 @@ def main():
     if not BOT_TOKEN:
 
         raise RuntimeError(
-            "BOT_TOKEN environment variable is not set."
+            "BOT_TOKEN environment variable "
+            "is not set."
         )
 
-    # -----------------------------------------------------
-    # DATABASE TEST
-    # -----------------------------------------------------
-
-    try:
-
-        init_db()
-
-    except Exception as e:
-
-        print(
-            "================================================"
-        )
-
-        print(
-            "DATABASE CONNECTION ERROR"
-        )
-
-        print(
-            repr(e)
-        )
-
-        print(
-            "================================================"
-        )
+    if not DATABASE_URL:
 
         raise RuntimeError(
-            "Could not connect to PostgreSQL. "
-            "Check DATABASE_URL or PGHOST/PGPORT/PGUSER/"
-            "PGPASSWORD/PGDATABASE."
-        ) from e
+            "DATABASE_URL environment variable "
+            "is not set."
+        )
 
-    # -----------------------------------------------------
-    # TELEGRAM APPLICATION
-    # -----------------------------------------------------
+    print(
+        "Connecting to PostgreSQL..."
+    )
+
+    init_db()
+
+    print(
+        "PostgreSQL connected successfully."
+    )
 
     application = (
         Application
@@ -2205,10 +2132,6 @@ def main():
         .token(BOT_TOKEN)
         .build()
     )
-
-    # -----------------------------------------------------
-    # HANDLERS
-    # -----------------------------------------------------
 
     application.add_handler(
         CommandHandler(
@@ -2248,14 +2171,10 @@ def main():
         error_handler
     )
 
-    print("========================================")
-    print("Golden Chat Bot")
-    print("PostgreSQL: CONNECTED")
-    print("Telegram Bot: STARTING")
-    print("========================================")
+    print(
+        "ربات روشن شد..."
+    )
 
-    # طبق مستندات python-telegram-bot،
-    # run_polling وظیفه initialize/start polling/shutdown را انجام می‌دهد.
     application.run_polling(
         drop_pending_updates=False
     )
