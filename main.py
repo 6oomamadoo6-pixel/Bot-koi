@@ -38,7 +38,7 @@ CHANNEL_1_URL = "https://t.me/hidemychatRobot0"
 CHANNEL_2 = "@DoNi0r"
 CHANNEL_2_URL = "https://t.me/DoNi0r"
 
-DB_NAME = "bot.db"
+DB_NAME = os.getenv("DB_NAME", "/data/bot.db")
 
 
 # =========================================================
