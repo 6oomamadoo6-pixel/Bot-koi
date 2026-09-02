@@ -22,26 +22,16 @@ from telegram.ext import (
 from telegram.error import TelegramError
 
 
-# =========================================================
-# CONFIG
-# =========================================================
-
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-
 ADMIN_ID = 6078875175
 
 CHANNEL_1 = "@hidemychatRobot0"
 CHANNEL_1_URL = "https://t.me/hidemychatRobot0"
-
 CHANNEL_2 = "@DoNi0r"
 CHANNEL_2_URL = "https://t.me/DoNi0r"
 
 DB_NAME = "bot.db"
 
-
-# =========================================================
-# DATABASE
-# =========================================================
 
 def db():
     return sqlite3.connect(DB_NAME)
@@ -84,25 +74,18 @@ def init_db():
 
     cur.execute("PRAGMA table_info(users)")
     user_columns = [row[1] for row in cur.fetchall()]
-
     if "display_name" not in user_columns:
         cur.execute("ALTER TABLE users ADD COLUMN display_name TEXT")
 
     cur.execute("PRAGMA table_info(blocks)")
     block_columns = [row[1] for row in cur.fetchall()]
-
     if "unblock_code" not in block_columns:
         cur.execute("ALTER TABLE blocks ADD COLUMN unblock_code TEXT")
 
     conn.commit()
     conn.close()
-
     fill_missing_unblock_codes()
 
-
-# =========================================================
-# CODE GENERATORS
-# =========================================================
 
 def generate_code(length=10):
     chars = string.ascii_letters + string.digits
@@ -137,25 +120,19 @@ def fill_missing_unblock_codes():
     conn = db()
     cur = conn.cursor()
     cur.execute("""
-        SELECT blocker_id, blocked_id
-        FROM blocks
+        SELECT blocker_id, blocked_id FROM blocks
         WHERE unblock_code IS NULL OR unblock_code = ''
     """)
     rows = cur.fetchall()
     for blocker_id, blocked_id in rows:
         code = generate_unblock_code()
         cur.execute("""
-            UPDATE blocks
-            SET unblock_code = ?
+            UPDATE blocks SET unblock_code = ?
             WHERE blocker_id = ? AND blocked_id = ?
         """, (code, blocker_id, blocked_id))
     conn.commit()
     conn.close()
 
-
-# =========================================================
-# USER FUNCTIONS
-# =========================================================
 
 def get_or_create_user(user_id, username, full_name):
     conn = db()
@@ -164,10 +141,8 @@ def get_or_create_user(user_id, username, full_name):
     row = cur.fetchone()
 
     if row:
-        cur.execute("""
-            UPDATE users SET username = ?, full_name = ?
-            WHERE user_id = ?
-        """, (username, full_name, user_id))
+        cur.execute("UPDATE users SET username = ?, full_name = ? WHERE user_id = ?",
+                    (username, full_name, user_id))
         conn.commit()
         conn.close()
         return row[0], row[1]
@@ -176,13 +151,9 @@ def get_or_create_user(user_id, username, full_name):
     anon_code = generate_anon_code()
 
     cur.execute("""
-        INSERT INTO users (
-            user_id, username, full_name, link_code, anon_code, display_name, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (
-        user_id, username, full_name, link_code, anon_code,
-        full_name or "کاربر", datetime.now().isoformat()
-    ))
+        INSERT INTO users (user_id, username, full_name, link_code, anon_code, display_name, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (user_id, username, full_name, link_code, anon_code, full_name or "کاربر", datetime.now().isoformat()))
     conn.commit()
     conn.close()
     return link_code, anon_code
@@ -240,10 +211,6 @@ def get_all_user_ids():
     return [row[0] for row in rows]
 
 
-# =========================================================
-# ANONYMOUS MESSAGE FUNCTIONS
-# =========================================================
-
 def save_anonymous_message(sender_id, receiver_id, message_text):
     conn = db()
     cur = conn.cursor()
@@ -269,10 +236,6 @@ def get_anonymous_message(message_id):
     return row
 
 
-# =========================================================
-# BLOCK FUNCTIONS
-# =========================================================
-
 def is_blocked(blocker_id, blocked_id):
     conn = db()
     cur = conn.cursor()
@@ -292,10 +255,8 @@ def block_user(blocker_id, blocked_id):
         conn.close()
         return False
     unblock_code = generate_unblock_code()
-    cur.execute("""
-        INSERT INTO blocks (blocker_id, blocked_id, unblock_code)
-        VALUES (?, ?, ?)
-    """, (blocker_id, blocked_id, unblock_code))
+    cur.execute("INSERT INTO blocks (blocker_id, blocked_id, unblock_code) VALUES (?, ?, ?)",
+                (blocker_id, blocked_id, unblock_code))
     conn.commit()
     conn.close()
     return True
@@ -330,18 +291,10 @@ def get_block_list(user_id):
     return rows
 
 
-# =========================================================
-# MEMBERSHIP
-# =========================================================
-
 async def check_channel_member(bot, channel, user_id):
     try:
         member = await bot.get_chat_member(chat_id=channel, user_id=user_id)
-        return member.status in (
-            ChatMember.MEMBER,
-            ChatMember.ADMINISTRATOR,
-            ChatMember.OWNER,
-        )
+        return member.status in (ChatMember.MEMBER, ChatMember.ADMINISTRATOR, ChatMember.OWNER)
     except TelegramError as e:
         print(f"Membership error {channel} / {user_id}: {e}")
         return False
@@ -353,10 +306,6 @@ async def is_member(bot, user_id):
     return first and second
 
 
-# =========================================================
-# KEYBOARDS
-# =========================================================
-
 def join_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("چنل 1 : کانال رسمی گلدن چت", url=CHANNEL_1_URL)],
@@ -366,15 +315,11 @@ def join_keyboard():
 
 
 def back_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("بازگشت 🔙", callback_data="back_main")]
-    ])
+    return InlineKeyboardMarkup([[InlineKeyboardButton("بازگشت 🔙", callback_data="back_main")]])
 
 
 def cancel_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("لغو ارسال پیام ❌", callback_data="cancel_send")]
-    ])
+    return InlineKeyboardMarkup([[InlineKeyboardButton("لغو ارسال پیام ❌", callback_data="cancel_send")]])
 
 
 def main_keyboard():
@@ -408,16 +353,11 @@ def anonymous_message_keyboard(message_id, sender_id):
     ])
 
 
-# =========================================================
-# JOIN MESSAGE
-# =========================================================
-
 async def send_join_message(update, context):
     text = (
         "درود و عرض ادب ! 👋\n"
         "خوش اومدی\n\n"
-        "برای ادامه استفاده از ربات "
-        "زحمت بکش توی کانال‌های زیر جوین شو."
+        "برای ادامه استفاده از ربات زحمت بکش توی کانال‌های زیر جوین شو."
     )
     keyboard = join_keyboard()
     if update.message:
@@ -426,16 +366,11 @@ async def send_join_message(update, context):
         await update.callback_query.edit_message_text(text, reply_markup=keyboard)
 
 
-# =========================================================
-# MAIN PANEL
-# =========================================================
-
 async def send_main_panel(update, context):
     text = (
         "درودد مجدد 👋\n\n"
         "ممنون که ربات مارو انتخاب کردی ❤️\n\n"
-        "میتونی با پنل شیشه‌ای زیر "
-        "از قابلیت‌های ربات ما استفاده کنی:"
+        "میتونی با پنل شیشه‌ای زیر از قابلیت‌های ربات ما استفاده کنی:"
     )
     keyboard = main_keyboard()
     if update.message:
@@ -443,10 +378,6 @@ async def send_main_panel(update, context):
     elif update.callback_query:
         await update.callback_query.edit_message_text(text, reply_markup=keyboard)
 
-
-# =========================================================
-# START COMMAND
-# =========================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -470,10 +401,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             own_link = f"https://t.me/{bot.username}?start={user.id}"
             text = (
                 "به خودت که نمیتونی پیام بفرستی عزیز 🥹\n\n"
-                "ولی منتظر بمون و لینکتو بیشتر به اشتراک "
-                "بزار و منتظر پیام ناشناست باش😍\n\n"
-                "لینک خودت :\n"
-                f"{own_link}"
+                "ولی منتظر بمون و لینکتو بیشتر به اشتراک بزار و منتظر پیام ناشناست باش😍\n\n"
+                f"لینک خودت :\n{own_link}"
             )
             await update.message.reply_text(text, reply_markup=back_keyboard())
             return
@@ -487,11 +416,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["target_id"] = target_id
         context.user_data["sending_anonymous"] = True
 
-        text = (
-            f"شما در حال ارسال پیام ناشناس به "
-            f"{target_name} هستید.\n\n"
-            "پیام خود را بنویسید : 💤"
-        )
+        text = f"شما در حال ارسال پیام ناشناس به {target_name} هستید.\n\nپیام خود را بنویسید : 💤"
         await update.message.reply_text(text, reply_markup=cancel_keyboard())
         return
 
@@ -502,10 +427,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await send_main_panel(update, context)
 
-
-# =========================================================
-# BROADCAST (فقط ادمین)
-# =========================================================
 
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -529,10 +450,6 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ ارسال پیام همگانی لغو شد.")
 
 
-# =========================================================
-# SHOW LINK
-# =========================================================
-
 async def show_link(update, context):
     user = update.effective_user
     get_or_create_user(user.id, user.username, user.full_name)
@@ -541,15 +458,10 @@ async def show_link(update, context):
     text = (
         "🔗 لینک اختصاصی شما:\n\n"
         f"{link}\n\n"
-        "لینک خود را با دیگران به اشتراک بگذارید "
-        "تا بتوانند به صورت ناشناس برای شما پیام بفرستند."
+        "لینک خود را با دیگران به اشتراک بگذارید تا بتوانند به صورت ناشناس برای شما پیام بفرستند."
     )
     await update.callback_query.edit_message_text(text, reply_markup=back_keyboard())
 
-
-# =========================================================
-# NAME SETTINGS
-# =========================================================
 
 async def name_settings(update, context):
     user = update.effective_user
@@ -557,8 +469,7 @@ async def name_settings(update, context):
     text = (
         "⚙️ تنظیمات نام\n\n"
         f"نام فعلی شما:\n{current_name}\n\n"
-        "این نام هنگام ارسال پیام ناشناس "
-        "به فرستنده نمایش داده می‌شود."
+        "این نام هنگام ارسال پیام ناشناس به فرستنده نمایش داده می‌شود."
     )
     await update.callback_query.edit_message_text(text, reply_markup=name_settings_keyboard())
 
@@ -566,77 +477,45 @@ async def name_settings(update, context):
 async def change_name(update, context):
     context.user_data.clear()
     context.user_data["changing_name"] = True
-    text = (
-        "✏️ نام جدید خود را ارسال کنید.\n\n"
-        "مثلاً:\nمحمد\nGolden Chat\nکاربر ویژه 🤠"
-    )
+    text = "✏️ نام جدید خود را ارسال کنید.\n\nمثلاً:\nمحمد\nGolden Chat\nکاربر ویژه 🤠"
     await update.callback_query.edit_message_text(text, reply_markup=back_keyboard())
 
-
-# =========================================================
-# ADS
-# =========================================================
 
 async def ads_page(update, context):
     text = "📢 تبلیغات فعال نیست.\n\nبه زودی..."
     await update.callback_query.edit_message_text(text, reply_markup=back_keyboard())
 
 
-# =========================================================
-# BLOCK LIST
-# =========================================================
-
 async def block_list_page(update, context):
     user = update.effective_user
     rows = get_block_list(user.id)
     if not rows:
-        await update.callback_query.edit_message_text(
-            "🔴 لیست مسدودی شما خالی است.",
-            reply_markup=back_keyboard()
-        )
+        await update.callback_query.edit_message_text("🔴 لیست مسدودی شما خالی است.", reply_markup=back_keyboard())
         return
 
     parts = ["🔴 لیست مسدودی شما:\n"]
     for index, row in enumerate(rows):
         anon_code = row[0]
         unblock_code = row[1]
-        parts.append(
-            f"کاربر {anon_code} در لیست مسدودی شما است.\n"
-            f"رفع مسدودی : unblock_{unblock_code}/"
-        )
+        parts.append(f"کاربر {anon_code} در لیست مسدودی شما است.\nرفع مسدودی : unblock_{unblock_code}/")
         if index != len(rows) - 1:
             parts.append("____")
 
-    parts.append(
-        "\n\nدستور مربوط به کاربر را ارسال کنید "
-        "تا رفع مسدودی انجام شود."
-    )
+    parts.append("\n\nدستور مربوط به کاربر را ارسال کنید تا رفع مسدودی انجام شود.")
     text = "\n".join(parts)
     await update.callback_query.edit_message_text(text, reply_markup=back_keyboard())
 
 
-# =========================================================
-# HELP
-# =========================================================
-
 async def help_page(update, context):
     text = (
         "🤔 راهنمای گلدن چت\n\n"
-        "🔗 دریافت لینک ناشناس:\n"
-        "لینک اختصاصی خودت را دریافت کن و برای دیگران بفرست.\n\n"
-        "⚙️ تنظیمات نام:\n"
-        "نامی که هنگام باز شدن لینک به فرستنده نمایش داده می‌شود را تغییر بده.\n\n"
-        "🔴 لیست مسدودی:\n"
-        "کاربرانی که بلاک کرده‌ای در این بخش هستند.\n\n"
-        "📢 تبلیغات:\n"
-        "این بخش در حال حاضر فعال نیست."
+        "🔗 دریافت لینک ناشناس:\nلینک اختصاصی خودت را دریافت کن و برای دیگران بفرست.\n\n"
+        "⚙️ تنظیمات نام:\nنامی که هنگام باز شدن لینک به فرستنده نمایش داده می‌شود را تغییر بده.\n\n"
+        "🔴 لیست مسدودی:\nکاربرانی که بلاک کرده‌ای در این بخش هستند.\n\n"
+        "📢 تبلیغات:\nاین بخش در حال حاضر فعال نیست."
     )
     await update.callback_query.edit_message_text(text, reply_markup=back_keyboard())
 
-
-# =========================================================
-# CALLBACK HANDLER
-# =========================================================
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -744,10 +623,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
-# =========================================================
-# MESSAGE HANDLER
-# =========================================================
-
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     message = update.message
@@ -759,7 +634,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text:
         return
 
-    # Unblock command
     if text.startswith("unblock_") and text.endswith("/"):
         code = text[len("unblock_"):-1]
         if not code:
@@ -772,14 +646,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await message.reply_text("❌ کد رفع مسدودی نامعتبر است یا قبلاً استفاده شده.")
         return
 
-    # Force join
     if not await is_member(context.bot, user.id):
         await send_join_message(update, context)
         return
 
-    # =====================================================
-    # BROADCAST (فقط ادمین)
-    # =====================================================
     if context.user_data.get("waiting_broadcast") and user.id == ADMIN_ID:
         users = get_all_user_ids()
         success = 0
@@ -806,7 +676,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Change name
     if context.user_data.get("changing_name"):
         if len(text) > 50:
             await message.reply_text("❌ نام خیلی طولانی است.\nحداکثر ۵۰ کاراکتر وارد کنید.")
@@ -819,7 +688,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Reply to anonymous
     if context.user_data.get("replying"):
         anonymous_message_id = context.user_data.get("reply_message_id")
         sender_id = context.user_data.get("reply_sender_id")
@@ -866,7 +734,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         return
 
-    # Send anonymous message
     if context.user_data.get("sending_anonymous"):
         target_id = context.user_data.get("target_id")
         if not target_id:
@@ -884,11 +751,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await message.reply_text("❌ شما توسط این کاربر بلاک شده‌اید.", reply_markup=back_keyboard())
             return
 
-        anonymous_message_id = save_anonymous_message(
-            sender_id=user.id,
-            receiver_id=target_id,
-            message_text=text
-        )
+        anonymous_message_id = save_anonymous_message(sender_id=user.id, receiver_id=target_id, message_text=text)
 
         row = get_user(user.id)
         anon_code = row[4] if row else "0000000"
@@ -910,17 +773,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
-# =========================================================
-# ERROR HANDLER
-# =========================================================
-
 async def error_handler(update, context):
     print("BOT ERROR:", repr(context.error))
 
-
-# =========================================================
-# MAIN
-# =========================================================
 
 def main():
     if not BOT_TOKEN:
