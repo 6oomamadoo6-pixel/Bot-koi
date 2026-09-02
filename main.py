@@ -63,7 +63,8 @@ def init_db():
             display_name TEXT,
             created_at TEXT,
             ban_code TEXT UNIQUE,
-            ban_until TEXT
+            ban_until TEXT,
+            ban_reason TEXT
         )
     """)
 
@@ -87,32 +88,61 @@ def init_db():
         )
     """)
 
+    # =====================================================
+    # USERS MIGRATION
+    # =====================================================
+
     cur.execute("PRAGMA table_info(users)")
     user_columns = [row[1] for row in cur.fetchall()]
 
     if "display_name" not in user_columns:
-        cur.execute("ALTER TABLE users ADD COLUMN display_name TEXT")
+        cur.execute(
+            "ALTER TABLE users ADD COLUMN display_name TEXT"
+        )
 
     if "ban_code" not in user_columns:
-        cur.execute("ALTER TABLE users ADD COLUMN ban_code TEXT")
+        cur.execute(
+            "ALTER TABLE users ADD COLUMN ban_code TEXT"
+        )
 
     if "ban_until" not in user_columns:
-        cur.execute("ALTER TABLE users ADD COLUMN ban_until TEXT")
+        cur.execute(
+            "ALTER TABLE users ADD COLUMN ban_until TEXT"
+        )
 
     if "created_at" not in user_columns:
-        cur.execute("ALTER TABLE users ADD COLUMN created_at TEXT")
+        cur.execute(
+            "ALTER TABLE users ADD COLUMN created_at TEXT"
+        )
+
+    if "ban_reason" not in user_columns:
+        cur.execute(
+            "ALTER TABLE users ADD COLUMN ban_reason TEXT"
+        )
+
+    # =====================================================
+    # BLOCKS MIGRATION
+    # =====================================================
 
     cur.execute("PRAGMA table_info(blocks)")
     block_columns = [row[1] for row in cur.fetchall()]
 
     if "unblock_code" not in block_columns:
-        cur.execute("ALTER TABLE blocks ADD COLUMN unblock_code TEXT")
+        cur.execute(
+            "ALTER TABLE blocks ADD COLUMN unblock_code TEXT"
+        )
+
+    # =====================================================
+    # MESSAGES MIGRATION
+    # =====================================================
 
     cur.execute("PRAGMA table_info(anonymous_messages)")
     message_columns = [row[1] for row in cur.fetchall()]
 
     if "seen_at" not in message_columns:
-        cur.execute("ALTER TABLE anonymous_messages ADD COLUMN seen_at TEXT")
+        cur.execute(
+            "ALTER TABLE anonymous_messages ADD COLUMN seen_at TEXT"
+        )
 
     conn.commit()
     conn.close()
@@ -131,8 +161,15 @@ def generate_code(length=8):
 
 
 def generate_anon_code():
+
     while True:
-        code = "".join(random.choices(string.digits, k=7))
+
+        code = "".join(
+            random.choices(
+                string.digits,
+                k=7
+            )
+        )
 
         conn = db()
         cur = conn.cursor()
@@ -151,7 +188,9 @@ def generate_anon_code():
 
 
 def generate_unblock_code():
+
     while True:
+
         code = generate_code(8)
 
         conn = db()
@@ -171,7 +210,9 @@ def generate_unblock_code():
 
 
 def generate_ban_code():
+
     while True:
+
         code = generate_code(8)
 
         conn = db()
@@ -195,6 +236,7 @@ def generate_ban_code():
 # =========================================================
 
 def fill_missing_unblock_codes():
+
     conn = db()
     cur = conn.cursor()
 
@@ -208,6 +250,7 @@ def fill_missing_unblock_codes():
     rows = cur.fetchall()
 
     for blocker_id, blocked_id in rows:
+
         code = generate_unblock_code()
 
         cur.execute("""
@@ -226,6 +269,7 @@ def fill_missing_unblock_codes():
 
 
 def fill_missing_ban_codes():
+
     conn = db()
     cur = conn.cursor()
 
@@ -239,6 +283,7 @@ def fill_missing_ban_codes():
     rows = cur.fetchall()
 
     for row in rows:
+
         user_id = row[0]
         code = generate_ban_code()
 
@@ -259,7 +304,11 @@ def fill_missing_ban_codes():
 # USERS
 # =========================================================
 
-def get_or_create_user(user_id, username, full_name):
+def get_or_create_user(
+    user_id,
+    username,
+    full_name
+):
 
     conn = db()
     cur = conn.cursor()
@@ -268,7 +317,9 @@ def get_or_create_user(user_id, username, full_name):
         SELECT link_code, anon_code, ban_code
         FROM users
         WHERE user_id = ?
-    """, (user_id,))
+    """, (
+        user_id,
+    ))
 
     row = cur.fetchone()
 
@@ -311,9 +362,10 @@ def get_or_create_user(user_id, username, full_name):
             display_name,
             created_at,
             ban_code,
-            ban_until
+            ban_until,
+            ban_reason
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         user_id,
         username,
@@ -323,6 +375,7 @@ def get_or_create_user(user_id, username, full_name):
         full_name or "کاربر",
         datetime.now().isoformat(),
         ban_code,
+        None,
         None
     ))
 
@@ -346,10 +399,13 @@ def get_user(user_id):
             anon_code,
             display_name,
             ban_code,
-            ban_until
+            ban_until,
+            ban_reason
         FROM users
         WHERE user_id = ?
-    """, (user_id,))
+    """, (
+        user_id,
+    ))
 
     row = cur.fetchone()
 
@@ -371,7 +427,9 @@ def get_user_by_link(link_code):
             anon_code
         FROM users
         WHERE link_code = ?
-    """, (link_code,))
+    """, (
+        link_code,
+    ))
 
     row = cur.fetchone()
 
@@ -389,7 +447,9 @@ def get_display_name(user_id):
         SELECT display_name, full_name
         FROM users
         WHERE user_id = ?
-    """, (user_id,))
+    """, (
+        user_id,
+    ))
 
     row = cur.fetchone()
 
@@ -424,13 +484,18 @@ def get_all_user_ids():
     conn = db()
     cur = conn.cursor()
 
-    cur.execute("SELECT user_id FROM users")
+    cur.execute(
+        "SELECT user_id FROM users"
+    )
 
     rows = cur.fetchall()
 
     conn.close()
 
-    return [row[0] for row in rows]
+    return [
+        row[0]
+        for row in rows
+    ]
 
 
 # =========================================================
@@ -446,7 +511,9 @@ def get_ban_code(user_id):
         SELECT ban_code
         FROM users
         WHERE user_id = ?
-    """, (user_id,))
+    """, (
+        user_id,
+    ))
 
     row = cur.fetchone()
 
@@ -479,7 +546,10 @@ def get_ban_code(user_id):
     return row[0]
 
 
-def ban_user_by_code(code):
+def ban_user_by_code(
+    code,
+    reason
+):
 
     code = code.strip().lower()
 
@@ -490,7 +560,9 @@ def ban_user_by_code(code):
         SELECT user_id
         FROM users
         WHERE lower(ban_code) = ?
-    """, (code,))
+    """, (
+        code,
+    ))
 
     row = cur.fetchone()
 
@@ -500,14 +572,17 @@ def ban_user_by_code(code):
 
     user_id = row[0]
 
+    # بن دقیقاً یک روز از همین لحظه
     ban_until = datetime.now() + timedelta(days=1)
 
     cur.execute("""
         UPDATE users
-        SET ban_until = ?
+        SET ban_until = ?,
+            ban_reason = ?
         WHERE user_id = ?
     """, (
         ban_until.isoformat(),
+        reason,
         user_id
     ))
 
@@ -528,7 +603,9 @@ def unban_user_by_code(code):
         SELECT user_id
         FROM users
         WHERE lower(ban_code) = ?
-    """, (code,))
+    """, (
+        code,
+    ))
 
     row = cur.fetchone()
 
@@ -540,9 +617,12 @@ def unban_user_by_code(code):
 
     cur.execute("""
         UPDATE users
-        SET ban_until = NULL
+        SET ban_until = NULL,
+            ban_reason = NULL
         WHERE user_id = ?
-    """, (user_id,))
+    """, (
+        user_id,
+    ))
 
     conn.commit()
     conn.close()
@@ -559,19 +639,26 @@ def is_user_banned(user_id):
         SELECT ban_until
         FROM users
         WHERE user_id = ?
-    """, (user_id,))
+    """, (
+        user_id,
+    ))
 
     row = cur.fetchone()
 
     if not row or not row[0]:
+
         conn.close()
         return False
 
     ban_until_text = row[0]
 
     try:
-        ban_until = datetime.fromisoformat(ban_until_text)
+        ban_until = datetime.fromisoformat(
+            ban_until_text
+        )
+
     except ValueError:
+
         conn.close()
         return False
 
@@ -581,9 +668,12 @@ def is_user_banned(user_id):
 
         cur.execute("""
             UPDATE users
-            SET ban_until = NULL
+            SET ban_until = NULL,
+                ban_reason = NULL
             WHERE user_id = ?
-        """, (user_id,))
+        """, (
+            user_id,
+        ))
 
         conn.commit()
         conn.close()
@@ -595,11 +685,117 @@ def is_user_banned(user_id):
     return True
 
 
+def get_active_banned_users():
+
+    conn = db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT
+            user_id,
+            username,
+            ban_code,
+            ban_until,
+            ban_reason
+        FROM users
+        WHERE ban_until IS NOT NULL
+          AND ban_until != ''
+        ORDER BY ban_until ASC
+    """)
+
+    rows = cur.fetchall()
+
+    conn.close()
+
+    active = []
+
+    now = datetime.now()
+
+    for row in rows:
+
+        try:
+            ban_until = datetime.fromisoformat(
+                row[3]
+            )
+
+        except (ValueError, TypeError):
+            continue
+
+        if ban_until > now:
+
+            active.append(row)
+
+    return active
+
+
+async def expire_bans_loop():
+
+    while True:
+
+        try:
+
+            conn = db()
+            cur = conn.cursor()
+
+            now_text = datetime.now().isoformat()
+
+            cur.execute("""
+                UPDATE users
+                SET ban_until = NULL,
+                    ban_reason = NULL
+                WHERE ban_until IS NOT NULL
+                  AND ban_until <= ?
+            """, (
+                now_text,
+            ))
+
+            conn.commit()
+            conn.close()
+
+        except Exception as e:
+
+            print(
+                f"Ban expiration error: {e}"
+            )
+
+        await asyncio.sleep(30)
+
+
+async def post_init(application):
+
+    application.bot_data["ban_expiration_task"] = (
+        asyncio.create_task(
+            expire_bans_loop()
+        )
+    )
+
+
+async def post_shutdown(application):
+
+    task = application.bot_data.get(
+        "ban_expiration_task"
+    )
+
+    if task:
+
+        task.cancel()
+
+        try:
+            await task
+
+        except asyncio.CancelledError:
+            pass
+
+
 # =========================================================
 # ANONYMOUS MESSAGES
 # =========================================================
 
-def save_anonymous_message(sender_id, receiver_id, message_text):
+def save_anonymous_message(
+    sender_id,
+    receiver_id,
+    message_text
+):
 
     conn = db()
     cur = conn.cursor()
@@ -644,7 +840,9 @@ def get_anonymous_message(message_id):
             seen_at
         FROM anonymous_messages
         WHERE id = ?
-    """, (message_id,))
+    """, (
+        message_id,
+    ))
 
     row = cur.fetchone()
 
@@ -653,7 +851,10 @@ def get_anonymous_message(message_id):
     return row
 
 
-def mark_message_as_seen(message_id, receiver_id):
+def mark_message_as_seen(
+    message_id,
+    receiver_id
+):
 
     conn = db()
     cur = conn.cursor()
@@ -671,10 +872,12 @@ def mark_message_as_seen(message_id, receiver_id):
     row = cur.fetchone()
 
     if not row:
+
         conn.close()
         return False
 
     if row[0]:
+
         conn.close()
         return False
 
@@ -699,7 +902,10 @@ def mark_message_as_seen(message_id, receiver_id):
 # BLOCK SYSTEM
 # =========================================================
 
-def is_blocked(blocker_id, blocked_id):
+def is_blocked(
+    blocker_id,
+    blocked_id
+):
 
     conn = db()
     cur = conn.cursor()
@@ -721,7 +927,10 @@ def is_blocked(blocker_id, blocked_id):
     return result is not None
 
 
-def block_user(blocker_id, blocked_id):
+def block_user(
+    blocker_id,
+    blocked_id
+):
 
     if blocker_id == blocked_id:
         return False
@@ -740,6 +949,7 @@ def block_user(blocker_id, blocked_id):
     ))
 
     if cur.fetchone():
+
         conn.close()
         return False
 
@@ -764,7 +974,10 @@ def block_user(blocker_id, blocked_id):
     return True
 
 
-def unblock_by_code(user_id, code):
+def unblock_by_code(
+    user_id,
+    code
+):
 
     code = code.strip().lower()
 
@@ -784,6 +997,7 @@ def unblock_by_code(user_id, code):
     row = cur.fetchone()
 
     if not row:
+
         conn.close()
         return False
 
@@ -816,7 +1030,9 @@ def get_block_list(user_id):
             ON users.user_id = blocks.blocked_id
         WHERE blocks.blocker_id = ?
         ORDER BY blocks.rowid DESC
-    """, (user_id,))
+    """, (
+        user_id,
+    ))
 
     rows = cur.fetchall()
 
@@ -850,6 +1066,7 @@ def find_user_by_input(text):
         row = cur.fetchone()
 
         if row:
+
             conn.close()
             return row
 
@@ -877,7 +1094,11 @@ def find_user_by_input(text):
 # CHANNEL MEMBERSHIP
 # =========================================================
 
-async def check_channel_member(bot, channel, user_id):
+async def check_channel_member(
+    bot,
+    channel,
+    user_id
+):
 
     try:
 
@@ -901,7 +1122,10 @@ async def check_channel_member(bot, channel, user_id):
         return False
 
 
-async def is_member(bot, user_id):
+async def is_member(
+    bot,
+    user_id
+):
 
     first = await check_channel_member(
         bot,
@@ -937,7 +1161,11 @@ def main_reply_keyboard():
 def back_reply_keyboard():
 
     return ReplyKeyboardMarkup(
-        [[KeyboardButton("بازگشت 🔙")]],
+        [[
+            KeyboardButton(
+                "بازگشت 🔙"
+            )
+        ]],
         resize_keyboard=True
     )
 
@@ -998,7 +1226,7 @@ def main_keyboard():
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
-                "دریافت لینک ناشناس 🔗",
+                "دریافت لینک اختصاصی 🔗",
                 callback_data="copy_link",
                 style="success"
             )
@@ -1056,7 +1284,10 @@ def name_settings_keyboard():
 # ANONYMOUS MESSAGE BUTTONS
 # =========================================================
 
-def anonymous_message_keyboard(message_id, sender_id):
+def anonymous_message_keyboard(
+    message_id,
+    sender_id
+):
 
     return InlineKeyboardMarkup([
 
@@ -1077,8 +1308,7 @@ def anonymous_message_keyboard(message_id, sender_id):
         [
             InlineKeyboardButton(
                 "مشاهده شد 👁️",
-                callback_data=f"seen:{message_id}",
-                style="success"
+                callback_data=f"seen:{message_id}"
             )
         ],
 
@@ -1097,7 +1327,10 @@ def anonymous_message_keyboard(message_id, sender_id):
 # JOIN MESSAGE
 # =========================================================
 
-async def send_join_message(update, context):
+async def send_join_message(
+    update,
+    context
+):
 
     text = (
         "درود و عرض ادب ! 👋\n"
@@ -1127,7 +1360,10 @@ async def send_join_message(update, context):
 # MAIN PANEL
 # =========================================================
 
-async def send_main_panel(update, context):
+async def send_main_panel(
+    update,
+    context
+):
 
     text = (
         "درود! به پنل شیشه ای ربات خوش اومدی.⚡\n"
@@ -1171,7 +1407,10 @@ async def send_main_panel(update, context):
 # START
 # =========================================================
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     user = update.effective_user
 
@@ -1184,11 +1423,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user.full_name
     )
 
-    if user.id != ADMIN_ID and is_user_banned(user.id):
+    if (
+        user.id != ADMIN_ID
+        and is_user_banned(user.id)
+    ):
+
+        current_user = get_user(user.id)
+
+        reason = (
+            current_user[8]
+            if current_user and len(current_user) > 8
+            else None
+        )
+
+        if not reason:
+            reason = "توسط مدیریت ربات"
 
         await update.message.reply_text(
-            "حساب کاربری شما به مدت 1 روز مسدود شده است.🟡\n\n"
-            "علت : توسط کاربر گزارش شده اید و مورد بررسی قرار گرفته اید"
+            "حساب کاربری شما مسدود شده است.🟡\n"
+            f"علت : {reason}"
         )
 
         return
@@ -1197,7 +1450,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         target_code = context.args[0]
 
-        target = get_user_by_link(target_code)
+        target = get_user_by_link(
+            target_code
+        )
 
         if not target:
 
@@ -1292,7 +1547,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # BROADCAST
 # =========================================================
 
-async def broadcast_command(update, context):
+async def broadcast_command(
+    update,
+    context
+):
 
     user = update.effective_user
 
@@ -1310,15 +1568,83 @@ async def broadcast_command(update, context):
     )
 
 
-async def cancel_command(update, context):
+# =========================================================
+# USER BAN LIST
+# =========================================================
+
+async def userban_command(
+    update,
+    context
+):
+
+    user = update.effective_user
+
+    if user.id != ADMIN_ID:
+        return
+
+    banned_users = get_active_banned_users()
+
+    if not banned_users:
+
+        await update.message.reply_text(
+            "🟢 در حال حاضر هیچ کاربری بن نیست."
+        )
+
+        return
+
+    parts = []
+
+    for row in banned_users:
+
+        user_id = row[0]
+        username = row[1]
+        ban_code = row[2]
+
+        if username:
+            user_identifier = f"@{username}"
+        else:
+            user_identifier = str(user_id)
+
+        parts.append(
+            "کاربر با آیدی : "
+            f"{user_identifier}\n\n"
+            "کد رفع بنی : "
+            f"{ban_code}"
+        )
+
+    text = (
+        "\n\n"
+        "________________________________\n\n"
+    ).join(parts)
+
+    await update.message.reply_text(
+        text
+    )
+
+
+# =========================================================
+# CANCEL
+# =========================================================
+
+async def cancel_command(
+    update,
+    context
+):
 
     if update.effective_user.id != ADMIN_ID:
+
+        context.user_data.clear()
+
+        await update.message.reply_text(
+            "❌ عملیات لغو شد."
+        )
+
         return
 
     context.user_data.clear()
 
     await update.message.reply_text(
-        "❌ ارسال پیام همگانی لغو شد."
+        "❌ عملیات لغو شد."
     )
 
 
@@ -1326,7 +1652,10 @@ async def cancel_command(update, context):
 # SHOW LINK
 # =========================================================
 
-async def show_link(update, context):
+async def show_link(
+    update,
+    context
+):
 
     user = update.effective_user
 
@@ -1360,11 +1689,16 @@ async def show_link(update, context):
 # NAME SETTINGS
 # =========================================================
 
-async def name_settings(update, context):
+async def name_settings(
+    update,
+    context
+):
 
     user = update.effective_user
 
-    current_name = get_display_name(user.id)
+    current_name = get_display_name(
+        user.id
+    )
 
     text = (
         "⚙️ تنظیمات نام\n\n"
@@ -1379,7 +1713,10 @@ async def name_settings(update, context):
     )
 
 
-async def change_name(update, context):
+async def change_name(
+    update,
+    context
+):
 
     context.user_data.clear()
 
@@ -1403,7 +1740,10 @@ async def change_name(update, context):
 # ADS
 # =========================================================
 
-async def ads_page(update, context):
+async def ads_page(
+    update,
+    context
+):
 
     text = (
         "📢 تبلیغات فعال نیست.\n\n"
@@ -1420,11 +1760,16 @@ async def ads_page(update, context):
 # BLOCK LIST
 # =========================================================
 
-async def block_list_page(update, context):
+async def block_list_page(
+    update,
+    context
+):
 
     user = update.effective_user
 
-    rows = get_block_list(user.id)
+    rows = get_block_list(
+        user.id
+    )
 
     if not rows:
 
@@ -1469,7 +1814,10 @@ async def block_list_page(update, context):
 # HELP
 # =========================================================
 
-async def help_page(update, context):
+async def help_page(
+    update,
+    context
+):
 
     text = (
         "🤔 راهنمای گلدن چت\n\n"
@@ -1493,7 +1841,10 @@ async def help_page(update, context):
 # BUTTON HANDLER
 # =========================================================
 
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def button_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     query = update.callback_query
 
@@ -1503,8 +1854,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user = query.from_user
     user_id = user.id
-
-    await query.answer()
 
     # =====================================================
     # CHECK JOIN
@@ -1517,6 +1866,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_id
         ):
 
+            await query.answer()
+
             context.user_data.clear()
 
             await send_main_panel(
@@ -1527,16 +1878,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
 
             await query.answer(
-                "هنوز توی همه کانالا عضو نشدی🤠💔",
+                "هنوز توی «همه کانالا عضو نشدی🤠💔»",
                 show_alert=True
             )
-
-            try:
-                await query.message.reply_text(
-                    "هنوز توی همه کانالا عضو نشدی🤠💔"
-                )
-            except TelegramError:
-                pass
 
         return
 
@@ -1545,6 +1889,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # =====================================================
 
     if data == "back_main":
+
+        await query.answer()
 
         context.user_data.clear()
 
@@ -1573,6 +1919,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "cancel_send":
 
+        await query.answer()
+
         context.user_data.clear()
 
         await query.edit_message_text(
@@ -1588,6 +1936,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "copy_link":
 
+        await query.answer()
+
         await show_link(
             update,
             context
@@ -1600,6 +1950,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # =====================================================
 
     if data == "name_settings":
+
+        await query.answer()
 
         await name_settings(
             update,
@@ -1614,6 +1966,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "change_name":
 
+        await query.answer()
+
         await change_name(
             update,
             context
@@ -1626,6 +1980,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # =====================================================
 
     if data == "ads":
+
+        await query.answer()
 
         await ads_page(
             update,
@@ -1640,6 +1996,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "block_list":
 
+        await query.answer()
+
         await block_list_page(
             update,
             context
@@ -1652,6 +2010,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # =====================================================
 
     if data == "help":
+
+        await query.answer()
 
         await help_page(
             update,
@@ -1746,22 +2106,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 show_alert=True
             )
 
-        # دکمه‌ها عمداً باقی می‌مانند
-        try:
-
-            await query.edit_message_reply_markup(
-                reply_markup=anonymous_message_keyboard(
-                    message_id,
-                    sender_id
-                )
-            )
-
-        except TelegramError as e:
-
-            print(
-                f"Seen keyboard error: {e}"
-            )
-
+        # دکمه‌ها عمداً حذف نمی‌شوند
         return
 
     # =====================================================
@@ -1811,33 +2156,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             return
 
-        was_seen = mark_message_as_seen(
-            message_id,
-            user_id
-        )
-
-        if was_seen:
-
-            receiver_name = get_display_name(
-                user_id
-            )
-
-            try:
-
-                await context.bot.send_message(
-                    chat_id=sender_id,
-                    text=(
-                        f"پیام شما توسط کاربر "
-                        f"{receiver_name} مشاهده شد. 👁️"
-                    )
-                )
-
-            except TelegramError as e:
-
-                print(
-                    f"Seen notification error: {e}"
-                )
-
         if is_blocked(
             user_id,
             sender_id
@@ -1849,6 +2167,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
             return
+
+        await query.answer()
 
         context.user_data.clear()
 
@@ -1899,6 +2219,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         if success:
+
+            await query.answer(
+                "کاربر با موفقیت بلاک شد 🛑",
+                show_alert=True
+            )
 
             await query.edit_message_text(
                 "🔴 کاربر با موفقیت بلاک شد.",
@@ -1962,33 +2287,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             return
 
-        was_seen = mark_message_as_seen(
-            message_id,
-            user_id
-        )
-
-        if was_seen:
-
-            receiver_name = get_display_name(
-                user_id
-            )
-
-            try:
-
-                await context.bot.send_message(
-                    chat_id=sender_id,
-                    text=(
-                        f"پیام شما توسط کاربر "
-                        f"{receiver_name} مشاهده شد. 👁️"
-                    )
-                )
-
-            except TelegramError as e:
-
-                print(
-                    f"Seen notification error: {e}"
-                )
-
         reported_user = get_user(
             sender_id
         )
@@ -2044,7 +2342,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 show_alert=True
             )
 
-            # دکمه‌های پیام اصلی حذف نمی‌شوند
             await query.message.reply_text(
                 "🚨 گزارش تخلف شما با موفقیت ثبت شد.\n"
                 "گزارش برای مدیریت ارسال شد."
@@ -2085,10 +2382,125 @@ async def handle_message(
         return
 
     # =====================================================
-    # ADMIN BAN
+    # ADMIN BAN CODE
     # =====================================================
 
     if user.id == ADMIN_ID:
+
+        # -------------------------------------------------
+        # اگر قبلاً کد بن وارد شده و الان منتظر علت هستیم
+        # -------------------------------------------------
+
+        if context.user_data.get(
+            "waiting_ban_reason"
+        ):
+
+            if text.lower() == "/cancel":
+
+                context.user_data.clear()
+
+                await message.reply_text(
+                    "❌ عملیات بن لغو شد."
+                )
+
+                return
+
+            ban_code = context.user_data.get(
+                "ban_code"
+            )
+
+            target_user_id = context.user_data.get(
+                "ban_target_id"
+            )
+
+            if not ban_code or not target_user_id:
+
+                context.user_data.clear()
+
+                await message.reply_text(
+                    "❌ اطلاعات بن پیدا نشد."
+                )
+
+                return
+
+            reason = text.strip()
+
+            if not reason:
+
+                await message.reply_text(
+                    "❌ علت بن نمی‌تواند خالی باشد.\n"
+                    "علت بنی را وارد کنید :"
+                )
+
+                return
+
+            banned_user_id = ban_user_by_code(
+                ban_code,
+                reason
+            )
+
+            if not banned_user_id:
+
+                context.user_data.clear()
+
+                await message.reply_text(
+                    "❌ کد بن پیدا نشد."
+                )
+
+                return
+
+            # مطمئن می‌شویم همان کاربری که کدش وارد شده بن شده
+            if banned_user_id != target_user_id:
+
+                context.user_data.clear()
+
+                await message.reply_text(
+                    "❌ خطایی در اطلاعات بن رخ داد."
+                )
+
+                return
+
+            banned_user = get_user(
+                banned_user_id
+            )
+
+            ban_until_text = None
+
+            if banned_user:
+                ban_until_text = banned_user[7]
+
+            context.user_data.clear()
+
+            # ارسال پیام بن برای کاربر
+            try:
+
+                await context.bot.send_message(
+                    chat_id=banned_user_id,
+                    text=(
+                        "حساب کاربری شما مسدود شده است.🟡\n"
+                        f"علت : {reason}"
+                    )
+                )
+
+            except TelegramError as e:
+
+                print(
+                    f"Ban notification error: {e}"
+                )
+
+            await message.reply_text(
+                "🔴 کاربر با موفقیت به مدت ۱ روز بن شد.\n\n"
+                f"آیدی عددی کاربر : {banned_user_id}\n"
+                f"علت بن : {reason}\n\n"
+                f"کد رفع بن : {ban_code}"
+            )
+
+            return
+
+        # -------------------------------------------------
+        # BAN COMMAND
+        # /ban_xxxxxxxx
+        # -------------------------------------------------
 
         if text.lower().startswith("/ban_"):
 
@@ -2102,11 +2514,23 @@ async def handle_message(
 
                 return
 
-            banned_user_id = ban_user_by_code(
-                code
-            )
+            # پیدا کردن کاربر قبل از درخواست علت
+            conn = db()
+            cur = conn.cursor()
 
-            if not banned_user_id:
+            cur.execute("""
+                SELECT user_id
+                FROM users
+                WHERE lower(ban_code) = ?
+            """, (
+                code.lower(),
+            ))
+
+            row = cur.fetchone()
+
+            conn.close()
+
+            if not row:
 
                 await message.reply_text(
                     "❌ کد بن پیدا نشد."
@@ -2114,12 +2538,33 @@ async def handle_message(
 
                 return
 
+            target_user_id = row[0]
+
+            # اگر خود ادمین باشد
+            if target_user_id == ADMIN_ID:
+
+                await message.reply_text(
+                    "❌ نمی‌توانی خودت را بن کنی."
+                )
+
+                return
+
+            context.user_data.clear()
+
+            context.user_data["waiting_ban_reason"] = True
+            context.user_data["ban_code"] = code
+            context.user_data["ban_target_id"] = target_user_id
+
             await message.reply_text(
-                "🔴 کاربر با موفقیت به مدت ۱ روز بن شد.\n\n"
-                f"آیدی عددی کاربر : {banned_user_id}"
+                "علت بنی را وارد کنید :"
             )
 
             return
+
+        # -------------------------------------------------
+        # UNBAN COMMAND
+        # /unban_xxxxxxxx
+        # -------------------------------------------------
 
         if text.lower().startswith("/unban_"):
 
@@ -2149,6 +2594,22 @@ async def handle_message(
                 "🟢 بن کاربر با موفقیت رفع شد.\n\n"
                 f"آیدی عددی کاربر : {unbanned_user_id}"
             )
+
+            try:
+
+                await context.bot.send_message(
+                    chat_id=unbanned_user_id,
+                    text=(
+                        "🟢 حساب کاربری شما از حالت بن خارج شد.\n"
+                        "اکنون می‌توانید دوباره از ربات استفاده کنید."
+                    )
+                )
+
+            except TelegramError as e:
+
+                print(
+                    f"Unban notification error: {e}"
+                )
 
             return
 
@@ -2193,11 +2654,27 @@ async def handle_message(
     # BAN CHECK
     # =====================================================
 
-    if user.id != ADMIN_ID and is_user_banned(user.id):
+    if (
+        user.id != ADMIN_ID
+        and is_user_banned(user.id)
+    ):
+
+        current_user = get_user(
+            user.id
+        )
+
+        reason = (
+            current_user[8]
+            if current_user and len(current_user) > 8
+            else None
+        )
+
+        if not reason:
+            reason = "توسط مدیریت ربات"
 
         await message.reply_text(
-            "حساب کاربری شما به مدت 1 روز مسدود شده است.🟡\n\n"
-            "علت : توسط کاربر گزارش شده اید و مورد بررسی قرار گرفته اید"
+            "حساب کاربری شما مسدود شده است.🟡\n"
+            f"علت : {reason}"
         )
 
         return
@@ -2257,9 +2734,13 @@ async def handle_message(
     # WAITING TARGET
     # =====================================================
 
-    if context.user_data.get("waiting_target"):
+    if context.user_data.get(
+        "waiting_target"
+    ):
 
-        found = find_user_by_input(text)
+        found = find_user_by_input(
+            text
+        )
 
         if not found:
 
@@ -2297,7 +2778,9 @@ async def handle_message(
     # =====================================================
 
     if (
-        context.user_data.get("waiting_broadcast")
+        context.user_data.get(
+            "waiting_broadcast"
+        )
         and user.id == ADMIN_ID
     ):
 
@@ -2344,7 +2827,9 @@ async def handle_message(
     # CHANGE NAME
     # =====================================================
 
-    if context.user_data.get("changing_name"):
+    if context.user_data.get(
+        "changing_name"
+    ):
 
         if len(text) > 50:
 
@@ -2374,7 +2859,9 @@ async def handle_message(
     # REPLY
     # =====================================================
 
-    if context.user_data.get("replying"):
+    if context.user_data.get(
+        "replying"
+    ):
 
         anonymous_message_id = context.user_data.get(
             "reply_message_id"
@@ -2384,7 +2871,10 @@ async def handle_message(
             "reply_sender_id"
         )
 
-        if not anonymous_message_id or not sender_id:
+        if (
+            not anonymous_message_id
+            or not sender_id
+        ):
 
             context.user_data.clear()
 
@@ -2483,7 +2973,9 @@ async def handle_message(
     # SEND ANONYMOUS MESSAGE
     # =====================================================
 
-    if context.user_data.get("sending_anonymous"):
+    if context.user_data.get(
+        "sending_anonymous"
+    ):
 
         target_id = context.user_data.get(
             "target_id"
@@ -2531,7 +3023,9 @@ async def handle_message(
             message_text=text
         )
 
-        row = get_user(user.id)
+        row = get_user(
+            user.id
+        )
 
         anon_code = (
             row[4]
@@ -2595,7 +3089,10 @@ async def handle_message(
 # ERROR HANDLER
 # =========================================================
 
-async def error_handler(update, context):
+async def error_handler(
+    update,
+    context
+):
 
     print(
         "BOT ERROR:",
@@ -2621,8 +3118,14 @@ def main():
         Application
         .builder()
         .token(BOT_TOKEN)
+        .post_init(post_init)
+        .post_shutdown(post_shutdown)
         .build()
     )
+
+    # =====================================================
+    # COMMANDS
+    # =====================================================
 
     application.add_handler(
         CommandHandler(
@@ -2640,16 +3143,31 @@ def main():
 
     application.add_handler(
         CommandHandler(
+            "userban",
+            userban_command
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
             "cancel",
             cancel_command
         )
     )
+
+    # =====================================================
+    # CALLBACKS
+    # =====================================================
 
     application.add_handler(
         CallbackQueryHandler(
             button_handler
         )
     )
+
+    # =====================================================
+    # TEXT
+    # =====================================================
 
     application.add_handler(
         MessageHandler(
