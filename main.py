@@ -9,6 +9,8 @@ from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
     ChatMember,
 )
 from telegram.ext import (
@@ -306,6 +308,37 @@ async def is_member(bot, user_id):
     return first and second
 
 
+
+def main_reply_keyboard():
+    return ReplyKeyboardMarkup(
+        [[KeyboardButton("ارسال پیام ناشناس به کاربر دلخواه")]],
+        resize_keyboard=True
+    )
+
+
+def back_reply_keyboard():
+    return ReplyKeyboardMarkup(
+        [[KeyboardButton("بازگشت 🔙")]],
+        resize_keyboard=True
+    )
+
+
+def find_user_by_input(text):
+    conn = db()
+    cur = conn.cursor()
+    if text.isdigit():
+        cur.execute("SELECT user_id, full_name, display_name FROM users WHERE user_id = ?", (int(text),))
+        row = cur.fetchone()
+        if row:
+            conn.close()
+            return row
+    username = text.lstrip("@").lower()
+    cur.execute("SELECT user_id, full_name, display_name FROM users WHERE lower(username) = ?", (username,))
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
 def join_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("چنل 1 : کانال رسمی گلدن چت", url=CHANNEL_1_URL)],
@@ -373,10 +406,13 @@ async def send_main_panel(update, context):
         "میتونی با پنل شیشه‌ای زیر از قابلیت‌های ربات ما استفاده کنی:"
     )
     keyboard = main_keyboard()
+    reply_kb = main_reply_keyboard()
     if update.message:
         await update.message.reply_text(text, reply_markup=keyboard)
+        await update.message.reply_text("منوی پایین:", reply_markup=reply_kb)
     elif update.callback_query:
         await update.callback_query.edit_message_text(text, reply_markup=keyboard)
+        await update.callback_query.message.reply_text("منوی پایین:", reply_markup=reply_kb)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -649,6 +685,48 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_member(context.bot, user.id):
         await send_join_message(update, context)
         return
+
+    # دکمه کیبورد پایین
+    if text == "ارسال پیام ناشناس به کاربر دلخواه":
+        context.user_data.clear()
+        context.user_data["waiting_target"] = True
+        await message.reply_text(
+            "آیدی کاربر یا آیدی عددی کاربر رو بفرست.\n"
+            "در صورت عضو بودن در ربات میتونی به صورت ناشناس براش پیام ارسال کنی ⚡\n\n"
+            "آیدی یا آیدی عددی کاربر رو بفرست :",
+            reply_markup=back_reply_keyboard()
+        )
+        return
+
+    if text == "بازگشت 🔙":
+        context.user_data.clear()
+        await send_main_panel(update, context)
+        return
+
+    if context.user_data.get("waiting_target"):
+        found = find_user_by_input(text)
+        if not found:
+            await message.reply_text(
+                "کاربر توی ربات ما عضو نیست ❌\n"
+                "پس نمیتونی براش پیام بفرستی."
+            )
+            return
+
+        target_id = found[0]
+        if target_id == user.id:
+            await message.reply_text("نمی تونی به خودت پیام بفرستی.")
+            return
+
+        context.user_data.clear()
+        context.user_data["target_id"] = target_id
+        context.user_data["sending_anonymous"] = True
+
+        await message.reply_text(
+            "کاربر توی ربات عضو هست. ✅\n"
+            "حالا پیامت رو بنویس تا براش بفرستم :"
+        )
+        return
+
 
     if context.user_data.get("waiting_broadcast") and user.id == ADMIN_ID:
         users = get_all_user_ids()
