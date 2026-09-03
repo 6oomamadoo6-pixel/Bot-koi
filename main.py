@@ -22,6 +22,7 @@ from telegram.ext import (
     MessageHandler,
     CallbackQueryHandler,
     ContextTypes,
+    ChatMemberHandler,
     filters,
 )
 from telegram.error import TelegramError
@@ -41,33 +42,31 @@ CHANNEL_1_URL = "https://t.me/hidemychatRobot0"
 CHANNEL_2 = "@DoNi0r"
 CHANNEL_2_URL = "https://t.me/DoNi0r"
 
-
-# =========================================================
-# POSTGRESQL
-# =========================================================
-
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-if not DATABASE_URL:
-    raise RuntimeError(
-        "DATABASE_URL environment variable is not set."
-    )
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN environment variable is not set.")
 
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL environment variable is not set.")
 
 DB_POOL = None
+GLOBAL_BOT = None
 
+
+# =========================================================
+# DATABASE
+# =========================================================
 
 def create_db_pool():
     global DB_POOL
 
-    if DB_POOL is not None:
-        return
-
-    DB_POOL = psycopg2.pool.SimpleConnectionPool(
-        1,
-        10,
-        dsn=DATABASE_URL
-    )
+    if DB_POOL is None:
+        DB_POOL = psycopg2.pool.SimpleConnectionPool(
+            1,
+            10,
+            dsn=DATABASE_URL
+        )
 
 
 def db():
@@ -84,20 +83,11 @@ def release_db(conn):
         DB_POOL.putconn(conn)
 
 
-# =========================================================
-# DATABASE INIT
-# =========================================================
-
 def init_db():
-
     conn = db()
 
     try:
         cur = conn.cursor()
-
-        # =================================================
-        # USERS
-        # =================================================
 
         cur.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -114,10 +104,6 @@ def init_db():
             )
         """)
 
-        # =================================================
-        # BLOCKS
-        # =================================================
-
         cur.execute("""
             CREATE TABLE IF NOT EXISTS blocks (
                 blocker_id BIGINT NOT NULL,
@@ -127,10 +113,6 @@ def init_db():
                 PRIMARY KEY (blocker_id, blocked_id)
             )
         """)
-
-        # =================================================
-        # ANONYMOUS MESSAGES
-        # =================================================
 
         cur.execute("""
             CREATE TABLE IF NOT EXISTS anonymous_messages (
@@ -143,10 +125,6 @@ def init_db():
             )
         """)
 
-        # =================================================
-        # REACTIONS
-        # =================================================
-
         cur.execute("""
             CREATE TABLE IF NOT EXISTS message_reactions (
                 id BIGSERIAL PRIMARY KEY,
@@ -158,9 +136,38 @@ def init_db():
             )
         """)
 
-        # =================================================
+        # GROUPS
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS group_chats (
+                chat_id BIGINT PRIMARY KEY,
+                title TEXT,
+                link_code TEXT UNIQUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS group_messages (
+                id BIGSERIAL PRIMARY KEY,
+                group_id BIGINT NOT NULL,
+                sender_id BIGINT NOT NULL,
+                message_text TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                view_count INTEGER DEFAULT 0
+            )
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS group_message_views (
+                message_id BIGINT NOT NULL,
+                viewer_id BIGINT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (message_id, viewer_id)
+            )
+        """)
+
         # SAFE MIGRATIONS
-        # =================================================
 
         cur.execute("""
             ALTER TABLE users
@@ -203,9 +210,7 @@ def init_db():
             ADD COLUMN IF NOT EXISTS seen_at TIMESTAMP
         """)
 
-        # =================================================
         # INDEXES
-        # =================================================
 
         cur.execute("""
             CREATE INDEX IF NOT EXISTS idx_users_username
@@ -242,6 +247,16 @@ def init_db():
             ON message_reactions(message_id)
         """)
 
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_group_messages_group
+            ON group_messages(group_id)
+        """)
+
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_group_views_message
+            ON group_message_views(message_id)
+        """)
+
         conn.commit()
 
     finally:
@@ -249,30 +264,22 @@ def init_db():
         release_db(conn)
 
     fill_missing_codes()
+    fill_missing_group_codes()
 
 
 # =========================================================
-# CODE GENERATORS
+# GENERATORS
 # =========================================================
 
 def generate_code(length=8):
-
     chars = string.ascii_lowercase + string.digits
-
-    return "".join(
-        random.choices(chars, k=length)
-    )
+    return "".join(random.choices(chars, k=length))
 
 
 def generate_anon_code():
-
     while True:
-
         code = "".join(
-            random.choices(
-                string.digits,
-                k=7
-            )
+            random.choices(string.digits, k=7)
         )
 
         conn = db()
@@ -300,9 +307,7 @@ def generate_anon_code():
 
 
 def generate_unblock_code():
-
     while True:
-
         code = generate_code(8)
 
         conn = db()
@@ -330,9 +335,7 @@ def generate_unblock_code():
 
 
 def generate_ban_code():
-
     while True:
-
         code = generate_code(8)
 
         conn = db()
@@ -359,12 +362,39 @@ def generate_ban_code():
             return code
 
 
+def generate_group_code():
+    while True:
+        code = generate_code(10)
+
+        conn = db()
+
+        try:
+            cur = conn.cursor()
+
+            cur.execute(
+                """
+                SELECT 1
+                FROM group_chats
+                WHERE link_code = %s
+                """,
+                (code,)
+            )
+
+            exists = cur.fetchone()
+
+        finally:
+            cur.close()
+            release_db(conn)
+
+        if not exists:
+            return code
+
+
 # =========================================================
-# FILL MISSING CODES
+# FILL CODES
 # =========================================================
 
 def fill_missing_codes():
-
     conn = db()
 
     try:
@@ -384,7 +414,6 @@ def fill_missing_codes():
         release_db(conn)
 
     for row in rows:
-
         user_id = row[0]
         code = generate_ban_code()
 
@@ -399,10 +428,7 @@ def fill_missing_codes():
                 SET ban_code = %s
                 WHERE user_id = %s
                 """,
-                (
-                    code,
-                    user_id
-                )
+                (code, user_id)
             )
 
             conn.commit()
@@ -430,7 +456,6 @@ def fill_missing_codes():
         release_db(conn)
 
     for blocker_id, blocked_id in rows:
-
         code = generate_unblock_code()
 
         conn = db()
@@ -459,6 +484,49 @@ def fill_missing_codes():
             release_db(conn)
 
 
+def fill_missing_group_codes():
+    conn = db()
+
+    try:
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT chat_id
+            FROM group_chats
+            WHERE link_code IS NULL
+               OR link_code = ''
+        """)
+
+        rows = cur.fetchall()
+
+    finally:
+        cur.close()
+        release_db(conn)
+
+    for (chat_id,) in rows:
+        code = generate_group_code()
+
+        conn = db()
+
+        try:
+            cur = conn.cursor()
+
+            cur.execute(
+                """
+                UPDATE group_chats
+                SET link_code = %s
+                WHERE chat_id = %s
+                """,
+                (code, chat_id)
+            )
+
+            conn.commit()
+
+        finally:
+            cur.close()
+            release_db(conn)
+
+
 # =========================================================
 # USERS
 # =========================================================
@@ -468,19 +536,14 @@ def get_or_create_user(
     username,
     full_name
 ):
-
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         cur.execute(
             """
-            SELECT
-                link_code,
-                anon_code,
-                ban_code
+            SELECT link_code, anon_code, ban_code
             FROM users
             WHERE user_id = %s
             """,
@@ -490,7 +553,6 @@ def get_or_create_user(
         row = cur.fetchone()
 
         if row:
-
             link_code = row[0]
             anon_code = row[1]
             ban_code = row[2]
@@ -565,11 +627,9 @@ def get_or_create_user(
 
 
 def get_user(user_id):
-
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         cur.execute(
@@ -598,11 +658,9 @@ def get_user(user_id):
 
 
 def get_user_by_link(link_code):
-
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         cur.execute(
@@ -626,18 +684,14 @@ def get_user_by_link(link_code):
 
 
 def get_display_name(user_id):
-
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         cur.execute(
             """
-            SELECT
-                display_name,
-                full_name
+            SELECT display_name, full_name
             FROM users
             WHERE user_id = %s
             """,
@@ -656,15 +710,10 @@ def get_display_name(user_id):
     return row[0] or row[1] or "کاربر"
 
 
-def set_display_name(
-    user_id,
-    name
-):
-
+def set_display_name(user_id, name):
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         cur.execute(
@@ -673,10 +722,7 @@ def set_display_name(
             SET display_name = %s
             WHERE user_id = %s
             """,
-            (
-                name,
-                user_id
-            )
+            (name, user_id)
         )
 
         conn.commit()
@@ -687,11 +733,9 @@ def set_display_name(
 
 
 def get_all_user_ids():
-
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         cur.execute("""
@@ -706,18 +750,13 @@ def get_all_user_ids():
         cur.close()
         release_db(conn)
 
-    return [
-        row[0]
-        for row in rows
-    ]
+    return [row[0] for row in rows]
 
 
 def get_all_users():
-
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         cur.execute("""
@@ -739,22 +778,15 @@ def get_all_users():
         release_db(conn)
 
 
-# =========================================================
-# FIND USER
-# =========================================================
-
 def find_user_by_input(text):
-
     text = text.strip()
 
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         if text.isdigit():
-
             cur.execute(
                 """
                 SELECT
@@ -794,15 +826,13 @@ def find_user_by_input(text):
 
 
 # =========================================================
-# BAN SYSTEM
+# BAN
 # =========================================================
 
 def get_ban_code(user_id):
-
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         cur.execute(
@@ -831,7 +861,6 @@ def get_ban_code(user_id):
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         cur.execute(
@@ -857,15 +886,14 @@ def get_ban_code(user_id):
 
 def ban_user_by_code(
     code,
-    reason
+    reason,
+    duration_days
 ):
-
     code = code.strip().lower()
 
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         cur.execute(
@@ -884,7 +912,10 @@ def ban_user_by_code(
 
         user_id = row[0]
 
-        ban_until = datetime.now() + timedelta(days=1)
+        ban_until = (
+            datetime.now()
+            + timedelta(days=duration_days)
+        )
 
         cur.execute(
             """
@@ -902,7 +933,7 @@ def ban_user_by_code(
 
         conn.commit()
 
-        return user_id
+        return user_id, ban_until
 
     finally:
         cur.close()
@@ -910,13 +941,11 @@ def ban_user_by_code(
 
 
 def unban_user_by_code(code):
-
     code = code.strip().lower()
 
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         cur.execute(
@@ -955,18 +984,14 @@ def unban_user_by_code(code):
 
 
 def get_ban_info(user_id):
-
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         cur.execute(
             """
-            SELECT
-                ban_until,
-                ban_reason
+            SELECT ban_until, ban_reason
             FROM users
             WHERE user_id = %s
             """,
@@ -985,7 +1010,6 @@ def get_ban_info(user_id):
     ban_until = row[0]
 
     if isinstance(ban_until, str):
-
         try:
             ban_until = datetime.fromisoformat(
                 ban_until
@@ -994,29 +1018,6 @@ def get_ban_info(user_id):
             return None
 
     if datetime.now() >= ban_until:
-
-        conn = db()
-
-        try:
-
-            cur = conn.cursor()
-
-            cur.execute(
-                """
-                UPDATE users
-                SET ban_until = NULL,
-                    ban_reason = NULL
-                WHERE user_id = %s
-                """,
-                (user_id,)
-            )
-
-            conn.commit()
-
-        finally:
-            cur.close()
-            release_db(conn)
-
         return None
 
     return {
@@ -1026,11 +1027,9 @@ def get_ban_info(user_id):
 
 
 def get_active_banned_users():
-
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         cur.execute("""
@@ -1054,24 +1053,33 @@ def get_active_banned_users():
 
 
 async def expire_bans_loop():
-
     while True:
-
         try:
-
             conn = db()
 
             try:
-
                 cur = conn.cursor()
 
                 cur.execute("""
-                    UPDATE users
-                    SET ban_until = NULL,
-                        ban_reason = NULL
+                    SELECT user_id
+                    FROM users
                     WHERE ban_until IS NOT NULL
                       AND ban_until <= CURRENT_TIMESTAMP
                 """)
+
+                expired = [
+                    row[0]
+                    for row in cur.fetchall()
+                ]
+
+                if expired:
+                    cur.execute("""
+                        UPDATE users
+                        SET ban_until = NULL,
+                            ban_reason = NULL
+                        WHERE ban_until IS NOT NULL
+                          AND ban_until <= CURRENT_TIMESTAMP
+                    """)
 
                 conn.commit()
 
@@ -1079,8 +1087,22 @@ async def expire_bans_loop():
                 cur.close()
                 release_db(conn)
 
-        except Exception as e:
+            for user_id in expired:
+                try:
+                    await GLOBAL_BOT.send_message(
+                        chat_id=user_id,
+                        text=(
+                            "زمان مسدودی حساب کاربری شما تمام شد.\n"
+                            "اکنون حساب کاربری شما به حالت سبز در آمده🟢\n"
+                            "میتوانید از قابلیت های ربات استفاده کنید /start"
+                        )
+                    )
+                except TelegramError as e:
+                    print(
+                        f"Ban expiry notification error: {e}"
+                    )
 
+        except Exception as e:
             print(
                 f"Ban expiration error: {e}"
             )
@@ -1088,42 +1110,8 @@ async def expire_bans_loop():
         await asyncio.sleep(30)
 
 
-async def post_init(application):
-
-    application.bot_data[
-        "ban_expiration_task"
-    ] = asyncio.create_task(
-        expire_bans_loop()
-    )
-
-
-async def post_shutdown(application):
-
-    task = application.bot_data.get(
-        "ban_expiration_task"
-    )
-
-    if task:
-
-        task.cancel()
-
-        try:
-            await task
-
-        except asyncio.CancelledError:
-            pass
-
-    global DB_POOL
-
-    if DB_POOL is not None:
-
-        DB_POOL.closeall()
-
-        DB_POOL = None
-
-
 # =========================================================
-# ANONYMOUS MESSAGES
+# PRIVATE MESSAGES
 # =========================================================
 
 def save_anonymous_message(
@@ -1131,11 +1119,9 @@ def save_anonymous_message(
     receiver_id,
     message_text
 ):
-
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         cur.execute(
@@ -1173,11 +1159,9 @@ def save_anonymous_message(
 
 
 def get_anonymous_message(message_id):
-
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         cur.execute(
@@ -1206,11 +1190,9 @@ def mark_message_as_seen(
     message_id,
     receiver_id
 ):
-
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         cur.execute(
@@ -1240,7 +1222,7 @@ def mark_message_as_seen(
 
 
 # =========================================================
-# REACTION SYSTEM
+# REACTIONS
 # =========================================================
 
 REACTIONS = [
@@ -1260,11 +1242,9 @@ def save_reaction(
     reactor_id,
     reaction
 ):
-
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         cur.execute(
@@ -1306,11 +1286,9 @@ def has_reaction(
     message_id,
     reactor_id
 ):
-
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         cur.execute(
@@ -1336,18 +1314,16 @@ def has_reaction(
 
 
 # =========================================================
-# BLOCK SYSTEM
+# BLOCK
 # =========================================================
 
 def is_blocked(
     blocker_id,
     blocked_id
 ):
-
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         cur.execute(
@@ -1374,7 +1350,6 @@ def block_user(
     blocker_id,
     blocked_id
 ):
-
     if blocker_id == blocked_id:
         return False
 
@@ -1389,7 +1364,6 @@ def block_user(
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         cur.execute(
@@ -1430,13 +1404,11 @@ def unblock_by_code(
     user_id,
     code
 ):
-
     code = code.strip().lower()
 
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         cur.execute(
@@ -1464,11 +1436,9 @@ def unblock_by_code(
 
 
 def get_block_list(user_id):
-
     conn = db()
 
     try:
-
         cur = conn.cursor()
 
         cur.execute(
@@ -1501,9 +1471,7 @@ async def check_channel_member(
     channel,
     user_id
 ):
-
     try:
-
         member = await bot.get_chat_member(
             chat_id=channel,
             user_id=user_id
@@ -1516,11 +1484,9 @@ async def check_channel_member(
         )
 
     except TelegramError as e:
-
         print(
-            f"Membership error {channel} / {user_id}: {e}"
+            f"Membership error {channel}/{user_id}: {e}"
         )
-
         return False
 
 
@@ -1528,7 +1494,6 @@ async def is_member(
     bot,
     user_id
 ):
-
     first = await check_channel_member(
         bot,
         CHANNEL_1,
@@ -1545,35 +1510,306 @@ async def is_member(
 
 
 # =========================================================
+# GROUP DATABASE
+# =========================================================
+
+def save_group_chat(
+    chat_id,
+    title
+):
+    conn = db()
+
+    try:
+        cur = conn.cursor()
+
+        cur.execute(
+            """
+            SELECT link_code
+            FROM group_chats
+            WHERE chat_id = %s
+            """,
+            (chat_id,)
+        )
+
+        row = cur.fetchone()
+
+        if row:
+            link_code = row[0]
+
+            cur.execute(
+                """
+                UPDATE group_chats
+                SET title = %s
+                WHERE chat_id = %s
+                """,
+                (
+                    title,
+                    chat_id
+                )
+            )
+
+        else:
+            link_code = generate_group_code()
+
+            cur.execute(
+                """
+                INSERT INTO group_chats (
+                    chat_id,
+                    title,
+                    link_code
+                )
+                VALUES (
+                    %s, %s, %s
+                )
+                """,
+                (
+                    chat_id,
+                    title,
+                    link_code
+                )
+            )
+
+        conn.commit()
+
+        return link_code
+
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def get_group_by_link(link_code):
+    conn = db()
+
+    try:
+        cur = conn.cursor()
+
+        cur.execute(
+            """
+            SELECT
+                chat_id,
+                title,
+                link_code
+            FROM group_chats
+            WHERE lower(link_code) = %s
+            """,
+            (link_code.strip().lower(),)
+        )
+
+        return cur.fetchone()
+
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def get_all_groups():
+    conn = db()
+
+    try:
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT
+                chat_id,
+                title,
+                link_code
+            FROM group_chats
+            ORDER BY created_at ASC
+        """)
+
+        return cur.fetchall()
+
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def save_group_message(
+    group_id,
+    sender_id,
+    message_text
+):
+    conn = db()
+
+    try:
+        cur = conn.cursor()
+
+        cur.execute(
+            """
+            INSERT INTO group_messages (
+                group_id,
+                sender_id,
+                message_text,
+                created_at,
+                view_count
+            )
+            VALUES (
+                %s, %s, %s, %s, 0
+            )
+            RETURNING id
+            """,
+            (
+                group_id,
+                sender_id,
+                message_text,
+                datetime.now()
+            )
+        )
+
+        message_id = cur.fetchone()[0]
+
+        conn.commit()
+
+        return message_id
+
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def get_group_message(message_id):
+    conn = db()
+
+    try:
+        cur = conn.cursor()
+
+        cur.execute(
+            """
+            SELECT
+                id,
+                group_id,
+                sender_id,
+                message_text,
+                created_at,
+                view_count
+            FROM group_messages
+            WHERE id = %s
+            """,
+            (message_id,)
+        )
+
+        return cur.fetchone()
+
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def add_group_view(
+    message_id,
+    viewer_id
+):
+    conn = db()
+
+    try:
+        cur = conn.cursor()
+
+        cur.execute(
+            """
+            INSERT INTO group_message_views (
+                message_id,
+                viewer_id
+            )
+            VALUES (
+                %s, %s
+            )
+            ON CONFLICT (
+                message_id,
+                viewer_id
+            )
+            DO NOTHING
+            RETURNING message_id
+            """,
+            (
+                message_id,
+                viewer_id
+            )
+        )
+
+        inserted = cur.fetchone() is not None
+
+        if inserted:
+            cur.execute(
+                """
+                UPDATE group_messages
+                SET view_count = view_count + 1
+                WHERE id = %s
+                RETURNING view_count
+                """,
+                (message_id,)
+            )
+
+        else:
+            cur.execute(
+                """
+                SELECT view_count
+                FROM group_messages
+                WHERE id = %s
+                """,
+                (message_id,)
+            )
+
+        row = cur.fetchone()
+
+        view_count = row[0] if row else 0
+
+        conn.commit()
+
+        return inserted, view_count
+
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+async def is_group_member(
+    bot,
+    chat_id,
+    user_id
+):
+    try:
+        member = await bot.get_chat_member(
+            chat_id=chat_id,
+            user_id=user_id
+        )
+
+        return member.status in (
+            ChatMember.MEMBER,
+            ChatMember.ADMINISTRATOR,
+            ChatMember.OWNER
+        )
+
+    except TelegramError as e:
+        print(
+            f"Group membership error: {e}"
+        )
+        return False
+
+
+# =========================================================
 # KEYBOARDS
 # =========================================================
 
 def main_reply_keyboard():
-
     return ReplyKeyboardMarkup(
-        [[
-            KeyboardButton(
-                "ارسال پیام ناشناس به کاربر دلخواه"
-            )
-        ]],
-        resize_keyboard=True
-    )
-
-
-def back_reply_keyboard():
-
-    return ReplyKeyboardMarkup(
-        [[
-            KeyboardButton(
-                "بازگشت 🔙"
-            )
-        ]],
+        [
+            [
+                KeyboardButton(
+                    "ارسال پیام ناشناس به کاربر دلخواه"
+                )
+            ],
+            [
+                KeyboardButton(
+                    "ارسال پیام ناشناس به گروه 👥"
+                )
+            ]
+        ],
         resize_keyboard=True
     )
 
 
 def join_keyboard():
-
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
@@ -1598,7 +1834,6 @@ def join_keyboard():
 
 
 def back_keyboard():
-
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
@@ -1611,7 +1846,6 @@ def back_keyboard():
 
 
 def cancel_keyboard():
-
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
@@ -1624,7 +1858,6 @@ def cancel_keyboard():
 
 
 def main_keyboard():
-
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
@@ -1664,7 +1897,6 @@ def main_keyboard():
 
 
 def name_settings_keyboard():
-
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
@@ -1682,34 +1914,28 @@ def name_settings_keyboard():
     ])
 
 
-# =========================================================
-# ANONYMOUS MESSAGE KEYBOARD
-# =========================================================
-
 def anonymous_message_keyboard(
     message_id,
     sender_id,
     include_reaction=True,
     include_seen=True
 ):
-
-    buttons = []
-
-    buttons.append([
-        InlineKeyboardButton(
-            "پاسخ 🗨️",
-            callback_data=f"reply:{message_id}",
-            style="success"
-        ),
-        InlineKeyboardButton(
-            "بلاک 🛑",
-            callback_data=f"block:{sender_id}",
-            style="danger"
-        )
-    ])
+    buttons = [
+        [
+            InlineKeyboardButton(
+                "پاسخ 🗨️",
+                callback_data=f"reply:{message_id}",
+                style="success"
+            ),
+            InlineKeyboardButton(
+                "بلاک 🛑",
+                callback_data=f"block:{sender_id}",
+                style="danger"
+            )
+        ]
+    ]
 
     if include_seen:
-
         buttons.append([
             InlineKeyboardButton(
                 "مشاهده شد 👁️",
@@ -1727,7 +1953,6 @@ def anonymous_message_keyboard(
     ])
 
     if include_reaction:
-
         buttons.append([
             InlineKeyboardButton(
                 "ری اکشن :)",
@@ -1739,18 +1964,11 @@ def anonymous_message_keyboard(
     return InlineKeyboardMarkup(buttons)
 
 
-# =========================================================
-# REACTION KEYBOARD
-# =========================================================
-
 def reaction_keyboard(message_id):
-
     buttons = []
-
     row = []
 
     for index, reaction in enumerate(REACTIONS):
-
         row.append(
             InlineKeyboardButton(
                 reaction,
@@ -1759,7 +1977,6 @@ def reaction_keyboard(message_id):
         )
 
         if len(row) == 4:
-
             buttons.append(row)
             row = []
 
@@ -1777,15 +1994,68 @@ def reaction_keyboard(message_id):
     return InlineKeyboardMarkup(buttons)
 
 
+def group_view_keyboard(message_id):
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "دیدن پیام",
+                callback_data=f"group_view:{message_id}",
+                style="success"
+            )
+        ]
+    ])
+
+
+def ban_cancel_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "لغو",
+                callback_data="ban_cancel"
+            )
+        ]
+    ])
+
+
+def ban_duration_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "1 روز",
+                callback_data="ban_duration:1"
+            ),
+            InlineKeyboardButton(
+                "3 روز",
+                callback_data="ban_duration:3"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "5 روز",
+                callback_data="ban_duration:5"
+            ),
+            InlineKeyboardButton(
+                "7 روز",
+                callback_data="ban_duration:7"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "لغو",
+                callback_data="ban_cancel"
+            )
+        ]
+    ])
+
+
 # =========================================================
-# JOIN MESSAGE
+# JOIN
 # =========================================================
 
 async def send_join_message(
     update,
     context
 ):
-
     text = (
         "درود و عرض ادب ! 👋\n"
         "خوش اومدی\n\n"
@@ -1793,20 +2063,16 @@ async def send_join_message(
         "توی کانال‌های زیر جوین شو."
     )
 
-    keyboard = join_keyboard()
-
     if update.message:
-
         await update.message.reply_text(
             text,
-            reply_markup=keyboard
+            reply_markup=join_keyboard()
         )
 
     elif update.callback_query:
-
         await update.callback_query.message.reply_text(
             text,
-            reply_markup=keyboard
+            reply_markup=join_keyboard()
         )
 
 
@@ -1818,17 +2084,14 @@ async def send_main_panel(
     update,
     context
 ):
-
     text = (
         "<b>درود! به پنل اصلی ربات "
         "\" گلدن چت \" خوش آمدید.⚡</b>\n\n"
         "<b>خوشحالم که ما انتخاب شما بودیم😉</b>\n\n"
-        "<b>برای استفاده از ربات از پنل شیشه ای زیر "
-        "استفاده کنید :</b>"
+        "<b>برای استفاده از ربات از پنل شیشه ای زیر استفاده کنید :</b>"
     )
 
     if update.message:
-
         await update.message.reply_text(
             text,
             reply_markup=main_keyboard(),
@@ -1836,195 +2099,204 @@ async def send_main_panel(
         )
 
         await update.message.reply_text(
-            "برای ارسال پیام ناشناس به کاربر دلخواه "
-            "از دکمه زیر استفاده کنید 👇🏻",
+            "👇🏻",
             reply_markup=main_reply_keyboard()
         )
 
-    elif update.callback_query:
-
-        await update.callback_query.edit_message_text(
-            text,
-            reply_markup=main_keyboard(),
-            parse_mode="HTML"
-        )
+    else:
+        try:
+            await update.callback_query.edit_message_text(
+                text,
+                reply_markup=main_keyboard(),
+                parse_mode="HTML"
+            )
+        except TelegramError:
+            await update.callback_query.message.reply_text(
+                text,
+                reply_markup=main_keyboard(),
+                parse_mode="HTML"
+            )
 
         await update.callback_query.message.reply_text(
-            "برای ارسال پیام ناشناس به کاربر دلخواه "
-            "از دکمه زیر استفاده کنید 👇🏻",
+            "👇🏻",
             reply_markup=main_reply_keyboard()
         )
 
 
 # =========================================================
-# USERBOT
+# GROUP LIST
 # =========================================================
 
-def userbot_keyboard(page, total_pages):
-
-    buttons = []
-
-    navigation = []
-
-    if page > 0:
-
-        navigation.append(
-            InlineKeyboardButton(
-                "قبلی ◀️",
-                callback_data=f"userbot_page:{page - 1}"
-            )
-        )
-
-    if page < total_pages - 1:
-
-        navigation.append(
-            InlineKeyboardButton(
-                "بعدی ▶️",
-                callback_data=f"userbot_page:{page + 1}"
-            )
-        )
-
-    if navigation:
-        buttons.append(navigation)
-
-    return InlineKeyboardMarkup(buttons)
-
-
-def build_userbot_page(page):
-
-    users = get_all_users()
-
-    per_page = 5
-
-    total = len(users)
-
-    if total == 0:
-
-        return (
-            "📋 هیچ کاربری در ربات ثبت نشده است.",
-            None,
-            0
-        )
-
-    total_pages = (
-        (total + per_page - 1)
-        // per_page
-    )
-
-    page = max(
-        0,
-        min(page, total_pages - 1)
-    )
-
-    start = page * per_page
-    end = start + per_page
-
-    page_users = users[start:end]
-
-    parts = []
-
-    for row in page_users:
-
-        user_id = row[0]
-        username = row[1]
-        full_name = row[2]
-        anon_code = row[3]
-        display_name = row[4]
-        ban_code = row[5]
-
-        if username:
-
-            identifier = f"@{username}"
-
-        else:
-
-            identifier = str(user_id)
-
-        display_name = (
-            display_name
-            or full_name
-            or "کاربر"
-        )
-
-        ban_code = (
-            ban_code
-            or get_ban_code(user_id)
-        )
-
-        parts.append(
-            f"کاربر : {identifier}\n"
-            f"اسم در ربات : {display_name}\n"
-            f"کد بن و رفع بن : "
-            f"/ban_{ban_code} | /unban_{ban_code}\n"
-            f"پیام مستقیم یه کاربر : "
-            f"/massage_{ban_code}\n"
-            "________________________________"
-        )
-
-    text = (
-        f"📋 <b>لیست کاربران ربات</b>\n\n"
-        f"صفحه {page + 1} از {total_pages}\n\n"
-        + "\n\n".join(parts)
-    )
-
-    return (
-        text,
-        userbot_keyboard(page, total_pages),
-        total_pages
-    )
-
-
-async def userbot_command(
+async def show_group_list(
     update,
     context
 ):
-
     user = update.effective_user
 
-    if not user or user.id != ADMIN_ID:
-        return
+    buttons = []
 
-    text, keyboard, total_pages = build_userbot_page(0)
+    for chat_id, title, link_code in get_all_groups():
+        try:
+            if await is_group_member(
+                context.bot,
+                chat_id,
+                user.id
+            ):
+                buttons.append([
+                    InlineKeyboardButton(
+                        title or "گروه",
+                        callback_data=f"group_select:{chat_id}"
+                    )
+                ])
+        except Exception as e:
+            print(
+                f"Group list error: {e}"
+            )
 
-    await update.message.reply_text(
-        text,
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
+    bot_info = await context.bot.get_me()
 
+    buttons.append([
+        InlineKeyboardButton(
+            "افزودن ربات به گروه",
+            url=f"https://t.me/{bot_info.username}?startgroup=true"
+        )
+    ])
 
-# =========================================================
-# DIRECT MESSAGE
-# =========================================================
+    buttons.append([
+        InlineKeyboardButton(
+            "بازگشت 🔙",
+            callback_data="back_main",
+            style="danger"
+        )
+    ])
 
-async def send_direct_message_to_user(
-    bot,
-    target_id,
-    target_name,
-    admin_message
-):
-
-    safe_name = html.escape(
-        target_name or "کاربر"
-    )
-
-    safe_message = html.escape(
-        admin_message
-    )
+    keyboard = InlineKeyboardMarkup(buttons)
 
     text = (
-        "<b>پیام از طرف مدیریت : 📢</b>\n\n"
-        f"خانوم / آقا "
-        f'<a href="tg://user?id={target_id}">'
-        f"{safe_name}"
-        f"</a>\n\n"
-        f"{safe_message}"
+        "<b>اگه توی گروهی باهم عضو بودیم اسم گروها رو این پایین میزارم 👇🏻</b>\n"
+        "<b>اگه گروهی نبود روی دکمه افزودن به گروه بزن و دوباره دکمه پیام ناشناس به گروه رو بفرست تا گروهت بیاد</b>"
     )
 
-    await bot.send_message(
-        chat_id=target_id,
-        text=text,
-        parse_mode="HTML"
+    if update.message:
+        await update.message.reply_text(
+            text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    else:
+        await update.callback_query.edit_message_text(
+            text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+
+# =========================================================
+# GROUP BOT ADDED
+# =========================================================
+
+async def bot_group_membership_update(
+    update,
+    context
+):
+    change = update.my_chat_member
+
+    if not change:
+        return
+
+    chat = change.chat
+
+    if chat.type not in (
+        "group",
+        "supergroup"
+    ):
+        return
+
+    status = change.new_chat_member.status
+
+    if status in (
+        ChatMember.MEMBER,
+        ChatMember.ADMINISTRATOR
+    ):
+        try:
+            save_group_chat(
+                chat.id,
+                chat.title or "گروه"
+            )
+
+            await context.bot.send_message(
+                chat_id=chat.id,
+                text=(
+                    "سلام من گلدن چت هستم.\n"
+                    "عضو جدید گروهتون\n"
+                    "از الان به بعد کارم ارسال پیام ناشناس به گروهتون 🤠\n\n"
+                    "<b>برای دریافت لینک ناشناس گروه شما دستور /linkgroup ارسال کنید و برای گروه پیام ناشناس بفرستید.</b>"
+                ),
+                parse_mode="HTML"
+            )
+
+        except TelegramError as e:
+            print(
+                f"Group welcome error: {e}"
+            )
+
+
+# =========================================================
+# LINK GROUP
+# =========================================================
+
+async def linkgroup_command(
+    update,
+    context
+):
+    chat = update.effective_chat
+
+    if not chat or chat.type not in (
+        "group",
+        "supergroup"
+    ):
+        await update.message.reply_text(
+            "این دستور باید داخل گروه ارسال شود."
+        )
+        return
+
+    try:
+        bot_member = await context.bot.get_chat_member(
+            chat_id=chat.id,
+            user_id=context.bot.id
+        )
+
+        if bot_member.status not in (
+            ChatMember.MEMBER,
+            ChatMember.ADMINISTRATOR,
+            ChatMember.OWNER
+        ):
+            await update.message.reply_text(
+                "ربات در این گروه عضو نیست."
+            )
+            return
+
+    except TelegramError:
+        await update.message.reply_text(
+            "ربات در این گروه عضو نیست."
+        )
+        return
+
+    code = save_group_chat(
+        chat.id,
+        chat.title or "گروه"
+    )
+
+    bot_info = await context.bot.get_me()
+
+    link = (
+        f"https://t.me/{bot_info.username}"
+        f"?start=g_{code}"
+    )
+
+    await update.message.reply_text(
+        "لینک پیام ناشنا مخصوص برای گروه شما :\n"
+        f"{link}"
     )
 
 
@@ -2033,13 +2305,12 @@ async def send_direct_message_to_user(
 # =========================================================
 
 async def start(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    update,
+    context
 ):
-
     user = update.effective_user
 
-    if not user:
+    if not user or not update.message:
         return
 
     get_or_create_user(
@@ -2049,40 +2320,92 @@ async def start(
     )
 
     if user.id != ADMIN_ID:
-
-        ban_info = get_ban_info(
-            user.id
-        )
+        ban_info = get_ban_info(user.id)
 
         if ban_info:
-
             await update.message.reply_text(
                 "حساب کاربری شما مسدود شده است.🟡\n"
                 f"علت : {ban_info['reason']}"
             )
-
             return
 
     if context.args:
+        payload = context.args[0].strip()
 
-        target_code = context.args[0].strip()
+        # GROUP LINK
+
+        if payload.startswith("g_"):
+            group = get_group_by_link(
+                payload[2:]
+            )
+
+            if not group:
+                await update.message.reply_text(
+                    "❌ لینک گروه نامعتبر است."
+                )
+                return
+
+            if not await is_member(
+                context.bot,
+                user.id
+            ):
+                await send_join_message(
+                    update,
+                    context
+                )
+                return
+
+            group_id = group[0]
+            group_title = group[1] or "گروه"
+
+            if not await is_group_member(
+                context.bot,
+                group_id,
+                user.id
+            ):
+                await update.message.reply_text(
+                    "به نظر میرسه شما عضو این گروه نیستید ❌",
+                    reply_markup=back_keyboard()
+                )
+                return
+
+            context.user_data.clear()
+
+            context.user_data[
+                "sending_group_anonymous"
+            ] = True
+
+            context.user_data[
+                "group_target_id"
+            ] = group_id
+
+            context.user_data[
+                "group_target_title"
+            ] = group_title
+
+            await update.message.reply_text(
+                f"شمال درحال ارسال پیام ناشناس به گروه {group_title} هستید .🗨️\n"
+                "پیام خود را بنویسید :",
+                reply_markup=cancel_keyboard()
+            )
+
+            return
+
+        # PRIVATE LINK
 
         target = get_user_by_link(
-            target_code
+            payload
         )
 
         if not target:
-
             await update.message.reply_text(
                 "❌ لینک نامعتبر است."
             )
-
             return
 
         target_id = target[0]
 
         if target_id == user.id:
-
             bot = await context.bot.get_me()
 
             own_link = (
@@ -2104,12 +2427,10 @@ async def start(
             context.bot,
             user.id
         ):
-
             await send_join_message(
                 update,
                 context
             )
-
             return
 
         target_name = (
@@ -2141,12 +2462,10 @@ async def start(
         context.bot,
         user.id
     ):
-
         await send_join_message(
             update,
             context
         )
-
         return
 
     context.user_data.clear()
@@ -2158,6 +2477,223 @@ async def start(
 
 
 # =========================================================
+# USERBOT
+# =========================================================
+
+def userbot_keyboard(
+    page,
+    total_pages
+):
+    buttons = []
+    nav = []
+
+    if page > 0:
+        nav.append(
+            InlineKeyboardButton(
+                "قبلی",
+                callback_data=f"userbot_page:{page - 1}"
+            )
+        )
+
+    if page < total_pages - 1:
+        nav.append(
+            InlineKeyboardButton(
+                "بعدی",
+                callback_data=f"userbot_page:{page + 1}"
+            )
+        )
+
+    if nav:
+        buttons.append(nav)
+
+    return InlineKeyboardMarkup(buttons)
+
+
+def build_userbot_page(page):
+    users = get_all_users()
+
+    per_page = 5
+    total = len(users)
+
+    if total == 0:
+        return (
+            "📋 هیچ کاربری در ربات ثبت نشده است.",
+            None,
+            0
+        )
+
+    total_pages = (
+        (total + per_page - 1)
+        // per_page
+    )
+
+    page = max(
+        0,
+        min(page, total_pages - 1)
+    )
+
+    start_index = page * per_page
+    page_users = users[
+        start_index:start_index + per_page
+    ]
+
+    parts = []
+
+    for row in page_users:
+        user_id = row[0]
+        username = row[1]
+        full_name = row[2]
+        display_name = row[4]
+        ban_code = row[5]
+
+        identifier = (
+            f"@{username}"
+            if username
+            else str(user_id)
+        )
+
+        display_name = (
+            display_name
+            or full_name
+            or "کاربر"
+        )
+
+        ban_code = (
+            ban_code
+            or get_ban_code(user_id)
+        )
+
+        parts.append(
+            f"کاربر : {identifier}\n"
+            f"اسم در ربات : {display_name}\n"
+            f"کد بن و رفع بن : "
+            f"/ban_{ban_code} | /unban_{ban_code}\n"
+            f"پیام مستقیم یه کاربر : "
+            f"/massage_{ban_code}\n"
+            "____________________________________"
+        )
+
+    text = (
+        "📋 <b>لیست کاربران ربات</b>\n\n"
+        f"صفحه {page + 1} از {total_pages}\n\n"
+        + "\n\n".join(parts)
+    )
+
+    return (
+        text,
+        userbot_keyboard(
+            page,
+            total_pages
+        ),
+        total_pages
+    )
+
+
+async def userbot_command(
+    update,
+    context
+):
+    user = update.effective_user
+
+    if not user or user.id != ADMIN_ID:
+        return
+
+    text, keyboard, _ = build_userbot_page(0)
+
+    await update.message.reply_text(
+        text,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+# =========================================================
+# DIRECT MESSAGE
+# =========================================================
+
+async def send_direct_message(
+    bot,
+    target_id,
+    target_name,
+    message_text
+):
+    safe_name = html.escape(
+        target_name or "کاربر"
+    )
+
+    safe_message = html.escape(
+        message_text
+    )
+
+    text = (
+        "<b>پیام از طرف مدیریت : 📢</b>\n"
+        f"خانوم / آقا "
+        f'<a href="tg://user?id={target_id}">'
+        f"{safe_name}"
+        f"</a>\n\n"
+        f"{safe_message}"
+    )
+
+    await bot.send_message(
+        chat_id=target_id,
+        text=text,
+        parse_mode="HTML"
+    )
+
+
+# =========================================================
+# BAN LIST
+# =========================================================
+
+async def userban_command(
+    update,
+    context
+):
+    user = update.effective_user
+
+    if not user or user.id != ADMIN_ID:
+        return
+
+    rows = get_active_banned_users()
+
+    if not rows:
+        await update.message.reply_text(
+            "🟢 در حال حاضر هیچ کاربری بن نیست."
+        )
+        return
+
+    parts = []
+
+    for row in rows:
+        user_id = row[0]
+        username = row[1]
+        ban_code = row[2]
+
+        identifier = (
+            f"@{username}"
+            if username
+            else str(user_id)
+        )
+
+        parts.append(
+            "کاربر با آیدی : "
+            f"{identifier}\n\n"
+            "کد رفع بنی : "
+            f"/unban_{ban_code}"
+        )
+
+    text = (
+        "\n\n"
+        "________________________________\n\n"
+    ).join(parts)
+
+    for i in range(0, len(text), 3900):
+        await update.message.reply_text(
+            text[i:i + 3900]
+        )
+
+
+# =========================================================
 # BROADCAST
 # =========================================================
 
@@ -2165,10 +2701,9 @@ async def broadcast_command(
     update,
     context
 ):
-
     user = update.effective_user
 
-    if user.id != ADMIN_ID:
+    if not user or user.id != ADMIN_ID:
         return
 
     context.user_data.clear()
@@ -2185,92 +2720,13 @@ async def broadcast_command(
 
 
 # =========================================================
-# USER BAN
-# =========================================================
-
-async def userban_command(
-    update,
-    context
-):
-
-    user = update.effective_user
-
-    if user.id != ADMIN_ID:
-        return
-
-    banned_users = get_active_banned_users()
-
-    if not banned_users:
-
-        await update.message.reply_text(
-            "🟢 در حال حاضر هیچ کاربری بن نیست."
-        )
-
-        return
-
-    parts = []
-
-    for row in banned_users:
-
-        user_id = row[0]
-        username = row[1]
-        ban_code = row[2]
-
-        if username:
-            user_identifier = f"@{username}"
-        else:
-            user_identifier = str(user_id)
-
-        parts.append(
-            "کاربر با آیدی : "
-            f"{user_identifier}\n\n"
-            "کد رفع بنی : "
-            f"/unban_{ban_code}"
-        )
-
-    text = (
-        "\n\n"
-        "________________________________\n\n"
-    ).join(parts)
-
-    chunks = []
-
-    while len(text) > 3900:
-
-        split_at = text.rfind(
-            "\n\n________________________________",
-            0,
-            3900
-        )
-
-        if split_at == -1:
-            split_at = 3900
-
-        chunks.append(
-            text[:split_at]
-        )
-
-        text = text[split_at:]
-
-    if text:
-        chunks.append(text)
-
-    for chunk in chunks:
-
-        await update.message.reply_text(
-            chunk
-        )
-
-
-# =========================================================
-# CANCEL
+# CANCEL COMMAND
 # =========================================================
 
 async def cancel_command(
     update,
     context
 ):
-
     context.user_data.clear()
 
     await update.message.reply_text(
@@ -2279,14 +2735,55 @@ async def cancel_command(
 
 
 # =========================================================
-# SHOW LINK
+# HELP
+# =========================================================
+
+async def help_page(
+    update,
+    context
+):
+    text = (
+        "<b>راهنمای گلدن چت 👻\n\n"
+        "اول از همه میگم که امنیت شما بالاست بعدشم :\n\n"
+        "دریافت لینک : شما با دریافت لینک اختصاصی خودتون و با اشتراک گذاشتنش توی بقیه گروه ها و کانال ها و حتی بایو اکانتتون پیام های ناشناس از افراد مختلف که روشون نمیشد مستقیم بهت پیام بدن دریافت میکنی .🤠\n\n"
+        "تنظیم نام : میتونی یک اسم برای حساب خودت انتخاب کنی که وقتی لینکت رو جایی به اشتراک میزاری بقیه روی لینکت کلیک میکنن نام نمایشی تو براشون نشون داده بشه 🙍🏻‍♂️\n\n"
+        "تبلیغات : با مراجعه به پیوی ادمین میتونی تو ربات رایگان کانالت رو تبلیغ کنی 😉\n\n"
+        "ری اکشن : این قابلیت متفاوته وقتی کاربری بهت پیام میده و حوصله جواب دادنش رو نداری میتونس با ری اکشن جوابش رو بدی😄\n\n"
+        "در ضمن گزارش تخلف :\n"
+        "هر کاربری در ربات گلدن چت از دختری درخواست عکسهای شخصی، درخواست دوستی\n"
+        "و بی احترامی به باقی کاربران و فحاشی و اسپم انجام داد گزارش تخلف ثبت بشه 🛑</b>"
+    )
+
+    await update.callback_query.edit_message_text(
+        text,
+        reply_markup=back_keyboard(),
+        parse_mode="HTML"
+    )
+
+
+# =========================================================
+# ADS
+# =========================================================
+
+async def ads_page(
+    update,
+    context
+):
+    await update.callback_query.edit_message_text(
+        "جهت ثبت تبلیغات رایگان و رفرال گیری جهت تبلیغات رایگان پیام دهید :\n"
+        "@TMTAHAV",
+        reply_markup=back_keyboard()
+    )
+
+
+# =========================================================
+# LINK
 # =========================================================
 
 async def show_link(
     update,
     context
 ):
-
     user = update.effective_user
 
     get_or_create_user(
@@ -2302,43 +2799,34 @@ async def show_link(
         f"?start={user.id}"
     )
 
-    text = (
+    await update.callback_query.edit_message_text(
         "🔗 لینک اختصاصی شما:\n\n"
         f"{link}\n\n"
         "لینک خود را با دیگران به اشتراک بگذارید "
-        "تا بتوانند به صورت ناشناس برای شما پیام بفرستند."
-    )
-
-    await update.callback_query.edit_message_text(
-        text,
+        "تا بتوانند به صورت ناشناس برای شما پیام بفرستند.",
         reply_markup=back_keyboard()
     )
 
 
 # =========================================================
-# NAME SETTINGS
+# NAME
 # =========================================================
 
 async def name_settings(
     update,
     context
 ):
-
     user = update.effective_user
 
     current_name = get_display_name(
         user.id
     )
 
-    text = (
+    await update.callback_query.edit_message_text(
         "⚙️ تنظیمات نام\n\n"
         f"نام فعلی شما:\n{current_name}\n\n"
         "این نام هنگام ارسال پیام ناشناس "
-        "به فرستنده نمایش داده می‌شود."
-    )
-
-    await update.callback_query.edit_message_text(
-        text,
+        "به فرستنده نمایش داده می‌شود.",
         reply_markup=name_settings_keyboard()
     )
 
@@ -2347,7 +2835,6 @@ async def change_name(
     update,
     context
 ):
-
     context.user_data.clear()
 
     context.user_data[
@@ -2365,22 +2852,6 @@ async def change_name(
 
 
 # =========================================================
-# ADS
-# =========================================================
-
-async def ads_page(
-    update,
-    context
-):
-
-    await update.callback_query.edit_message_text(
-        "📢 تبلیغات فعال نیست.\n\n"
-        "به زودی...",
-        reply_markup=back_keyboard()
-    )
-
-
-# =========================================================
 # BLOCK LIST
 # =========================================================
 
@@ -2388,7 +2859,6 @@ async def block_list_page(
     update,
     context
 ):
-
     user = update.effective_user
 
     rows = get_block_list(
@@ -2396,12 +2866,10 @@ async def block_list_page(
     )
 
     if not rows:
-
         await update.callback_query.edit_message_text(
             "🔴 لیست مسدودی شما خالی است.",
             reply_markup=back_keyboard()
         )
-
         return
 
     parts = [
@@ -2409,7 +2877,6 @@ async def block_list_page(
     ]
 
     for index, row in enumerate(rows):
-
         anon_code = row[0]
         unblock_code = row[1]
 
@@ -2433,32 +2900,6 @@ async def block_list_page(
 
 
 # =========================================================
-# HELP
-# =========================================================
-
-async def help_page(
-    update,
-    context
-):
-
-    text = (
-        "🤔 راهنمای ربات\n\n"
-        "🔗 با لینک اختصاصی خود می‌توانید "
-        "پیام ناشناس دریافت کنید.\n\n"
-        "🗨️ می‌توانید به پیام‌های دریافتی پاسخ دهید.\n\n"
-        "🛑 می‌توانید کاربران را مسدود کنید.\n\n"
-        "🚨 در صورت مشاهده تخلف، پیام را گزارش کنید.\n\n"
-        "👁️ با زدن مشاهده شد، فرستنده متوجه می‌شود "
-        "پیامش توسط شما دیده شده است."
-    )
-
-    await update.callback_query.edit_message_text(
-        text,
-        reply_markup=back_keyboard()
-    )
-
-
-# =========================================================
 # CALLBACK HANDLER
 # =========================================================
 
@@ -2466,31 +2907,28 @@ async def button_handler(
     update,
     context
 ):
-
     query = update.callback_query
-
     user = update.effective_user
 
-    user_id = user.id
+    if not query or not user:
+        return
 
+    user_id = user.id
     data = query.data or ""
 
-    # =====================================================
-    # CHECK JOIN
-    # =====================================================
+    # -----------------------------------------------------
+    # JOIN
+    # -----------------------------------------------------
 
     if data == "check_join":
-
         if not await is_member(
             context.bot,
             user_id
         ):
-
             await query.answer(
                 "هنوز توی همه کانالا عضو نشدی🤠💔",
                 show_alert=True
             )
-
             return
 
         await query.answer(
@@ -2506,12 +2944,11 @@ async def button_handler(
 
         return
 
-    # =====================================================
-    # BACK MAIN
-    # =====================================================
+    # -----------------------------------------------------
+    # BACK
+    # -----------------------------------------------------
 
     if data == "back_main":
-
         await query.answer()
 
         context.user_data.clear()
@@ -2523,12 +2960,11 @@ async def button_handler(
 
         return
 
-    # =====================================================
+    # -----------------------------------------------------
     # CANCEL SEND
-    # =====================================================
+    # -----------------------------------------------------
 
     if data == "cancel_send":
-
         await query.answer(
             "لغو شد ❌"
         )
@@ -2546,37 +2982,184 @@ async def button_handler(
 
         return
 
-    # =====================================================
+    # -----------------------------------------------------
+    # GROUP LIST BACK
+    # -----------------------------------------------------
+
+    if data == "group_list_back":
+        await query.answer()
+
+        context.user_data.clear()
+
+        await show_group_list(
+            update,
+            context
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # GROUP SELECT
+    # -----------------------------------------------------
+
+    if data.startswith("group_select:"):
+        try:
+            group_id = int(
+                data.split(":", 1)[1]
+            )
+        except (ValueError, IndexError):
+            await query.answer(
+                "گروه نامعتبر است ❌",
+                show_alert=True
+            )
+            return
+
+        group = None
+
+        for row in get_all_groups():
+            if row[0] == group_id:
+                group = row
+                break
+
+        if not group:
+            await query.answer(
+                "گروه پیدا نشد ❌",
+                show_alert=True
+            )
+            return
+
+        if not await is_group_member(
+            context.bot,
+            group_id,
+            user_id
+        ):
+            await query.answer(
+                "شما عضو این گروه نیستید ❌",
+                show_alert=True
+            )
+            return
+
+        await query.answer()
+
+        context.user_data.clear()
+
+        context.user_data[
+            "sending_group_anonymous"
+        ] = True
+
+        context.user_data[
+            "group_target_id"
+        ] = group_id
+
+        context.user_data[
+            "group_target_title"
+        ] = group[1] or "گروه"
+
+        await query.edit_message_text(
+            f"اوکی گروه {group[1] or 'گروه'} انتخاب شد حالا پیامت رو بنویس تا توی گروه ارسال کنم :",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "بازگشت 🔙",
+                        callback_data="group_list_back",
+                        style="danger"
+                    )
+                ]
+            ])
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # GROUP VIEW
+    # -----------------------------------------------------
+
+    if data.startswith("group_view:"):
+        try:
+            message_id = int(
+                data.split(":", 1)[1]
+            )
+        except (ValueError, IndexError):
+            await query.answer(
+                "پیام نامعتبر است ❌",
+                show_alert=True
+            )
+            return
+
+        group_message = get_group_message(
+            message_id
+        )
+
+        if not group_message:
+            await query.answer(
+                "این پیام دیگر موجود نیست ❌",
+                show_alert=True
+            )
+            return
+
+        group_id = group_message[1]
+        message_text = group_message[3]
+
+        if not await is_group_member(
+            context.bot,
+            group_id,
+            user_id
+        ):
+            await query.answer(
+                "فقط اعضای گروه می‌توانند پیام را ببینند ❌",
+                show_alert=True
+            )
+            return
+
+        inserted, view_count = add_group_view(
+            message_id,
+            user_id
+        )
+
+        await query.answer(
+            message_text,
+            show_alert=True
+        )
+
+        try:
+            await query.message.edit_text(
+                "گروه پیام ناشناس جدید داره 🤠\n\n"
+                f"تعداد مشاهده : {view_count}",
+                reply_markup=group_view_keyboard(
+                    message_id
+                )
+            )
+        except TelegramError as e:
+            print(
+                f"Group view edit error: {e}"
+            )
+
+        return
+
+    # -----------------------------------------------------
     # USERBOT PAGE
-    # =====================================================
+    # -----------------------------------------------------
 
     if data.startswith("userbot_page:"):
-
         if user_id != ADMIN_ID:
-
             await query.answer(
                 "دسترسی ندارید ❌",
                 show_alert=True
             )
-
             return
 
         try:
-
             page = int(
                 data.split(":", 1)[1]
             )
-
         except (ValueError, IndexError):
-
             await query.answer(
                 "صفحه نامعتبر است ❌",
                 show_alert=True
             )
-
             return
 
-        text, keyboard, total_pages = build_userbot_page(
+        text, keyboard, _ = build_userbot_page(
             page
         )
 
@@ -2590,12 +3173,11 @@ async def button_handler(
 
         return
 
-    # =====================================================
-    # COPY LINK
-    # =====================================================
+    # -----------------------------------------------------
+    # MAIN BUTTONS
+    # -----------------------------------------------------
 
     if data == "copy_link":
-
         await query.answer()
 
         await show_link(
@@ -2605,12 +3187,7 @@ async def button_handler(
 
         return
 
-    # =====================================================
-    # NAME SETTINGS
-    # =====================================================
-
     if data == "name_settings":
-
         await query.answer()
 
         await name_settings(
@@ -2620,12 +3197,7 @@ async def button_handler(
 
         return
 
-    # =====================================================
-    # CHANGE NAME
-    # =====================================================
-
     if data == "change_name":
-
         await query.answer()
 
         await change_name(
@@ -2635,12 +3207,7 @@ async def button_handler(
 
         return
 
-    # =====================================================
-    # ADS
-    # =====================================================
-
     if data == "ads":
-
         await query.answer()
 
         await ads_page(
@@ -2650,12 +3217,7 @@ async def button_handler(
 
         return
 
-    # =====================================================
-    # BLOCK LIST
-    # =====================================================
-
     if data == "block_list":
-
         await query.answer()
 
         await block_list_page(
@@ -2665,12 +3227,7 @@ async def button_handler(
 
         return
 
-    # =====================================================
-    # HELP
-    # =====================================================
-
     if data == "help":
-
         await query.answer()
 
         await help_page(
@@ -2680,64 +3237,61 @@ async def button_handler(
 
         return
 
-    # =====================================================
+    # -----------------------------------------------------
     # REACTION OPEN
-    # =====================================================
+    # -----------------------------------------------------
 
     if data.startswith("reaction:"):
-
         try:
-
             message_id = int(
                 data.split(":", 1)[1]
             )
-
         except (ValueError, IndexError):
-
             await query.answer(
                 "پیام نامعتبر است ❌",
                 show_alert=True
             )
-
             return
 
-        anonymous_message = get_anonymous_message(
+        msg = get_anonymous_message(
             message_id
         )
 
-        if not anonymous_message:
-
+        if not msg:
             await query.answer(
                 "این پیام دیگر موجود نیست ❌",
                 show_alert=True
             )
-
             return
 
-        sender_id = anonymous_message[1]
-        receiver_id = anonymous_message[2]
+        sender_id = msg[1]
+        receiver_id = msg[2]
 
         if receiver_id != user_id:
-
             await query.answer(
                 "این پیام متعلق به شما نیست ❌",
                 show_alert=True
             )
-
             return
 
-        existing = has_reaction(
+        if is_blocked(
+            user_id,
+            sender_id
+        ):
+            await query.answer(
+                "این کاربر را بلاک کرده‌ای.",
+                show_alert=True
+            )
+            return
+
+        if has_reaction(
             message_id,
             user_id
-        )
-
-        if existing:
-
+        ):
             await query.answer(
                 "شما قبلاً برای این پیام ری‌اکشن فرستاده‌اید.",
                 show_alert=True
             )
-
             return
 
         await query.answer()
@@ -2748,64 +3302,43 @@ async def button_handler(
             )
         )
 
-        try:
-
-            await query.message.reply_text(
-                "ری اکشن خود را برای پیام انتخاب کنید :"
-            )
-
-        except TelegramError as e:
-
-            print(
-                f"Reaction text error: {e}"
-            )
-
         return
 
-    # =====================================================
+    # -----------------------------------------------------
     # REACTION BACK
-    # =====================================================
+    # -----------------------------------------------------
 
     if data.startswith("reaction_back:"):
-
         try:
-
             message_id = int(
                 data.split(":", 1)[1]
             )
-
         except (ValueError, IndexError):
-
             await query.answer(
                 "پیام نامعتبر است ❌",
                 show_alert=True
             )
-
             return
 
-        anonymous_message = get_anonymous_message(
+        msg = get_anonymous_message(
             message_id
         )
 
-        if not anonymous_message:
-
+        if not msg:
             await query.answer(
                 "پیام پیدا نشد ❌",
                 show_alert=True
             )
-
             return
 
-        sender_id = anonymous_message[1]
-        receiver_id = anonymous_message[2]
+        sender_id = msg[1]
+        receiver_id = msg[2]
 
         if receiver_id != user_id:
-
             await query.answer(
                 "این پیام متعلق به شما نیست ❌",
                 show_alert=True
             )
-
             return
 
         await query.answer()
@@ -2814,97 +3347,76 @@ async def button_handler(
             reply_markup=anonymous_message_keyboard(
                 message_id,
                 sender_id,
-                include_reaction=True,
-                include_seen=True
+                True,
+                True
             )
         )
 
         return
 
-    # =====================================================
+    # -----------------------------------------------------
     # REACTION SELECT
-    # =====================================================
+    # -----------------------------------------------------
 
     if data.startswith("react:"):
-
         pieces = data.split(":")
 
         if len(pieces) != 3:
-
             await query.answer(
                 "ری‌اکشن نامعتبر است ❌",
                 show_alert=True
             )
-
             return
 
         try:
-
             message_id = int(pieces[1])
-            reaction_index = int(pieces[2])
-
+            index = int(pieces[2])
         except ValueError:
-
             await query.answer(
                 "ری‌اکشن نامعتبر است ❌",
                 show_alert=True
             )
-
             return
 
-        if (
-            reaction_index < 0
-            or reaction_index >= len(REACTIONS)
-        ):
-
+        if index < 0 or index >= len(REACTIONS):
             await query.answer(
                 "ری‌اکشن نامعتبر است ❌",
                 show_alert=True
             )
-
             return
 
-        reaction = REACTIONS[
-            reaction_index
-        ]
+        reaction = REACTIONS[index]
 
-        anonymous_message = get_anonymous_message(
+        msg = get_anonymous_message(
             message_id
         )
 
-        if not anonymous_message:
-
+        if not msg:
             await query.answer(
                 "این پیام دیگر موجود نیست ❌",
                 show_alert=True
             )
-
             return
 
-        sender_id = anonymous_message[1]
-        receiver_id = anonymous_message[2]
+        sender_id = msg[1]
+        receiver_id = msg[2]
+        original_text = msg[3]
 
         if receiver_id != user_id:
-
             await query.answer(
                 "این پیام متعلق به شما نیست ❌",
                 show_alert=True
             )
-
             return
 
-        existing = has_reaction(
-            message_id,
-            user_id
-        )
-
-        if existing:
-
+        if is_blocked(
+            user_id,
+            sender_id
+        ):
             await query.answer(
-                "شما قبلاً ری‌اکشن ارسال کرده‌اید.",
+                "این کاربر را بلاک کرده‌ای.",
                 show_alert=True
             )
-
             return
 
         saved = save_reaction(
@@ -2914,17 +3426,13 @@ async def button_handler(
         )
 
         if not saved:
-
             await query.answer(
                 "ری‌اکشن قبلاً ارسال شده است.",
                 show_alert=True
             )
-
             return
 
-        # -----------------------------------------------
-        # CLOSE REACTION PANEL
-        # -----------------------------------------------
+        # Remove reaction + seen buttons.
 
         await query.edit_message_reply_markup(
             reply_markup=anonymous_message_keyboard(
@@ -2935,24 +3443,26 @@ async def button_handler(
             )
         )
 
-        # -----------------------------------------------
-        # SUCCESS DIALOG
-        # -----------------------------------------------
-
         await query.answer(
             "ری اکشن با موفقیت ارسال شد ⚡",
             show_alert=True
         )
 
-        # -----------------------------------------------
-        # NOTIFY ORIGINAL SENDER
-        # -----------------------------------------------
-
         try:
+            safe_text = html.escape(
+                original_text
+            )
+
+            safe_reaction = html.escape(
+                reaction
+            )
 
             notification = (
-                "<b>کاربر به پیام شما واکنشی نشون داد : "
-                f"{reaction}</b>"
+                "<b>"
+                "کاربر به پیام "
+                f"« {safe_text} » "
+                f"واکنشی نشان داد : {safe_reaction}"
+                "</b>"
             )
 
             await context.bot.send_message(
@@ -2962,57 +3472,47 @@ async def button_handler(
             )
 
         except TelegramError as e:
-
             print(
                 f"Reaction notification error: {e}"
             )
 
         return
 
-    # =====================================================
+    # -----------------------------------------------------
     # SEEN
-    # =====================================================
+    # -----------------------------------------------------
 
     if data.startswith("seen:"):
-
         try:
-
             message_id = int(
                 data.split(":", 1)[1]
             )
-
         except (ValueError, IndexError):
-
             await query.answer(
                 "پیام نامعتبر است ❌",
                 show_alert=True
             )
-
             return
 
-        anonymous_message = get_anonymous_message(
+        msg = get_anonymous_message(
             message_id
         )
 
-        if not anonymous_message:
-
+        if not msg:
             await query.answer(
                 "این پیام دیگر موجود نیست ❌",
                 show_alert=True
             )
-
             return
 
-        sender_id = anonymous_message[1]
-        receiver_id = anonymous_message[2]
+        sender_id = msg[1]
+        receiver_id = msg[2]
 
         if receiver_id != user_id:
-
             await query.answer(
                 "این پیام متعلق به شما نیست ❌",
                 show_alert=True
             )
-
             return
 
         was_seen = mark_message_as_seen(
@@ -3021,13 +3521,11 @@ async def button_handler(
         )
 
         if was_seen:
-
             receiver_name = get_display_name(
                 user_id
             )
 
             try:
-
                 await context.bot.send_message(
                     chat_id=sender_id,
                     text=(
@@ -3035,12 +3533,8 @@ async def button_handler(
                         f"{receiver_name} مشاهده شد. 👁️"
                     )
                 )
-
-            except TelegramError as e:
-
-                print(
-                    f"Seen notification error: {e}"
-                )
+            except TelegramError:
+                pass
 
             await query.answer(
                 "پیام به عنوان مشاهده‌شده ثبت شد 👁️",
@@ -3048,7 +3542,6 @@ async def button_handler(
             )
 
         else:
-
             await query.answer(
                 "این پیام قبلاً مشاهده شده است 👁️",
                 show_alert=True
@@ -3056,67 +3549,60 @@ async def button_handler(
 
         return
 
-    # =====================================================
+    # -----------------------------------------------------
     # REPLY
-    # =====================================================
+    # -----------------------------------------------------
 
     if data.startswith("reply:"):
-
         try:
-
             message_id = int(
                 data.split(":", 1)[1]
             )
-
         except (ValueError, IndexError):
-
             await query.answer(
                 "پیام نامعتبر است ❌",
                 show_alert=True
             )
-
             return
 
-        anonymous_message = get_anonymous_message(
+        msg = get_anonymous_message(
             message_id
         )
 
-        if not anonymous_message:
-
+        if not msg:
             await query.answer(
                 "این پیام دیگر موجود نیست ❌",
                 show_alert=True
             )
-
             return
 
-        sender_id = anonymous_message[1]
-        receiver_id = anonymous_message[2]
+        sender_id = msg[1]
+        receiver_id = msg[2]
 
         if receiver_id != user_id:
-
             await query.answer(
                 "این پیام متعلق به شما نیست ❌",
                 show_alert=True
             )
-
             return
 
         if is_blocked(
             user_id,
             sender_id
         ):
-
             await query.answer(
                 "این کاربر را بلاک کرده‌ای.",
                 show_alert=True
             )
-
             return
 
         await query.answer()
 
         context.user_data.clear()
+
+        context.user_data[
+            "replying"
+        ] = True
 
         context.user_data[
             "reply_message_id"
@@ -3126,10 +3612,6 @@ async def button_handler(
             "reply_sender_id"
         ] = sender_id
 
-        context.user_data[
-            "replying"
-        ] = True
-
         await query.message.reply_text(
             "پاسخ خود را بنویسید: 📨",
             reply_markup=cancel_keyboard()
@@ -3137,34 +3619,27 @@ async def button_handler(
 
         return
 
-    # =====================================================
+    # -----------------------------------------------------
     # BLOCK
-    # =====================================================
+    # -----------------------------------------------------
 
     if data.startswith("block:"):
-
         try:
-
             blocked_id = int(
                 data.split(":", 1)[1]
             )
-
         except (ValueError, IndexError):
-
             await query.answer(
                 "کاربر نامعتبر است ❌",
                 show_alert=True
             )
-
             return
 
         if blocked_id == user_id:
-
             await query.answer(
                 "نمی‌توانی خودت را بلاک کنی ❌",
                 show_alert=True
             )
-
             return
 
         result = block_user(
@@ -3173,7 +3648,6 @@ async def button_handler(
         )
 
         if result:
-
             await query.answer(
                 "کاربر با موفقیت بلاک شد 🛑",
                 show_alert=True
@@ -3184,7 +3658,6 @@ async def button_handler(
             )
 
         else:
-
             await query.answer(
                 "این کاربر قبلاً بلاک شده است.",
                 show_alert=True
@@ -3192,94 +3665,75 @@ async def button_handler(
 
         return
 
-    # =====================================================
+    # -----------------------------------------------------
     # REPORT
-    # =====================================================
+    # -----------------------------------------------------
 
     if data.startswith("report:"):
-
         try:
-
             message_id = int(
                 data.split(":", 1)[1]
             )
-
         except (ValueError, IndexError):
-
             await query.answer(
                 "گزارش نامعتبر است ❌",
                 show_alert=True
             )
-
             return
 
-        anonymous_message = get_anonymous_message(
+        msg = get_anonymous_message(
             message_id
         )
 
-        if not anonymous_message:
-
+        if not msg:
             await query.answer(
                 "این پیام دیگر موجود نیست ❌",
                 show_alert=True
             )
-
             return
 
-        sender_id = anonymous_message[1]
-        receiver_id = anonymous_message[2]
-        original_text = anonymous_message[3]
+        sender_id = msg[1]
+        receiver_id = msg[2]
+        original_text = msg[3]
 
         if receiver_id != user_id:
-
             await query.answer(
                 "این پیام متعلق به شما نیست ❌",
                 show_alert=True
             )
-
             return
 
-        reported_user = get_user(
+        reported = get_user(
             sender_id
         )
 
-        if reported_user:
-
-            reported_username = reported_user[1]
-            reported_full_name = reported_user[2]
-            ban_code = reported_user[6]
-
+        if reported:
+            username = reported[1]
+            full_name = reported[2]
+            ban_code = reported[6]
         else:
-
-            reported_username = None
-            reported_full_name = "کاربر"
+            username = None
+            full_name = "کاربر"
             ban_code = get_ban_code(
                 sender_id
             )
 
         username_text = (
-            f"@{reported_username}"
-            if reported_username
+            f"@{username}"
+            if username
             else "ندارد"
         )
 
-        reported_full_name = (
-            reported_full_name
-            or "ندارد"
+        ban_code = (
+            ban_code
+            or get_ban_code(sender_id)
         )
-
-        if not ban_code:
-
-            ban_code = get_ban_code(
-                sender_id
-            )
 
         report_text = (
             "🚨 گزارش تخلف برای کاربر و پیام زیر ثبت شد .👇🏻\n\n"
             f"آیدی کاربر : {username_text}\n"
             f"آیدی عددی کاربر : {sender_id}\n"
-            f"نام حساب کاربری تلگرام : "
-            f"{reported_full_name}\n\n"
+            f"نام حساب کاربری تلگرام : {full_name or 'ندارد'}\n\n"
             f"پیام گزارش شده :\n"
             f"{original_text}\n\n"
             f"کد بن کاربر : /ban_{ban_code}\n"
@@ -3287,7 +3741,6 @@ async def button_handler(
         )
 
         try:
-
             await context.bot.send_message(
                 chat_id=ADMIN_ID,
                 text=report_text
@@ -3304,9 +3757,8 @@ async def button_handler(
             )
 
         except TelegramError as e:
-
             print(
-                f"Report send error: {e}"
+                f"Report error: {e}"
             )
 
             await query.answer(
@@ -3322,14 +3774,19 @@ async def button_handler(
 # =========================================================
 
 async def handle_message(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    update,
+    context
 ):
-
     user = update.effective_user
     message = update.message
 
     if not user or not message:
+        return
+
+    if message.chat.type in (
+        "group",
+        "supergroup"
+    ):
         return
 
     if not message.text:
@@ -3352,22 +3809,17 @@ async def handle_message(
 
     if user.id == ADMIN_ID:
 
-        # =================================================
-        # DIRECT MESSAGE STATE
-        # =================================================
+        # DIRECT MESSAGE
 
         if context.user_data.get(
             "waiting_direct_message"
         ):
-
-            if text.strip().lower() == "/cancel":
-
+            if text.lower() == "/cancel":
                 context.user_data.clear()
 
                 await message.reply_text(
                     "❌ ارسال پیام مستقیم لغو شد."
                 )
-
                 return
 
             target_id = context.user_data.get(
@@ -3379,18 +3831,15 @@ async def handle_message(
             )
 
             if not target_id:
-
                 context.user_data.clear()
 
                 await message.reply_text(
                     "❌ اطلاعات کاربر پیدا نشد."
                 )
-
                 return
 
             try:
-
-                await send_direct_message_to_user(
+                await send_direct_message(
                     context.bot,
                     target_id,
                     target_name,
@@ -3403,12 +3852,7 @@ async def handle_message(
                     "✅ پیام مستقیم با موفقیت برای کاربر ارسال شد."
                 )
 
-            except TelegramError as e:
-
-                print(
-                    f"Direct message error: {e}"
-                )
-
+            except TelegramError:
                 context.user_data.clear()
 
                 await message.reply_text(
@@ -3418,26 +3862,18 @@ async def handle_message(
 
             return
 
-        # =================================================
-        # MASSAGE COMMAND
-        # =================================================
+        # MASSAGE
 
-        if text.lower().startswith("/massage_"):
-
-            code = text[len("/massage_"):].strip()
-
-            if not code:
-
-                await message.reply_text(
-                    "❌ کد پیام مستقیم نامعتبر است."
-                )
-
-                return
+        if text.lower().startswith(
+            "/massage_"
+        ):
+            code = text[
+                len("/massage_"):
+            ].strip().lower()
 
             conn = db()
 
             try:
-
                 cur = conn.cursor()
 
                 cur.execute(
@@ -3450,7 +3886,7 @@ async def handle_message(
                     FROM users
                     WHERE lower(ban_code) = %s
                     """,
-                    (code.lower(),)
+                    (code,)
                 )
 
                 target = cur.fetchone()
@@ -3460,32 +3896,25 @@ async def handle_message(
                 release_db(conn)
 
             if not target:
-
                 await message.reply_text(
                     "❌ کد کاربر پیدا نشد."
                 )
-
                 return
 
             target_id = target[0]
-            target_username = target[1]
-            target_full_name = target[2]
-            target_display_name = target[3]
 
             if target_id == ADMIN_ID:
-
                 await message.reply_text(
                     "❌ نمی‌توانی برای خودت پیام مستقیم ارسال کنی."
                 )
-
                 return
 
             target_name = (
-                target_full_name
-                or target_display_name
+                target[2]
+                or target[3]
                 or (
-                    f"@{target_username}"
-                    if target_username
+                    f"@{target[1]}"
+                    if target[1]
                     else "کاربر"
                 )
             )
@@ -3511,16 +3940,12 @@ async def handle_message(
 
             return
 
-        # =================================================
-        # WAITING BAN REASON
-        # =================================================
+        # BAN REASON
 
         if context.user_data.get(
             "waiting_ban_reason"
         ):
-
-            if text.strip().lower() == "/cancel":
-
+            if text.lower() == "/cancel":
                 context.user_data.clear()
 
                 await message.reply_text(
@@ -3532,104 +3957,39 @@ async def handle_message(
             reason = text.strip()
 
             if len(reason) > 1000:
-
                 await message.reply_text(
                     "❌ علت بن خیلی طولانی است.\n"
                     "حداکثر ۱۰۰۰ کاراکتر وارد کنید."
                 )
-
                 return
 
-            ban_code = context.user_data.get(
-                "ban_code"
-            )
+            context.user_data[
+                "ban_reason"
+            ] = reason
 
-            target_user_id = context.user_data.get(
-                "ban_target_id"
-            )
+            context.user_data[
+                "waiting_ban_reason"
+            ] = False
 
-            if not ban_code or not target_user_id:
-
-                context.user_data.clear()
-
-                await message.reply_text(
-                    "❌ اطلاعات بن پیدا نشد."
-                )
-
-                return
-
-            banned_user_id = ban_user_by_code(
-                ban_code,
-                reason
-            )
-
-            if not banned_user_id:
-
-                context.user_data.clear()
-
-                await message.reply_text(
-                    "❌ کد بن پیدا نشد."
-                )
-
-                return
-
-            if banned_user_id != target_user_id:
-
-                context.user_data.clear()
-
-                await message.reply_text(
-                    "❌ خطایی در اطلاعات بن رخ داد."
-                )
-
-                return
-
-            context.user_data.clear()
-
-            try:
-
-                await context.bot.send_message(
-                    chat_id=banned_user_id,
-                    text=(
-                        "حساب کاربری شما مسدود شده است.🟡\n"
-                        f"علت : {reason}"
-                    )
-                )
-
-            except TelegramError as e:
-
-                print(
-                    f"Ban notification error: {e}"
-                )
+            context.user_data[
+                "waiting_ban_duration"
+            ] = True
 
             await message.reply_text(
-                "🔴 کاربر با موفقیت به مدت ۱ روز بن شد.\n\n"
-                f"آیدی عددی کاربر : {banned_user_id}\n"
-                f"علت بن : {reason}\n\n"
-                f"کد رفع بن : /unban_{ban_code}"
+                "تعداد زمانی که کاربر در حالت بنی قرار بگیرد را وارد کنید",
+                reply_markup=ban_duration_keyboard()
             )
 
             return
 
-        # =================================================
         # BAN COMMAND
-        # =================================================
 
         if text.lower().startswith("/ban_"):
-
             code = text[5:].strip()
-
-            if not code:
-
-                await message.reply_text(
-                    "❌ کد بن نامعتبر است."
-                )
-
-                return
 
             conn = db()
 
             try:
-
                 cur = conn.cursor()
 
                 cur.execute(
@@ -3648,21 +4008,17 @@ async def handle_message(
                 release_db(conn)
 
             if not row:
-
                 await message.reply_text(
                     "❌ کد بن پیدا نشد."
                 )
-
                 return
 
             target_user_id = row[0]
 
             if target_user_id == ADMIN_ID:
-
                 await message.reply_text(
                     "❌ نمی‌توانی خودت را بن کنی."
                 )
-
                 return
 
             context.user_data.clear()
@@ -3680,59 +4036,43 @@ async def handle_message(
             ] = target_user_id
 
             await message.reply_text(
-                "علت بنی را وارد کنید :"
+                "علت بنی کاربر را وارد کنید  :",
+                reply_markup=ban_cancel_keyboard()
             )
 
             return
 
-        # =================================================
         # UNBAN COMMAND
-        # =================================================
 
         if text.lower().startswith("/unban_"):
-
             code = text[7:].strip()
 
-            if not code:
-
-                await message.reply_text(
-                    "❌ کد رفع بن نامعتبر است."
-                )
-
-                return
-
-            unbanned_user_id = unban_user_by_code(
+            target_id = unban_user_by_code(
                 code
             )
 
-            if not unbanned_user_id:
-
+            if not target_id:
                 await message.reply_text(
                     "❌ کد رفع بن پیدا نشد."
                 )
-
                 return
 
             await message.reply_text(
                 "🟢 بن کاربر با موفقیت رفع شد.\n\n"
-                f"آیدی عددی کاربر : {unbanned_user_id}"
+                f"آیدی عددی کاربر : {target_id}"
             )
 
             try:
-
                 await context.bot.send_message(
-                    chat_id=unbanned_user_id,
+                    chat_id=target_id,
                     text=(
-                        "🟢 حساب کاربری شما از حالت بن خارج شد.\n"
-                        "اکنون می‌توانید دوباره از ربات استفاده کنید."
+                        "مسدودی حساب کاربری شما توسط ادمین رفع شد.\n"
+                        "اکنون حساب کاربری شما به حالت سبز در آمده 🟢\n"
+                        "میتوانید از قابلیت های ربات استفاده کنید /start"
                     )
                 )
-
-            except TelegramError as e:
-
-                print(
-                    f"Unban notification error: {e}"
-                )
+            except TelegramError:
+                pass
 
             return
 
@@ -3741,18 +4081,15 @@ async def handle_message(
     # =====================================================
 
     if user.id != ADMIN_ID:
-
         ban_info = get_ban_info(
             user.id
         )
 
         if ban_info:
-
             await message.reply_text(
                 "حساب کاربری شما مسدود شده است.🟡\n"
                 f"علت : {ban_info['reason']}"
             )
-
             return
 
     # =====================================================
@@ -3763,12 +4100,10 @@ async def handle_message(
         context.bot,
         user.id
     ):
-
         await send_join_message(
             update,
             context
         )
-
         return
 
     # =====================================================
@@ -3776,7 +4111,6 @@ async def handle_message(
     # =====================================================
 
     if text.strip() == "بازگشت 🔙":
-
         context.user_data.clear()
 
         await send_main_panel(
@@ -3793,9 +4127,7 @@ async def handle_message(
     if context.user_data.get(
         "waiting_broadcast"
     ):
-
-        if text.strip().lower() == "/cancel":
-
+        if text.lower() == "/cancel":
             context.user_data.clear()
 
             await message.reply_text(
@@ -3806,7 +4138,7 @@ async def handle_message(
 
         users = get_all_user_ids()
 
-        status_msg = await message.reply_text(
+        status = await message.reply_text(
             "📢 ارسال پیام همگانی شروع شد..."
         )
 
@@ -3814,9 +4146,7 @@ async def handle_message(
         failed = 0
 
         for target_id in users:
-
             try:
-
                 await context.bot.send_message(
                     chat_id=target_id,
                     text=text
@@ -3825,14 +4155,13 @@ async def handle_message(
                 success += 1
 
             except TelegramError:
-
                 failed += 1
 
             await asyncio.sleep(0.03)
 
         context.user_data.clear()
 
-        await status_msg.edit_text(
+        await status.edit_text(
             "✅ ارسال پیام همگانی تمام شد.\n\n"
             f"موفق: {success}\n"
             f"ناموفق: {failed}\n"
@@ -3845,17 +4174,12 @@ async def handle_message(
     # UNBLOCK
     # =====================================================
 
-    if text.lower().startswith("/unblock_"):
-
-        code = text[len("/unblock_"):].strip()
-
-        if not code:
-
-            await message.reply_text(
-                "❌ کد رفع مسدودی نامعتبر است."
-            )
-
-            return
+    if text.lower().startswith(
+        "/unblock_"
+    ):
+        code = text[
+            len("/unblock_"):
+        ].strip()
 
         result = unblock_by_code(
             user.id,
@@ -3863,13 +4187,10 @@ async def handle_message(
         )
 
         if result:
-
             await message.reply_text(
                 "🟢 کاربر با موفقیت از لیست مسدودی خارج شد."
             )
-
         else:
-
             await message.reply_text(
                 "❌ کد رفع مسدودی پیدا نشد."
             )
@@ -3883,24 +4204,19 @@ async def handle_message(
     if context.user_data.get(
         "changing_name"
     ):
+        new_name = text.strip()
 
-        if len(text.strip()) > 50:
+        if not new_name:
+            await message.reply_text(
+                "❌ نام نمی‌تواند خالی باشد."
+            )
+            return
 
+        if len(new_name) > 50:
             await message.reply_text(
                 "❌ نام خیلی طولانی است.\n"
                 "حداکثر ۵۰ کاراکتر وارد کنید."
             )
-
-            return
-
-        new_name = text.strip()
-
-        if not new_name:
-
-            await message.reply_text(
-                "❌ نام نمی‌تواند خالی باشد."
-            )
-
             return
 
         set_display_name(
@@ -3925,7 +4241,6 @@ async def handle_message(
     if context.user_data.get(
         "replying"
     ):
-
         original_message_id = context.user_data.get(
             "reply_message_id"
         )
@@ -3934,44 +4249,32 @@ async def handle_message(
             "reply_sender_id"
         )
 
-        if (
-            not original_message_id
-            or not sender_id
-        ):
-
+        if not original_message_id or not sender_id:
             context.user_data.clear()
 
             await message.reply_text(
-                "❌ اطلاعات پیام پیدا نشد.",
-                reply_markup=back_keyboard()
+                "❌ اطلاعات پیام پیدا نشد."
             )
 
             return
 
-        anonymous_message = get_anonymous_message(
+        original = get_anonymous_message(
             original_message_id
         )
 
-        if not anonymous_message:
-
+        if not original:
             context.user_data.clear()
 
             await message.reply_text(
-                "❌ پیام اصلی پیدا نشد.",
-                reply_markup=back_keyboard()
+                "❌ پیام اصلی پیدا نشد."
             )
 
             return
 
-        original_sender_id = anonymous_message[1]
-        original_receiver_id = anonymous_message[2]
-        original_text = anonymous_message[3]
-
         if (
-            original_receiver_id != user.id
-            or original_sender_id != sender_id
+            original[1] != sender_id
+            or original[2] != user.id
         ):
-
             context.user_data.clear()
 
             await message.reply_text(
@@ -3984,7 +4287,6 @@ async def handle_message(
             user.id,
             sender_id
         ):
-
             context.user_data.clear()
 
             await message.reply_text(
@@ -3993,46 +4295,50 @@ async def handle_message(
 
             return
 
-        new_message_id = save_anonymous_message(
-            sender_id=user.id,
-            receiver_id=sender_id,
-            message_text=text
+        new_id = save_anonymous_message(
+            user.id,
+            sender_id,
+            text
         )
 
-        user_row = get_user(
+        row = get_user(
             user.id
         )
 
-        if user_row:
-
-            anon_code = user_row[4]
-
-        else:
-
-            anon_code = "0000000"
+        anon_code = (
+            row[4]
+            if row
+            else "0000000"
+        )
 
         keyboard = anonymous_message_keyboard(
-            new_message_id,
+            new_id,
             user.id,
-            include_reaction=True,
-            include_seen=True
+            True,
+            True
+        )
+
+        safe_original = html.escape(
+            original[3]
+        )
+
+        safe_text = html.escape(
+            text
         )
 
         reply_text = (
             f"کاربر {anon_code} "
-            f"به پیام شما پاسخ داد. 🤠\n\n"
-            f"پیام شما :\n"
-            f"{original_text}\n\n"
-            f"پیام پاسخ داده شده :\n"
-            f"{text}"
+            "به پیام شما پاسخ داد. 🤠\n\n"
+            f"پیام شما :\n{safe_original}\n\n"
+            f"پیام پاسخ داده شده :\n{safe_text}"
         )
 
         try:
-
             await context.bot.send_message(
                 chat_id=sender_id,
                 text=reply_text,
-                reply_markup=keyboard
+                reply_markup=keyboard,
+                parse_mode="HTML"
             )
 
             await message.reply_text(
@@ -4040,12 +4346,7 @@ async def handle_message(
                 reply_markup=back_keyboard()
             )
 
-        except TelegramError as e:
-
-            print(
-                f"Reply send error: {e}"
-            )
-
+        except TelegramError:
             await message.reply_text(
                 "❌ ارسال پاسخ با خطا مواجه شد."
             )
@@ -4055,19 +4356,109 @@ async def handle_message(
         return
 
     # =====================================================
-    # SEND ANONYMOUS
+    # SEND TO GROUP
+    # =====================================================
+
+    if context.user_data.get(
+        "sending_group_anonymous"
+    ):
+        group_id = context.user_data.get(
+            "group_target_id"
+        )
+
+        if not group_id:
+            context.user_data.clear()
+
+            await message.reply_text(
+                "❌ مقصد گروه پیدا نشد.",
+                reply_markup=back_keyboard()
+            )
+
+            return
+
+        if not await is_group_member(
+            context.bot,
+            group_id,
+            user.id
+        ):
+            context.user_data.clear()
+
+            await message.reply_text(
+                "❌ شما دیگر عضو این گروه نیستید.",
+                reply_markup=back_keyboard()
+            )
+
+            return
+
+        try:
+            bot_member = await context.bot.get_chat_member(
+                chat_id=group_id,
+                user_id=context.bot.id
+            )
+
+            if bot_member.status not in (
+                ChatMember.MEMBER,
+                ChatMember.ADMINISTRATOR,
+                ChatMember.OWNER
+            ):
+                raise TelegramError(
+                    "Bot is not member"
+                )
+
+        except TelegramError:
+            context.user_data.clear()
+
+            await message.reply_text(
+                "❌ ربات دیگر در این گروه عضو نیست.",
+                reply_markup=back_keyboard()
+            )
+
+            return
+
+        group_message_id = save_group_message(
+            group_id,
+            user.id,
+            text
+        )
+
+        try:
+            await context.bot.send_message(
+                chat_id=group_id,
+                text=(
+                    "گروه پیام ناشناس جدید داره 🤠\n\n"
+                    "تعداد مشاهده : 0"
+                ),
+                reply_markup=group_view_keyboard(
+                    group_message_id
+                )
+            )
+
+            await message.reply_text(
+                "✅ پیام ناشناس با موفقیت در گروه ارسال شد.",
+                reply_markup=back_keyboard()
+            )
+
+        except TelegramError:
+            await message.reply_text(
+                "❌ خطا در ارسال پیام به گروه."
+            )
+
+        context.user_data.clear()
+
+        return
+
+    # =====================================================
+    # SEND TO USER
     # =====================================================
 
     if context.user_data.get(
         "sending_anonymous"
     ):
-
         target_id = context.user_data.get(
             "target_id"
         )
 
         if not target_id:
-
             context.user_data.clear()
 
             await message.reply_text(
@@ -4078,7 +4469,6 @@ async def handle_message(
             return
 
         if target_id == user.id:
-
             context.user_data.clear()
 
             await message.reply_text(
@@ -4092,7 +4482,6 @@ async def handle_message(
             target_id,
             user.id
         ):
-
             context.user_data.clear()
 
             await message.reply_text(
@@ -4102,41 +4491,39 @@ async def handle_message(
 
             return
 
-        anonymous_message_id = save_anonymous_message(
-            sender_id=user.id,
-            receiver_id=target_id,
-            message_text=text
+        message_id = save_anonymous_message(
+            user.id,
+            target_id,
+            text
         )
 
         row = get_user(
             user.id
         )
 
-        if row:
-
-            anon_code = row[4]
-
-        else:
-
-            anon_code = "0000000"
+        anon_code = (
+            row[4]
+            if row
+            else "0000000"
+        )
 
         keyboard = anonymous_message_keyboard(
-            anonymous_message_id,
+            message_id,
             user.id,
-            include_reaction=True,
-            include_seen=True
+            True,
+            True
         )
 
         try:
-
             await context.bot.send_message(
                 chat_id=target_id,
                 text=(
                     f"کاربر {anon_code} "
-                    f"برای شما پیام ناشناسی ارسال کرد :\n\n"
-                    f"{text}"
+                    "برای شما پیام ناشناسی ارسال کرد :\n\n"
+                    f"{html.escape(text)}"
                 ),
-                reply_markup=keyboard
+                reply_markup=keyboard,
+                parse_mode="HTML"
             )
 
             await message.reply_text(
@@ -4144,12 +4531,7 @@ async def handle_message(
                 reply_markup=back_keyboard()
             )
 
-        except TelegramError as e:
-
-            print(
-                f"Anonymous message error: {e}"
-            )
-
+        except TelegramError:
             await message.reply_text(
                 "❌ خطا در ارسال پیام."
             )
@@ -4159,11 +4541,10 @@ async def handle_message(
         return
 
     # =====================================================
-    # SEND ANONYMOUS BUTTON
+    # USER TARGET BUTTON
     # =====================================================
 
     if text == "ارسال پیام ناشناس به کاربر دلخواه":
-
         context.user_data.clear()
 
         context.user_data[
@@ -4172,12 +4553,23 @@ async def handle_message(
 
         await message.reply_text(
             "آیدی عددی یا آیدی کاربر را ارسال کنید.\n"
-            "مثال :\n"
-            "@username\n"
+            "مثال : \n"
+            "@username \n"
             "123456789\n"
-            "ربات بررسی میکند در صورت عضو بودن کاربر در ربات "
-            "میتوانید به او پیام ناشناس ارسال کنید❤️‍🔥",
+            "ربات بررسی میکند در صورت عضو بودن کاربر در ربات میتوانید به او پیام ناشناس ارسال کنید❤️‍🔥",
             reply_markup=back_keyboard()
+        )
+
+        return
+
+    # =====================================================
+    # GROUP BUTTON
+    # =====================================================
+
+    if text == "ارسال پیام ناشناس به گروه 👥":
+        await show_group_list(
+            update,
+            context
         )
 
         return
@@ -4189,16 +4581,13 @@ async def handle_message(
     if context.user_data.get(
         "waiting_target"
     ):
-
         target = find_user_by_input(
             text
         )
 
         if not target:
-
             await message.reply_text(
-                "خطایی رخ داد ! به نظر میرسه کاربر عضو ربات نیست "
-                "یا آیدی رو اشتباه وارد کردی ❌",
+                "خطایی رخ داد ! به نظر میرسه کاربر عضو ربات نیست یا آیدی رو اشتباه وارد کردی ❌",
                 reply_markup=back_keyboard()
             )
 
@@ -4207,7 +4596,6 @@ async def handle_message(
         target_id = target[0]
 
         if target_id == user.id:
-
             bot = await context.bot.get_me()
 
             own_link = (
@@ -4250,7 +4638,7 @@ async def handle_message(
         return
 
     # =====================================================
-    # UNKNOWN MESSAGE
+    # UNKNOWN
     # =====================================================
 
     await message.reply_text(
@@ -4266,14 +4654,176 @@ async def handle_message(
 
 
 # =========================================================
-# ERROR HANDLER
+# BAN CALLBACK
+# =========================================================
+
+async def ban_callback(
+    update,
+    context
+):
+    query = update.callback_query
+    user = update.effective_user
+
+    if user.id != ADMIN_ID:
+        await query.answer(
+            "دسترسی ندارید ❌",
+            show_alert=True
+        )
+        return
+
+    data = query.data or ""
+
+    # CANCEL
+
+    if data == "ban_cancel":
+        context.user_data.clear()
+
+        await query.answer(
+            "عملیات بن لغو شد ❌"
+        )
+
+        try:
+            await query.edit_message_reply_markup(
+                reply_markup=None
+            )
+        except TelegramError:
+            pass
+
+        await query.message.reply_text(
+            "❌ عملیات بن لغو شد."
+        )
+
+        return
+
+    # DURATION
+
+    if data.startswith(
+        "ban_duration:"
+    ):
+        try:
+            duration = int(
+                data.split(":", 1)[1]
+            )
+        except (ValueError, IndexError):
+            await query.answer(
+                "مدت نامعتبر است ❌",
+                show_alert=True
+            )
+            return
+
+        if duration not in (
+            1,
+            3,
+            5,
+            7
+        ):
+            await query.answer(
+                "مدت نامعتبر است ❌",
+                show_alert=True
+            )
+            return
+
+        ban_code = context.user_data.get(
+            "ban_code"
+        )
+
+        target_id = context.user_data.get(
+            "ban_target_id"
+        )
+
+        reason = context.user_data.get(
+            "ban_reason"
+        )
+
+        if not ban_code or not target_id or not reason:
+            context.user_data.clear()
+
+            await query.answer(
+                "اطلاعات بن پیدا نشد ❌",
+                show_alert=True
+            )
+
+            return
+
+        result = ban_user_by_code(
+            ban_code,
+            reason,
+            duration
+        )
+
+        if not result:
+            context.user_data.clear()
+
+            await query.answer(
+                "کد بن پیدا نشد ❌",
+                show_alert=True
+            )
+
+            return
+
+        banned_id, _ = result
+
+        context.user_data.clear()
+
+        await query.answer(
+            "کاربر با موفقیت بن شد ✅"
+        )
+
+        try:
+            await query.edit_message_reply_markup(
+                reply_markup=None
+            )
+        except TelegramError:
+            pass
+
+        await query.message.reply_text(
+            f"کاربر با موفقیت به مدت {duration} روز بن شد."
+        )
+
+        try:
+            await context.bot.send_message(
+                chat_id=banned_id,
+                text=(
+                    f"حساب کاربری شما به مدت {duration} روز مسدود شد🟡\n"
+                    f"شناسه کاربری : {ban_code}\n"
+                    f"علت : {reason}\n\n"
+                    "چنانچه مطمئنید که حساب کاربری شما تخلفی نداشته و مقصر نبوده اید به ادمین پیام دهید و شناسه کاربری خود + مدارک را ارسال کنید : @TMTAHAV"
+                )
+            )
+        except TelegramError:
+            pass
+
+
+async def callback_router(
+    update,
+    context
+):
+    data = update.callback_query.data or ""
+
+    if (
+        data == "ban_cancel"
+        or data.startswith("ban_duration:")
+    ):
+        await ban_callback(
+            update,
+            context
+        )
+        return
+
+    await button_handler(
+        update,
+        context
+    )
+
+
+# =========================================================
+# ERROR
 # =========================================================
 
 async def error_handler(
     update,
     context
 ):
-
     print(
         "BOT ERROR:",
         repr(context.error)
@@ -4281,16 +4831,53 @@ async def error_handler(
 
 
 # =========================================================
+# POST INIT / SHUTDOWN
+# =========================================================
+
+async def post_init(
+    application
+):
+    global GLOBAL_BOT
+
+    GLOBAL_BOT = application.bot
+
+    application.bot_data[
+        "ban_expiration_task"
+    ] = asyncio.create_task(
+        expire_bans_loop()
+    )
+
+
+async def post_shutdown(
+    application
+):
+    global DB_POOL
+    global GLOBAL_BOT
+
+    task = application.bot_data.get(
+        "ban_expiration_task"
+    )
+
+    if task:
+        task.cancel()
+
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    GLOBAL_BOT = None
+
+    if DB_POOL is not None:
+        DB_POOL.closeall()
+        DB_POOL = None
+
+
+# =========================================================
 # MAIN
 # =========================================================
 
 def main():
-
-    if not BOT_TOKEN:
-
-        raise RuntimeError(
-            "BOT_TOKEN environment variable is not set."
-        )
 
     create_db_pool()
 
@@ -4305,14 +4892,19 @@ def main():
         .build()
     )
 
-    # =====================================================
     # COMMANDS
-    # =====================================================
 
     application.add_handler(
         CommandHandler(
             "start",
             start
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "linkgroup",
+            linkgroup_command
         )
     )
 
@@ -4344,19 +4936,24 @@ def main():
         )
     )
 
-    # =====================================================
-    # CALLBACKS
-    # =====================================================
+    # BOT ADDED TO GROUP
 
     application.add_handler(
-        CallbackQueryHandler(
-            button_handler
+        ChatMemberHandler(
+            bot_group_membership_update,
+            ChatMemberHandler.MY_CHAT_MEMBER
         )
     )
 
-    # =====================================================
+    # CALLBACKS
+
+    application.add_handler(
+        CallbackQueryHandler(
+            callback_router
+        )
+    )
+
     # TEXT
-    # =====================================================
 
     application.add_handler(
         MessageHandler(
@@ -4365,9 +4962,7 @@ def main():
         )
     )
 
-    # =====================================================
     # COMMAND-LIKE TEXT
-    # =====================================================
 
     application.add_handler(
         MessageHandler(
@@ -4375,10 +4970,6 @@ def main():
             handle_message
         )
     )
-
-    # =====================================================
-    # ERROR
-    # =====================================================
 
     application.add_error_handler(
         error_handler
@@ -4396,10 +4987,6 @@ def main():
         drop_pending_updates=True
     )
 
-
-# =========================================================
-# START
-# =========================================================
 
 if __name__ == "__main__":
     main()
