@@ -2002,6 +2002,13 @@ def group_view_keyboard(message_id):
                 callback_data=f"group_view:{message_id}",
                 style="success"
             )
+        ],
+        [
+            InlineKeyboardButton(
+                "گزارش تخلف 🚨",
+                callback_data=f"group_report:{message_id}",
+                style="danger"
+            )
         ]
     ])
 
@@ -2313,6 +2320,19 @@ async def start(
     if not user or not update.message:
         return
 
+    # =====================================================
+    # IMPORTANT:
+    # /start INSIDE GROUP DOES ABSOLUTELY NOTHING.
+    # =====================================================
+
+    chat = update.effective_chat
+
+    if chat and chat.type in (
+        "group",
+        "supergroup"
+    ):
+        return
+
     get_or_create_user(
         user.id,
         user.username,
@@ -2598,6 +2618,12 @@ async def userbot_command(
     if not user or user.id != ADMIN_ID:
         return
 
+    if update.effective_chat.type in (
+        "group",
+        "supergroup"
+    ):
+        return
+
     text, keyboard, _ = build_userbot_page(0)
 
     await update.message.reply_text(
@@ -2654,6 +2680,12 @@ async def userban_command(
     if not user or user.id != ADMIN_ID:
         return
 
+    if update.effective_chat.type in (
+        "group",
+        "supergroup"
+    ):
+        return
+
     rows = get_active_banned_users()
 
     if not rows:
@@ -2706,6 +2738,12 @@ async def broadcast_command(
     if not user or user.id != ADMIN_ID:
         return
 
+    if update.effective_chat.type in (
+        "group",
+        "supergroup"
+    ):
+        return
+
     context.user_data.clear()
 
     context.user_data[
@@ -2727,6 +2765,12 @@ async def cancel_command(
     update,
     context
 ):
+    if update.effective_chat.type in (
+        "group",
+        "supergroup"
+    ):
+        return
+
     context.user_data.clear()
 
     await update.message.reply_text(
@@ -2915,6 +2959,26 @@ async def button_handler(
 
     user_id = user.id
     data = query.data or ""
+
+    # =====================================================
+    # GROUP CALLBACK SAFETY
+    # =====================================================
+    # داخل گروه فقط مشاهده پیام و گزارش تخلف مجاز است.
+    # هیچ callback مربوط به پنل خصوصی نباید در گروه اجرا شود.
+    # =====================================================
+
+    chat = query.message.chat if query.message else None
+
+    if chat and chat.type in (
+        "group",
+        "supergroup"
+    ):
+        if not (
+            data.startswith("group_view:")
+            or data.startswith("group_report:")
+        ):
+            await query.answer()
+            return
 
     # -----------------------------------------------------
     # JOIN
@@ -3105,10 +3169,27 @@ async def button_handler(
             group_id,
             user_id
         ):
-            await query.answer(
-                "فقط اعضای گروه می‌توانند پیام را ببینند ❌",
-                show_alert=True
+            safe_name = html.escape(
+                user.full_name or "کاربر"
             )
+
+            text = (
+                f'<b>کاربر '
+                f'<a href="tg://user?id={user_id}">'
+                f'{safe_name}'
+                f'</a> جهت مشاهده پیام عضو ربات شوید سپس مجدد روی «مشاهده پیام بزنید» . 👇🏻</b>\n'
+                f'<b><a href="https://t.me/HideMyChatRobot?start">'
+                f'https://t.me/HideMyChatRobot?start'
+                f'</a></b>'
+            )
+
+            await query.message.reply_text(
+                text,
+                parse_mode="HTML"
+            )
+
+            await query.answer()
+
             return
 
         inserted, view_count = add_group_view(
@@ -3123,15 +3204,151 @@ async def button_handler(
 
         try:
             await query.message.edit_text(
-                "گروه پیام ناشناس جدید داره 🤠\n\n"
-                f"تعداد مشاهده : {view_count}",
+                "<b>گروه شما یک پیام ناشناش جدید دارد 🤠</b>\n\n"
+                f"<b>این پیام توسط {view_count} نفر مشاهده شد‌.</b>",
                 reply_markup=group_view_keyboard(
                     message_id
-                )
+                ),
+                parse_mode="HTML"
             )
         except TelegramError as e:
             print(
                 f"Group view edit error: {e}"
+            )
+
+        return
+
+    # -----------------------------------------------------
+    # GROUP REPORT
+    # -----------------------------------------------------
+
+    if data.startswith("group_report:"):
+        try:
+            message_id = int(
+                data.split(":", 1)[1]
+            )
+        except (ValueError, IndexError):
+            await query.answer(
+                "گزارش نامعتبر است ❌",
+                show_alert=True
+            )
+            return
+
+        group_message = get_group_message(
+            message_id
+        )
+
+        if not group_message:
+            await query.answer(
+                "این پیام دیگر موجود نیست ❌",
+                show_alert=True
+            )
+            return
+
+        group_id = group_message[1]
+        sender_id = group_message[2]
+        original_text = group_message[3]
+
+        group = None
+
+        for row in get_all_groups():
+            if row[0] == group_id:
+                group = row
+                break
+
+        group_title = (
+            group[1]
+            if group and group[1]
+            else "گروه"
+        )
+
+        reporter_name = (
+            user.full_name
+            or "کاربر"
+        )
+
+        reported = get_user(
+            sender_id
+        )
+
+        if reported:
+            username = reported[1]
+            full_name = reported[2]
+            ban_code = reported[6]
+        else:
+            username = None
+            full_name = "کاربر"
+            ban_code = get_ban_code(
+                sender_id
+            )
+
+        username_text = (
+            f"@{username}"
+            if username
+            else "ندارد"
+        )
+
+        ban_code = (
+            ban_code
+            or get_ban_code(sender_id)
+        )
+
+        safe_group_title = html.escape(
+            group_title
+        )
+
+        safe_reporter_name = html.escape(
+            reporter_name
+        )
+
+        safe_full_name = html.escape(
+            full_name or "ندارد"
+        )
+
+        safe_original_text = html.escape(
+            original_text
+        )
+
+        report_text = (
+            "<b>🚨 گزارش تخلف پیام ناشناس گروه</b>\n\n"
+            f"<b>نام گروه :</b> {safe_group_title}\n"
+            f"<b>آیدی گروه :</b> {group_id}\n\n"
+            f"<b>گزارش‌دهنده :</b> {safe_reporter_name}\n"
+            f"<b>آیدی گزارش‌دهنده :</b> {user_id}\n\n"
+            "<b>پیام گزارش‌شده :</b>\n"
+            f"{safe_original_text}\n\n"
+            f"<b>آیدی فرستنده ناشناس :</b> {sender_id}\n"
+            f"<b>آیدی تلگرام :</b> {username_text}\n"
+            f"<b>نام حساب :</b> {safe_full_name}\n\n"
+            f"<b>کد بن کاربر :</b> /ban_{ban_code}\n"
+            f"<b>کد رفع بن :</b> /unban_{ban_code}"
+        )
+
+        try:
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=report_text,
+                parse_mode="HTML"
+            )
+
+            await query.answer(
+                "گزارش تخلف با موفقیت ثبت شد 🚨",
+                show_alert=True
+            )
+
+            await query.message.reply_text(
+                "🚨 گزارش تخلف شما با موفقیت ثبت شد.\n"
+                "گزارش برای مدیریت ارسال شد."
+            )
+
+        except TelegramError as e:
+            print(
+                f"Group report error: {e}"
+            )
+
+            await query.answer(
+                "ارسال گزارش با خطا مواجه شد ❌",
+                show_alert=True
             )
 
         return
@@ -3431,8 +3648,6 @@ async def button_handler(
                 show_alert=True
             )
             return
-
-        # Remove reaction + seen buttons.
 
         await query.edit_message_reply_markup(
             reply_markup=anonymous_message_keyboard(
@@ -3782,6 +3997,12 @@ async def handle_message(
 
     if not user or not message:
         return
+
+    # =====================================================
+    # GROUP SAFETY
+    # =====================================================
+    # هیچ پیام متنی عادی داخل گروه توسط این handler پردازش نمی‌شود.
+    # =====================================================
 
     if message.chat.type in (
         "group",
@@ -4425,12 +4646,13 @@ async def handle_message(
             await context.bot.send_message(
                 chat_id=group_id,
                 text=(
-                    "گروه پیام ناشناس جدید داره 🤠\n\n"
-                    "تعداد مشاهده : 0"
+                    "<b>گروه شما یک پیام ناشناش جدید دارد 🤠</b>\n\n"
+                    "<b>این پیام توسط 0 نفر مشاهده شد‌.</b>"
                 ),
                 reply_markup=group_view_keyboard(
                     group_message_id
-                )
+                ),
+                parse_mode="HTML"
             )
 
             await message.reply_text(
@@ -4669,6 +4891,13 @@ async def ban_callback(
             "دسترسی ندارید ❌",
             show_alert=True
         )
+        return
+
+    if query.message and query.message.chat.type in (
+        "group",
+        "supergroup"
+    ):
+        await query.answer()
         return
 
     data = query.data or ""
