@@ -211,6 +211,16 @@ def init_db():
         """)
 
         cur.execute("""
+            ALTER TABLE anonymous_messages
+            ADD COLUMN IF NOT EXISTS media_type TEXT
+        """)
+
+        cur.execute("""
+            ALTER TABLE anonymous_messages
+            ADD COLUMN IF NOT EXISTS file_id TEXT
+        """)
+
+        cur.execute("""
             ALTER TABLE users
             ADD COLUMN IF NOT EXISTS link_views INTEGER DEFAULT 0
         """)
@@ -865,6 +875,49 @@ def get_link_views(user_id):
 # BAN
 # =========================================================
 
+
+async def send_anonymous_content(bot, target_id, anon_code, text, media_type=None, file_id=None, keyboard=None):
+    """ارسال پیام ناشناس (متن یا مدیا)"""
+    header = f"<b>کاربر {anon_code} برای شما پیام ناشناسی ارسال کرد : 👇🏻</b>"
+
+    try:
+        # اول هدر
+        await bot.send_message(
+            chat_id=target_id,
+            text=header,
+            parse_mode="HTML"
+        )
+
+        if media_type and file_id:
+            caption = text if text else None
+            if media_type == "photo":
+                await bot.send_photo(chat_id=target_id, photo=file_id, caption=caption, reply_markup=keyboard)
+            elif media_type == "video":
+                await bot.send_video(chat_id=target_id, video=file_id, caption=caption, reply_markup=keyboard)
+            elif media_type == "voice":
+                await bot.send_voice(chat_id=target_id, voice=file_id, caption=caption, reply_markup=keyboard)
+            elif media_type == "audio":
+                await bot.send_audio(chat_id=target_id, audio=file_id, caption=caption, reply_markup=keyboard)
+            elif media_type == "document":
+                await bot.send_document(chat_id=target_id, document=file_id, caption=caption, reply_markup=keyboard)
+            else:
+                # fallback
+                await bot.send_message(chat_id=target_id, text=text or "پیام ناشناس", reply_markup=keyboard)
+        else:
+            # فقط متن
+            body = f"{html.escape(text)}" if text else ""
+            await bot.send_message(
+                chat_id=target_id,
+                text=body,
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+        return True
+    except TelegramError as e:
+        print(f"send_anonymous_content error: {e}")
+        return False
+
+
 def get_ban_code(user_id):
     conn = db()
 
@@ -1153,7 +1206,9 @@ async def expire_bans_loop():
 def save_anonymous_message(
     sender_id,
     receiver_id,
-    message_text
+    message_text,
+    media_type=None,
+    file_id=None
 ):
     conn = db()
 
@@ -1167,19 +1222,23 @@ def save_anonymous_message(
                 receiver_id,
                 message_text,
                 created_at,
-                seen_at
+                seen_at,
+                media_type,
+                file_id
             )
             VALUES (
-                %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s
             )
             RETURNING id
             """,
             (
                 sender_id,
                 receiver_id,
-                message_text,
+                message_text or "",
                 datetime.now(),
-                None
+                None,
+                media_type,
+                file_id
             )
         )
 
@@ -1208,7 +1267,9 @@ def get_anonymous_message(message_id):
                 receiver_id,
                 message_text,
                 created_at,
-                seen_at
+                seen_at,
+                media_type,
+                file_id
             FROM anonymous_messages
             WHERE id = %s
             """,
