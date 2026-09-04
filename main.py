@@ -3945,6 +3945,10 @@ async def button_handler(
             "reply_message_id"
         ] = message_id
 
+        
+        # Telegram message id of the exact message whose Reply button was clicked.
+        context.user_data["reply_telegram_message_id"] = query.message.message_id
+
         context.user_data[
             "reply_sender_id"
         ] = sender_id
@@ -4158,6 +4162,10 @@ async def media_handler(update, context):
     if context.user_data.get("replying"):
         original_message_id = context.user_data.get("reply_message_id")
         sender_id = context.user_data.get("reply_sender_id")
+        
+        
+        # Telegram message id of the exact message whose Reply button was clicked.
+        reply_telegram_message_id = context.user_data.get("reply_telegram_message_id")
         original = get_anonymous_message(original_message_id) if original_message_id else None
         if not original or original[1] != sender_id or original[2] != user.id or is_blocked(user.id, sender_id):
             context.user_data.clear()
@@ -4184,7 +4192,7 @@ async def media_handler(update, context):
             try:
                 delivered = await send_anonymous_media(
                     context.bot, sender_id, media_type, file_id, caption, keyboard,
-                    reply_to_message_id=original[11] if original[11] else None
+                    reply_to_message_id=reply_telegram_message_id
                 )
             except TelegramError:
                 # اگر Reply به پیام قبلی قابل انجام نبود، خود فایل حتماً ارسال شود.
@@ -4714,6 +4722,11 @@ async def handle_message(
             "reply_sender_id"
         )
 
+        # شناسه واقعی همان پیام تلگرام که دکمه «پاسخ» آن کلیک شده است.
+        reply_telegram_message_id = context.user_data.get(
+            "reply_telegram_message_id"
+        )
+
         if not original_message_id or not sender_id:
             context.user_data.clear()
 
@@ -4821,14 +4834,14 @@ async def handle_message(
             # پیام پاسخ باید به پیام ناشناس قبلی Reply شود.
             # اگر Telegram آن پیام را پیدا نکرد، ارسال بدون Reply انجام می‌شود تا پاسخ خطا نخورد.
             try:
-                if original[11]:
+                if reply_telegram_message_id:
                     delivered = await context.bot.send_message(
                         chat_id=sender_id,
                         text=html.escape(text),
                         reply_markup=keyboard,
                         parse_mode="HTML",
                         reply_parameters=ReplyParameters(
-                            message_id=original[11],
+                            message_id=reply_telegram_message_id,
                             chat_id=sender_id,
                             allow_sending_without_reply=False
                         )
