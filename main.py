@@ -127,6 +127,7 @@ def init_db():
                 file_id TEXT,
                 media_caption TEXT,
                 sender_message_id BIGINT,
+                conversation_owner_id BIGINT,
                 delivered_message_id BIGINT
             )
         """)
@@ -134,6 +135,11 @@ def init_db():
         cur.execute("""
             ALTER TABLE anonymous_messages
             ADD COLUMN IF NOT EXISTS delivered_message_id BIGINT
+        """)
+
+        cur.execute("""
+            ALTER TABLE anonymous_messages
+            ADD COLUMN IF NOT EXISTS conversation_owner_id BIGINT
         """)
 
         cur.execute("""
@@ -1167,7 +1173,8 @@ def save_anonymous_message(
     media_type=None,
     file_id=None,
     media_caption=None,
-    sender_message_id=None
+    sender_message_id=None,
+    conversation_owner_id=None
 ):
     conn = db()
     try:
@@ -1176,13 +1183,14 @@ def save_anonymous_message(
             """
             INSERT INTO anonymous_messages (
                 sender_id, receiver_id, message_text, created_at, seen_at,
-                media_type, file_id, media_caption, sender_message_id
+                media_type, file_id, media_caption, sender_message_id,
+                conversation_owner_id
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (sender_id, receiver_id, message_text or "", datetime.now(), None,
-             media_type, file_id, media_caption, sender_message_id)
+             media_type, file_id, media_caption, sender_message_id, conversation_owner_id)
         )
         message_id = cur.fetchone()[0]
         conn.commit()
@@ -1200,7 +1208,8 @@ def get_anonymous_message(message_id):
         cur.execute(
             """
             SELECT id, sender_id, receiver_id, message_text, created_at, seen_at,
-                   media_type, file_id, media_caption, sender_message_id, delivered_message_id
+                   media_type, file_id, media_caption, sender_message_id,
+                   conversation_owner_id, delivered_message_id
             FROM anonymous_messages
             WHERE id = %s
             """,
@@ -3087,40 +3096,19 @@ async def button_handler(
             "عضویت شما تأیید شد ✅"
         )
 
-        pending = context.user_data.get("pending_link_payload")
+        # فقط بعد از تأیید کامل عضویت، کاربر وارد users می‌شود.
+        # پیام جوین اجباری نیز مستقیماً با پنل اصلی جایگزین می‌شود.
         context.user_data.clear()
-        get_or_create_user(user_id, user.username, user.full_name)
-
-        if pending and pending.startswith("g_"):
-            group = get_group_by_link(pending[2:])
-            if group and await is_group_member(context.bot, group[0], user_id):
-                context.user_data["sending_group_anonymous"] = True
-                context.user_data["group_target_id"] = group[0]
-                context.user_data["group_target_title"] = group[1] or "گروه"
-                await query.message.reply_text(
-                    f"شما درحال ارسال پیام ناشناس به گروه {group[1] or 'گروه'} هستید .🗨️\n"
-                    "پیام خود را بنویسید :",
-                    reply_markup=cancel_keyboard()
-                )
-                return
-
-        if pending and not pending.startswith("g_"):
-            target = get_user_by_link(pending)
-            if target and target[0] != user_id:
-                register_link_view(target[0], user_id)
-                context.user_data["target_id"] = target[0]
-                context.user_data["sending_anonymous"] = True
-                target_name = target[2] or target[1] or "کاربر"
-                await query.message.reply_text(
-                    f"شما در حال ارسال پیام ناشناس به {target_name} هستید.\n\n"
-                    "پیام خود را بنویسید : 💤",
-                    reply_markup=cancel_keyboard()
-                )
-                return
+        get_or_create_user(
+            user_id,
+            user.username,
+            user.full_name
+        )
 
         await send_main_panel(
             update,
-            context
+            context,
+            show_reply_keyboard=True
         )
 
         return
@@ -4175,15 +4163,16 @@ async def media_handler(update, context):
             context.user_data.clear()
             await message.reply_text("❌ اطلاعات پیام پیدا نشد.")
             return
-        new_id = save_anonymous_message(user.id, sender_id, caption, media_type, file_id, caption, message.message_id)
+        new_id = save_anonymous_message(user.id, sender_id, caption, media_type, file_id, caption, message.message_id, original[10] if original[10] else original[2])
         keyboard = anonymous_message_keyboard(new_id, user.id, True, True)
         try:
             row = get_user(user.id)
             anon_code = row[4] if row else "0000000"
+            conversation_owner_id = original[10] or original[2]
             display = (
-                f"کاربر {anon_code}"
-                if original[1] == user.id
-                else f"کاربر {html.escape(get_display_name(user.id))}"
+                f"کاربر {html.escape(get_display_name(user.id))}"
+                if user.id == conversation_owner_id
+                else f"کاربر {anon_code}"
             )
 
             await context.bot.send_message(
@@ -4195,7 +4184,7 @@ async def media_handler(update, context):
             try:
                 delivered = await send_anonymous_media(
                     context.bot, sender_id, media_type, file_id, caption, keyboard,
-                    reply_to_message_id=original[10] if original[10] else None
+                    reply_to_message_id=original[11] if original[11] else None
                 )
             except TelegramError:
                 # اگر Reply به پیام قبلی قابل انجام نبود، خود فایل حتماً ارسال شود.
@@ -4221,7 +4210,7 @@ async def media_handler(update, context):
             context.user_data.clear()
             await message.reply_text("❌ ارسال پیام انجام نشد.", reply_markup=back_keyboard())
             return
-        mid = save_anonymous_message(user.id, target_id, caption, media_type, file_id, caption, message.message_id)
+        mid = save_anonymous_message(user.id, target_id, caption, media_type, file_id, caption, message.message_id, target_id)
         keyboard = anonymous_message_keyboard(mid, user.id, True, True)
         row = get_user(user.id)
         anon_code = row[4] if row else "0000000"
@@ -4778,7 +4767,8 @@ async def handle_message(
             "text",
             None,
             text,
-            message.message_id
+            message.message_id,
+            original[10] if original[10] else original[2]
         )
 
         row = get_user(
@@ -4814,10 +4804,11 @@ async def handle_message(
         )
 
         try:
+            conversation_owner_id = original[10] or original[2]
             display = (
-                f"کاربر {anon_code}"
-                if original[1] == user.id
-                else f"کاربر {html.escape(get_display_name(user.id))}"
+                f"کاربر {html.escape(get_display_name(user.id))}"
+                if user.id == conversation_owner_id
+                else f"کاربر {anon_code}"
             )
 
             # هدر جداگانه است و خودش Reply نمی‌شود.
@@ -4830,14 +4821,14 @@ async def handle_message(
             # پیام پاسخ باید به پیام ناشناس قبلی Reply شود.
             # اگر Telegram آن پیام را پیدا نکرد، ارسال بدون Reply انجام می‌شود تا پاسخ خطا نخورد.
             try:
-                if original[10]:
+                if original[11]:
                     delivered = await context.bot.send_message(
                         chat_id=sender_id,
                         text=html.escape(text),
                         reply_markup=keyboard,
                         parse_mode="HTML",
                         reply_parameters=ReplyParameters(
-                            message_id=original[10],
+                            message_id=original[11],
                             allow_sending_without_reply=True
                         )
                     )
@@ -5020,7 +5011,8 @@ async def handle_message(
             "text",
             None,
             text,
-            message.message_id
+            message.message_id,
+            target_id
         )
 
         row = get_user(
