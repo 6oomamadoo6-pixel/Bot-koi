@@ -12,7 +12,6 @@ from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    ReplyParameters,
     ReplyKeyboardMarkup,
     KeyboardButton,
     ChatMember,
@@ -122,32 +121,7 @@ def init_db():
                 receiver_id BIGINT NOT NULL,
                 message_text TEXT NOT NULL,
                 created_at TIMESTAMP,
-                seen_at TIMESTAMP,
-                media_type TEXT,
-                file_id TEXT,
-                media_caption TEXT,
-                sender_message_id BIGINT,
-                conversation_owner_id BIGINT,
-                delivered_message_id BIGINT
-            )
-        """)
-
-        cur.execute("""
-            ALTER TABLE anonymous_messages
-            ADD COLUMN IF NOT EXISTS delivered_message_id BIGINT
-        """)
-
-        cur.execute("""
-            ALTER TABLE anonymous_messages
-            ADD COLUMN IF NOT EXISTS conversation_owner_id BIGINT
-        """)
-
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS link_views (
-                owner_id BIGINT NOT NULL,
-                visitor_id BIGINT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (owner_id, visitor_id)
+                seen_at TIMESTAMP
             )
         """)
 
@@ -236,28 +210,6 @@ def init_db():
             ADD COLUMN IF NOT EXISTS seen_at TIMESTAMP
         """)
 
-        cur.execute("""
-            ALTER TABLE anonymous_messages
-            ADD COLUMN IF NOT EXISTS media_type TEXT
-        """)
-        cur.execute("""
-            ALTER TABLE anonymous_messages
-            ADD COLUMN IF NOT EXISTS file_id TEXT
-        """)
-        cur.execute("""
-            ALTER TABLE anonymous_messages
-            ADD COLUMN IF NOT EXISTS media_caption TEXT
-        """)
-        cur.execute("""
-            ALTER TABLE anonymous_messages
-            ADD COLUMN IF NOT EXISTS sender_message_id BIGINT
-        """)
-
-        cur.execute("""
-            ALTER TABLE anonymous_messages
-            ADD COLUMN IF NOT EXISTS delivered_message_id BIGINT
-        """)
-
         # INDEXES
 
         cur.execute("""
@@ -293,10 +245,6 @@ def init_db():
         cur.execute("""
             CREATE INDEX IF NOT EXISTS idx_reactions_message
             ON message_reactions(message_id)
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_link_views_owner
-            ON link_views(owner_id)
         """)
 
         cur.execute("""
@@ -1169,72 +1117,73 @@ async def expire_bans_loop():
 def save_anonymous_message(
     sender_id,
     receiver_id,
-    message_text,
-    media_type=None,
-    file_id=None,
-    media_caption=None,
-    sender_message_id=None,
-    conversation_owner_id=None
+    message_text
 ):
     conn = db()
+
     try:
         cur = conn.cursor()
+
         cur.execute(
             """
             INSERT INTO anonymous_messages (
-                sender_id, receiver_id, message_text, created_at, seen_at,
-                media_type, file_id, media_caption, sender_message_id,
-                conversation_owner_id
+                sender_id,
+                receiver_id,
+                message_text,
+                created_at,
+                seen_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (
+                %s, %s, %s, %s, %s
+            )
             RETURNING id
             """,
-            (sender_id, receiver_id, message_text or "", datetime.now(), None,
-             media_type, file_id, media_caption, sender_message_id, conversation_owner_id)
+            (
+                sender_id,
+                receiver_id,
+                message_text,
+                datetime.now(),
+                None
+            )
         )
+
         message_id = cur.fetchone()[0]
+
         conn.commit()
+
         return message_id
+
     finally:
         cur.close()
         release_db(conn)
 
 
-
 def get_anonymous_message(message_id):
     conn = db()
+
     try:
         cur = conn.cursor()
+
         cur.execute(
             """
-            SELECT id, sender_id, receiver_id, message_text, created_at, seen_at,
-                   media_type, file_id, media_caption, sender_message_id,
-                   conversation_owner_id, delivered_message_id
+            SELECT
+                id,
+                sender_id,
+                receiver_id,
+                message_text,
+                created_at,
+                seen_at
             FROM anonymous_messages
             WHERE id = %s
             """,
             (message_id,)
         )
+
         return cur.fetchone()
+
     finally:
         cur.close()
         release_db(conn)
-
-
-
-def set_delivered_message_id(message_id, delivered_message_id):
-    conn = db()
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            "UPDATE anonymous_messages SET delivered_message_id = %s WHERE id = %s",
-            (delivered_message_id, message_id)
-        )
-        conn.commit()
-    finally:
-        cur.close()
-        release_db(conn)
-
 
 
 def mark_message_as_seen(
@@ -1267,40 +1216,6 @@ def mark_message_as_seen(
 
         return row is not None
 
-    finally:
-        cur.close()
-        release_db(conn)
-
-
-# =========================================================
-# LINK VIEWS
-# =========================================================
-
-def register_link_view(owner_id, visitor_id):
-    if owner_id == visitor_id:
-        return False
-    conn = db()
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO link_views (owner_id, visitor_id) VALUES (%s, %s) ON CONFLICT (owner_id, visitor_id) DO NOTHING RETURNING owner_id",
-            (owner_id, visitor_id)
-        )
-        inserted = cur.fetchone() is not None
-        conn.commit()
-        return inserted
-    finally:
-        cur.close()
-        release_db(conn)
-
-
-def get_link_view_count(owner_id):
-    conn = db()
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM link_views WHERE owner_id = %s", (owner_id,))
-        row = cur.fetchone()
-        return row[0] if row else 0
     finally:
         cur.close()
         release_db(conn)
@@ -1930,23 +1845,6 @@ def back_keyboard():
     ])
 
 
-def link_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "تعداد بازدید لینک 📊",
-                callback_data="link_stats",
-                style="success"
-            ),
-            InlineKeyboardButton(
-                "بازگشت 🔙",
-                callback_data="back_main",
-                style="danger"
-            )
-        ]
-    ])
-
-
 def cancel_keyboard():
     return InlineKeyboardMarkup([
         [
@@ -2191,8 +2089,7 @@ async def send_join_message(
 
 async def send_main_panel(
     update,
-    context,
-    show_reply_keyboard=True
+    context
 ):
     text = (
         "<b>درود! به پنل اصلی ربات "
@@ -2207,22 +2104,30 @@ async def send_main_panel(
             reply_markup=main_keyboard(),
             parse_mode="HTML"
         )
-        if show_reply_keyboard:
-            await update.message.reply_text(
-                "👇🏻",
-                reply_markup=main_reply_keyboard()
-            )
-    else:
-        await update.callback_query.edit_message_text(
-            text,
-            reply_markup=main_keyboard(),
-            parse_mode="HTML"
+
+        await update.message.reply_text(
+            "👇🏻",
+            reply_markup=main_reply_keyboard()
         )
-        if show_reply_keyboard:
-            await update.callback_query.message.reply_text(
-                "👇🏻",
-                reply_markup=main_reply_keyboard()
+
+    else:
+        try:
+            await update.callback_query.edit_message_text(
+                text,
+                reply_markup=main_keyboard(),
+                parse_mode="HTML"
             )
+        except TelegramError:
+            await update.callback_query.message.reply_text(
+                text,
+                reply_markup=main_keyboard(),
+                parse_mode="HTML"
+            )
+
+        await update.callback_query.message.reply_text(
+            "👇🏻",
+            reply_markup=main_reply_keyboard()
+        )
 
 
 # =========================================================
@@ -2428,6 +2333,12 @@ async def start(
     ):
         return
 
+    get_or_create_user(
+        user.id,
+        user.username,
+        user.full_name
+    )
+
     if user.id != ADMIN_ID:
         ban_info = get_ban_info(user.id)
 
@@ -2458,14 +2369,11 @@ async def start(
                 context.bot,
                 user.id
             ):
-                context.user_data["pending_link_payload"] = payload
                 await send_join_message(
                     update,
                     context
                 )
                 return
-
-            get_or_create_user(user.id, user.username, user.full_name)
 
             group_id = group[0]
             group_title = group[1] or "گروه"
@@ -2539,15 +2447,11 @@ async def start(
             context.bot,
             user.id
         ):
-            context.user_data["pending_link_payload"] = payload
             await send_join_message(
                 update,
                 context
             )
             return
-
-        get_or_create_user(user.id, user.username, user.full_name)
-        register_link_view(target_id, user.id)
 
         target_name = (
             target[2]
@@ -2584,7 +2488,6 @@ async def start(
         )
         return
 
-    get_or_create_user(user.id, user.username, user.full_name)
     context.user_data.clear()
 
     await send_main_panel(
@@ -2945,7 +2848,7 @@ async def show_link(
         f"{link}\n\n"
         "لینک خود را با دیگران به اشتراک بگذارید "
         "تا بتوانند به صورت ناشناس برای شما پیام بفرستند.",
-        reply_markup=link_keyboard()
+        reply_markup=back_keyboard()
     )
 
 
@@ -3096,19 +2999,11 @@ async def button_handler(
             "عضویت شما تأیید شد ✅"
         )
 
-        # فقط بعد از تأیید کامل عضویت، کاربر وارد users می‌شود.
-        # پیام جوین اجباری نیز مستقیماً با پنل اصلی جایگزین می‌شود.
         context.user_data.clear()
-        get_or_create_user(
-            user_id,
-            user.username,
-            user.full_name
-        )
 
         await send_main_panel(
             update,
-            context,
-            show_reply_keyboard=True
+            context
         )
 
         return
@@ -3119,21 +3014,14 @@ async def button_handler(
 
     if data == "back_main":
         await query.answer()
+
         context.user_data.clear()
 
-        text = (
-            "<b>درود! به پنل اصلی ربات "
-            "\" گلدن چت \" خوش آمدید.⚡</b>\n\n"
-            "<b>خوشحالم که ما انتخاب شما بودیم😉</b>\n\n"
-            "<b>برای استفاده از ربات از پنل شیشه ای زیر استفاده کنید :</b>"
+        await send_main_panel(
+            update,
+            context
         )
 
-        # فقط همان پیام فعلی ویرایش می‌شود؛ پیام جدید و 👇🏻 ارسال نمی‌شود.
-        await query.message.edit_text(
-            text,
-            reply_markup=main_keyboard(),
-            parse_mode="HTML"
-        )
         return
 
     # -----------------------------------------------------
@@ -3153,8 +3041,7 @@ async def button_handler(
 
         await send_main_panel(
             update,
-            context,
-            show_reply_keyboard=False
+            context
         )
 
         return
@@ -3506,15 +3393,6 @@ async def button_handler(
     # -----------------------------------------------------
     # MAIN BUTTONS
     # -----------------------------------------------------
-
-    if data == "link_stats":
-        await query.answer()
-        count = get_link_view_count(user_id)
-        await query.message.edit_text(
-            f"تعداد کاربرانی که روی لینک شما کلیک کردند : {count}",
-            reply_markup=back_keyboard()
-        )
-        return
 
     if data == "copy_link":
         await query.answer()
@@ -3945,16 +3823,14 @@ async def button_handler(
             "reply_message_id"
         ] = message_id
 
-        
-        # Telegram message id of the exact message whose Reply button was clicked.
-        context.user_data["reply_telegram_message_id"] = query.message.message_id
-
         context.user_data[
             "reply_sender_id"
         ] = sender_id
 
         await query.message.reply_text(
             "پاسخ خود را بنویسید: 📨",
+            reply_to_message_id=query.message.message_id,
+            allow_sending_without_reply=True,
             reply_markup=cancel_keyboard()
         )
 
@@ -4111,131 +3987,6 @@ async def button_handler(
 
 
 # =========================================================
-# ANONYMOUS MEDIA
-# =========================================================
-
-def get_message_payload(message):
-    if message.text is not None:
-        return "text", None, message.text
-    if message.photo:
-        return "photo", message.photo[-1].file_id, message.caption or ""
-    if message.video:
-        return "video", message.video.file_id, message.caption or ""
-    if message.voice:
-        return "voice", message.voice.file_id, message.caption or ""
-    if message.audio:
-        return "audio", message.audio.file_id, message.caption or ""
-    if message.document:
-        return "document", message.document.file_id, message.caption or ""
-    return None, None, ""
-
-
-async def send_anonymous_media(bot, chat_id, media_type, file_id, caption, reply_markup=None, reply_to_message_id=None):
-    rp = ReplyParameters(message_id=reply_to_message_id, chat_id=chat_id, allow_sending_without_reply=False) if reply_to_message_id else None
-    if media_type == "photo":
-        return await bot.send_photo(chat_id=chat_id, photo=file_id, caption=caption or None, reply_markup=reply_markup, reply_parameters=rp)
-    if media_type == "video":
-        return await bot.send_video(chat_id=chat_id, video=file_id, caption=caption or None, reply_markup=reply_markup, reply_parameters=rp)
-    if media_type == "voice":
-        return await bot.send_voice(chat_id=chat_id, voice=file_id, caption=caption or None, reply_markup=reply_markup, reply_parameters=rp)
-    if media_type == "audio":
-        return await bot.send_audio(chat_id=chat_id, audio=file_id, caption=caption or None, reply_markup=reply_markup, reply_parameters=rp)
-    if media_type == "document":
-        return await bot.send_document(chat_id=chat_id, document=file_id, caption=caption or None, reply_markup=reply_markup, reply_parameters=rp)
-    return await bot.send_message(chat_id=chat_id, text=caption or "", reply_markup=reply_markup, reply_parameters=rp)
-
-
-async def media_handler(update, context):
-    user = update.effective_user
-    message = update.message
-    if not user or not message or message.chat.type in ("group", "supergroup"):
-        return
-    media_type, file_id, caption = get_message_payload(message)
-    if not media_type or media_type == "text":
-        return
-    if user.id != ADMIN_ID and get_ban_info(user.id):
-        return
-    if not await is_member(context.bot, user.id):
-        await send_join_message(update, context)
-        return
-
-    if context.user_data.get("replying"):
-        original_message_id = context.user_data.get("reply_message_id")
-        sender_id = context.user_data.get("reply_sender_id")
-        
-        
-        # Telegram message id of the exact message whose Reply button was clicked.
-        reply_telegram_message_id = context.user_data.get("reply_telegram_message_id")
-        original = get_anonymous_message(original_message_id) if original_message_id else None
-        if not original or original[1] != sender_id or original[2] != user.id or is_blocked(user.id, sender_id):
-            context.user_data.clear()
-            await message.reply_text("❌ اطلاعات پیام پیدا نشد.")
-            return
-        new_id = save_anonymous_message(user.id, sender_id, caption, media_type, file_id, caption, message.message_id, original[10] if original[10] else original[2])
-        keyboard = anonymous_message_keyboard(new_id, user.id, True, True)
-        try:
-            row = get_user(user.id)
-            anon_code = row[4] if row else "0000000"
-            conversation_owner_id = original[10] or original[2]
-            display = (
-                f"کاربر {html.escape(get_display_name(user.id))}"
-                if user.id == conversation_owner_id
-                else f"کاربر {anon_code}"
-            )
-
-            await context.bot.send_message(
-                chat_id=sender_id,
-                text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
-                parse_mode="HTML"
-            )
-
-            try:
-                delivered = await send_anonymous_media(
-                    context.bot, sender_id, media_type, file_id, caption, keyboard,
-                    reply_to_message_id=reply_telegram_message_id
-                )
-            except TelegramError:
-                # اگر Reply به پیام قبلی قابل انجام نبود، خود فایل حتماً ارسال شود.
-                delivered = await send_anonymous_media(
-                    context.bot, sender_id, media_type, file_id, caption, keyboard
-                )
-
-            try:
-                set_delivered_message_id(new_id, delivered.message_id)
-            except Exception as e:
-                print(f"Reply delivered id save error: {e}")
-
-            await message.reply_text("✅ پاسخ شما با موفقیت ارسال شد.", reply_markup=back_keyboard())
-        except TelegramError as e:
-            print(f"Reply media Telegram error: {e}")
-            await message.reply_text("❌ ارسال پاسخ با خطا مواجه شد.")
-        context.user_data.clear()
-        return
-
-    if context.user_data.get("sending_anonymous"):
-        target_id = context.user_data.get("target_id")
-        if not target_id or target_id == user.id or is_blocked(target_id, user.id):
-            context.user_data.clear()
-            await message.reply_text("❌ ارسال پیام انجام نشد.", reply_markup=back_keyboard())
-            return
-        mid = save_anonymous_message(user.id, target_id, caption, media_type, file_id, caption, message.message_id, target_id)
-        keyboard = anonymous_message_keyboard(mid, user.id, True, True)
-        row = get_user(user.id)
-        anon_code = row[4] if row else "0000000"
-        try:
-            await context.bot.send_message(chat_id=target_id, text=f"<b>کاربر {anon_code} برای شما پیام ناشناسی ارسال کرد : 👇🏻</b>", parse_mode="HTML")
-            delivered = await send_anonymous_media(context.bot, target_id, media_type, file_id, caption, keyboard)
-            set_delivered_message_id(mid, delivered.message_id)
-            await message.reply_text("✅ پیام ناشناس با موفقیت ارسال شد.", reply_markup=back_keyboard())
-        except TelegramError:
-            await message.reply_text("❌ خطا در ارسال پیام.")
-        context.user_data.clear()
-        return
-
-    await message.reply_text("❌ این نوع فایل در این بخش قابل ارسال نیست.")
-
-
-# =========================================================
 # HANDLE MESSAGE
 # =========================================================
 
@@ -4268,6 +4019,12 @@ async def handle_message(
 
     if not text.strip():
         return
+
+    get_or_create_user(
+        user.id,
+        user.username,
+        user.full_name
+    )
 
     # =====================================================
     # ADMIN
@@ -4572,12 +4329,6 @@ async def handle_message(
         )
         return
 
-    get_or_create_user(
-        user.id,
-        user.username,
-        user.full_name
-    )
-
     # =====================================================
     # BACK
     # =====================================================
@@ -4587,8 +4338,7 @@ async def handle_message(
 
         await send_main_panel(
             update,
-            context,
-            show_reply_keyboard=False
+            context
         )
 
         return
@@ -4722,11 +4472,6 @@ async def handle_message(
             "reply_sender_id"
         )
 
-        # شناسه واقعی همان پیام تلگرام که دکمه «پاسخ» آن کلیک شده است.
-        reply_telegram_message_id = context.user_data.get(
-            "reply_telegram_message_id"
-        )
-
         if not original_message_id or not sender_id:
             context.user_data.clear()
 
@@ -4776,12 +4521,7 @@ async def handle_message(
         new_id = save_anonymous_message(
             user.id,
             sender_id,
-            text,
-            "text",
-            None,
-            text,
-            message.message_id,
-            original[10] if original[10] else original[2]
+            text
         )
 
         row = get_user(
@@ -4817,62 +4557,19 @@ async def handle_message(
         )
 
         try:
-            conversation_owner_id = original[10] or original[2]
-            display = (
-                f"کاربر {html.escape(get_display_name(user.id))}"
-                if user.id == conversation_owner_id
-                else f"کاربر {anon_code}"
-            )
-
-            # هدر جداگانه است و خودش Reply نمی‌شود.
             await context.bot.send_message(
                 chat_id=sender_id,
-                text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
+                text=reply_text,
+                reply_markup=keyboard,
                 parse_mode="HTML"
             )
-
-            # پیام پاسخ باید به پیام ناشناس قبلی Reply شود.
-            # اگر Telegram آن پیام را پیدا نکرد، ارسال بدون Reply انجام می‌شود تا پاسخ خطا نخورد.
-            try:
-                if reply_telegram_message_id:
-                    delivered = await context.bot.send_message(
-                        chat_id=sender_id,
-                        text=html.escape(text),
-                        reply_markup=keyboard,
-                        parse_mode="HTML",
-                        reply_parameters=ReplyParameters(
-                            message_id=reply_telegram_message_id,
-                            chat_id=sender_id,
-                            allow_sending_without_reply=False
-                        )
-                    )
-                else:
-                    delivered = await context.bot.send_message(
-                        chat_id=sender_id,
-                        text=html.escape(text),
-                        reply_markup=keyboard,
-                        parse_mode="HTML"
-                    )
-            except TelegramError:
-                delivered = await context.bot.send_message(
-                    chat_id=sender_id,
-                    text=html.escape(text),
-                    reply_markup=keyboard,
-                    parse_mode="HTML"
-                )
-
-            try:
-                set_delivered_message_id(new_id, delivered.message_id)
-            except Exception as e:
-                print(f"Reply delivered id save error: {e}")
 
             await message.reply_text(
                 "✅ پاسخ شما با موفقیت ارسال شد.",
                 reply_markup=back_keyboard()
             )
 
-        except TelegramError as e:
-            print(f"Reply send Telegram error: {e}")
+        except TelegramError:
             await message.reply_text(
                 "❌ ارسال پاسخ با خطا مواجه شد."
             )
@@ -5021,12 +4718,7 @@ async def handle_message(
         message_id = save_anonymous_message(
             user.id,
             target_id,
-            text,
-            "text",
-            None,
-            text,
-            message.message_id,
-            target_id
+            text
         )
 
         row = get_user(
@@ -5049,17 +4741,14 @@ async def handle_message(
         try:
             await context.bot.send_message(
                 chat_id=target_id,
-                text=f"<b>کاربر {anon_code} برای شما پیام ناشناسی ارسال کرد : 👇🏻</b>",
-                parse_mode="HTML"
-            )
-
-            delivered = await context.bot.send_message(
-                chat_id=target_id,
-                text=html.escape(text),
+                text=(
+                    f"کاربر {anon_code} "
+                    "برای شما پیام ناشناسی ارسال کرد :\n\n"
+                    f"{html.escape(text)}"
+                ),
                 reply_markup=keyboard,
                 parse_mode="HTML"
             )
-            set_delivered_message_id(message_id, delivered.message_id)
 
             await message.reply_text(
                 "✅ پیام ناشناس با موفقیت ارسال شد.",
@@ -5184,8 +4873,7 @@ async def handle_message(
 
     await send_main_panel(
         update,
-        context,
-        show_reply_keyboard=False
+        context
     )
 
 
@@ -5493,15 +5181,6 @@ def main():
     application.add_handler(
         CallbackQueryHandler(
             callback_router
-        )
-    )
-
-    # ANONYMOUS MEDIA
-
-    application.add_handler(
-        MessageHandler(
-            (filters.PHOTO | filters.VIDEO | filters.VOICE | filters.AUDIO | filters.Document.ALL),
-            media_handler
         )
     )
 
