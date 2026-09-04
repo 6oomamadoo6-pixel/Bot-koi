@@ -210,6 +210,11 @@ def init_db():
             ADD COLUMN IF NOT EXISTS seen_at TIMESTAMP
         """)
 
+        cur.execute("""
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS link_views INTEGER DEFAULT 0
+        """)
+
         # INDEXES
 
         cur.execute("""
@@ -820,6 +825,37 @@ def find_user_by_input(text):
 
         return cur.fetchone()
 
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def increment_link_views(user_id):
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE users
+            SET link_views = COALESCE(link_views, 0) + 1
+            WHERE user_id = %s
+        """, (user_id,))
+        conn.commit()
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def get_link_views(user_id):
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT COALESCE(link_views, 0)
+            FROM users
+            WHERE user_id = %s
+        """, (user_id,))
+        row = cur.fetchone()
+        return row[0] if row else 0
     finally:
         cur.close()
         release_db(conn)
@@ -2425,6 +2461,9 @@ async def start(
 
         target_id = target[0]
 
+        # افزایش تعداد بازدید لینک
+        increment_link_views(target_id)
+
         if target_id == user.id:
             bot = await context.bot.get_me()
 
@@ -2843,12 +2882,17 @@ async def show_link(
         f"?start={user.id}"
     )
 
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("تعداد بازدید لینک 📊", callback_data="link_views")],
+        [InlineKeyboardButton("بازگشت 🔙", callback_data="back_main")]
+    ])
+
     await update.callback_query.edit_message_text(
         "🔗 لینک اختصاصی شما:\n\n"
         f"{link}\n\n"
         "لینک خود را با دیگران به اشتراک بگذارید "
         "تا بتوانند به صورت ناشناس برای شما پیام بفرستند.",
-        reply_markup=back_keyboard()
+        reply_markup=keyboard
     )
 
 
@@ -2959,6 +3003,19 @@ async def button_handler(
 
     user_id = user.id
     data = query.data or ""
+
+    # =====================================================
+    # LINK VIEWS
+    # =====================================================
+    if data == "link_views":
+        views = get_link_views(user_id)
+        await query.edit_message_text(
+            f"تعداد کاربرانی که روی لینک شما کلیک کردند : {views}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("بازگشت 🔙", callback_data="back_main")]
+            ])
+        )
+        return
 
     # =====================================================
     # GROUP CALLBACK SAFETY
