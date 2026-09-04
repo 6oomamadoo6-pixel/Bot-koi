@@ -126,8 +126,14 @@ def init_db():
                 media_type TEXT,
                 file_id TEXT,
                 media_caption TEXT,
-                sender_message_id BIGINT
+                sender_message_id BIGINT,
+                delivered_message_id BIGINT
             )
+        """)
+
+        cur.execute("""
+            ALTER TABLE anonymous_messages
+            ADD COLUMN IF NOT EXISTS delivered_message_id BIGINT
         """)
 
         cur.execute("""
@@ -1189,13 +1195,28 @@ def get_anonymous_message(message_id):
         cur.execute(
             """
             SELECT id, sender_id, receiver_id, message_text, created_at, seen_at,
-                   media_type, file_id, media_caption, sender_message_id
+                   media_type, file_id, media_caption, sender_message_id, delivered_message_id
             FROM anonymous_messages
             WHERE id = %s
             """,
             (message_id,)
         )
         return cur.fetchone()
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+
+def set_delivered_message_id(message_id, delivered_message_id):
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE anonymous_messages SET delivered_message_id = %s WHERE id = %s",
+            (delivered_message_id, message_id)
+        )
+        conn.commit()
     finally:
         cur.close()
         release_db(conn)
@@ -2178,18 +2199,11 @@ async def send_main_panel(
         )
 
     else:
-        try:
-            await update.callback_query.edit_message_text(
-                text,
-                reply_markup=main_keyboard(),
-                parse_mode="HTML"
-            )
-        except TelegramError:
-            await update.callback_query.message.reply_text(
-                text,
-                reply_markup=main_keyboard(),
-                parse_mode="HTML"
-            )
+        await update.callback_query.message.reply_text(
+            text,
+            reply_markup=main_keyboard(),
+            parse_mode="HTML"
+        )
 
         await update.callback_query.message.reply_text(
             "👇🏻",
@@ -2400,12 +2414,6 @@ async def start(
     ):
         return
 
-    get_or_create_user(
-        user.id,
-        user.username,
-        user.full_name
-    )
-
     if user.id != ADMIN_ID:
         ban_info = get_ban_info(user.id)
 
@@ -2436,11 +2444,14 @@ async def start(
                 context.bot,
                 user.id
             ):
+                context.user_data["pending_link_payload"] = payload
                 await send_join_message(
                     update,
                     context
                 )
                 return
+
+            get_or_create_user(user.id, user.username, user.full_name)
 
             group_id = group[0]
             group_title = group[1] or "گروه"
@@ -2510,8 +2521,6 @@ async def start(
 
             return
 
-        register_link_view(target_id, user.id)
-
         if not await is_member(
             context.bot,
             user.id
@@ -2522,6 +2531,9 @@ async def start(
                 context
             )
             return
+
+        get_or_create_user(user.id, user.username, user.full_name)
+        register_link_view(target_id, user.id)
 
         target_name = (
             target[2]
@@ -2558,6 +2570,7 @@ async def start(
         )
         return
 
+    get_or_create_user(user.id, user.username, user.full_name)
     context.user_data.clear()
 
     await send_main_panel(
@@ -3071,10 +3084,25 @@ async def button_handler(
 
         pending = context.user_data.get("pending_link_payload")
         context.user_data.clear()
+        get_or_create_user(user_id, user.username, user.full_name)
+
+        if pending and pending.startswith("g_"):
+            group = get_group_by_link(pending[2:])
+            if group and await is_group_member(context.bot, group[0], user_id):
+                context.user_data["sending_group_anonymous"] = True
+                context.user_data["group_target_id"] = group[0]
+                context.user_data["group_target_title"] = group[1] or "گروه"
+                await query.message.reply_text(
+                    f"شما درحال ارسال پیام ناشناس به گروه {group[1] or 'گروه'} هستید .🗨️\n"
+                    "پیام خود را بنویسید :",
+                    reply_markup=cancel_keyboard()
+                )
+                return
 
         if pending and not pending.startswith("g_"):
             target = get_user_by_link(pending)
             if target and target[0] != user_id:
+                register_link_view(target[0], user_id)
                 context.user_data["target_id"] = target[0]
                 context.user_data["sending_anonymous"] = True
                 target_name = target[2] or target[1] or "کاربر"
@@ -4137,8 +4165,24 @@ async def media_handler(update, context):
         new_id = save_anonymous_message(user.id, sender_id, caption, media_type, file_id, caption, message.message_id)
         keyboard = anonymous_message_keyboard(new_id, user.id, True, True)
         try:
-            await context.bot.send_message(chat_id=sender_id, text=f"<b>کاربر {html.escape(get_display_name(user.id))} به پیام شما پاسخ داد .📨</b>", parse_mode="HTML", reply_parameters=(ReplyParameters(message_id=original[9]) if original[9] else None))
-            await send_anonymous_media(context.bot, sender_id, media_type, file_id, caption, keyboard)
+            row = get_user(user.id)
+            anon_code = row[4] if row else "0000000"
+            display = (
+                f"کاربر {anon_code}"
+                if original[1] == user.id
+                else f"کاربر {html.escape(get_display_name(user.id))}"
+            )
+            header_msg = await context.bot.send_message(
+                chat_id=sender_id,
+                text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
+                parse_mode="HTML",
+                reply_parameters=(ReplyParameters(message_id=original[10]) if original[10] else None)
+            )
+            delivered = await send_anonymous_media(
+                context.bot, sender_id, media_type, file_id, caption, keyboard,
+                reply_to_message_id=header_msg.message_id
+            )
+            set_delivered_message_id(new_id, delivered.message_id)
             await message.reply_text("✅ پاسخ شما با موفقیت ارسال شد.", reply_markup=back_keyboard())
         except TelegramError:
             await message.reply_text("❌ ارسال پاسخ با خطا مواجه شد.")
@@ -4157,7 +4201,8 @@ async def media_handler(update, context):
         anon_code = row[4] if row else "0000000"
         try:
             await context.bot.send_message(chat_id=target_id, text=f"<b>کاربر {anon_code} برای شما پیام ناشناسی ارسال کرد : 👇🏻</b>", parse_mode="HTML")
-            await send_anonymous_media(context.bot, target_id, media_type, file_id, caption, keyboard)
+            delivered = await send_anonymous_media(context.bot, target_id, media_type, file_id, caption, keyboard)
+            set_delivered_message_id(mid, delivered.message_id)
             await message.reply_text("✅ پیام ناشناس با موفقیت ارسال شد.", reply_markup=back_keyboard())
         except TelegramError:
             await message.reply_text("❌ خطا در ارسال پیام.")
@@ -4200,12 +4245,6 @@ async def handle_message(
 
     if not text.strip():
         return
-
-    get_or_create_user(
-        user.id,
-        user.username,
-        user.full_name
-    )
 
     # =====================================================
     # ADMIN
@@ -4510,6 +4549,12 @@ async def handle_message(
         )
         return
 
+    get_or_create_user(
+        user.id,
+        user.username,
+        user.full_name
+    )
+
     # =====================================================
     # BACK
     # =====================================================
@@ -4742,19 +4787,26 @@ async def handle_message(
         )
 
         try:
-            await context.bot.send_message(
+            display = (
+                f"کاربر {anon_code}"
+                if original[1] == user.id
+                else f"کاربر {html.escape(get_display_name(user.id))}"
+            )
+            header_msg = await context.bot.send_message(
                 chat_id=sender_id,
-                text=f"<b>کاربر {html.escape(get_display_name(user.id))} به پیام شما پاسخ داد .📨</b>",
+                text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
                 parse_mode="HTML",
-                reply_parameters=(ReplyParameters(message_id=original[9]) if original[9] else None)
+                reply_parameters=(ReplyParameters(message_id=original[10]) if original[10] else None)
             )
 
-            await context.bot.send_message(
+            delivered = await context.bot.send_message(
                 chat_id=sender_id,
                 text=html.escape(text),
                 reply_markup=keyboard,
-                parse_mode="HTML"
+                parse_mode="HTML",
+                reply_parameters=ReplyParameters(message_id=header_msg.message_id)
             )
+            set_delivered_message_id(new_id, delivered.message_id)
 
             await message.reply_text(
                 "✅ پاسخ شما با موفقیت ارسال شد.",
@@ -4941,12 +4993,13 @@ async def handle_message(
                 parse_mode="HTML"
             )
 
-            await context.bot.send_message(
+            delivered = await context.bot.send_message(
                 chat_id=target_id,
                 text=html.escape(text),
                 reply_markup=keyboard,
                 parse_mode="HTML"
             )
+            set_delivered_message_id(message_id, delivered.message_id)
 
             await message.reply_text(
                 "✅ پیام ناشناس با موفقیت ارسال شد.",
