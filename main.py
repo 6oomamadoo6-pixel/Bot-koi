@@ -247,6 +247,11 @@ def init_db():
             ADD COLUMN IF NOT EXISTS sender_message_id BIGINT
         """)
 
+        cur.execute("""
+            ALTER TABLE anonymous_messages
+            ADD COLUMN IF NOT EXISTS delivered_message_id BIGINT
+        """)
+
         # INDEXES
 
         cur.execute("""
@@ -2177,7 +2182,8 @@ async def send_join_message(
 
 async def send_main_panel(
     update,
-    context
+    context,
+    show_reply_keyboard=True
 ):
     text = (
         "<b>درود! به پنل اصلی ربات "
@@ -2192,23 +2198,22 @@ async def send_main_panel(
             reply_markup=main_keyboard(),
             parse_mode="HTML"
         )
-
-        await update.message.reply_text(
-            "👇🏻",
-            reply_markup=main_reply_keyboard()
-        )
-
+        if show_reply_keyboard:
+            await update.message.reply_text(
+                "👇🏻",
+                reply_markup=main_reply_keyboard()
+            )
     else:
-        await update.callback_query.message.reply_text(
+        await update.callback_query.edit_message_text(
             text,
             reply_markup=main_keyboard(),
             parse_mode="HTML"
         )
-
-        await update.callback_query.message.reply_text(
-            "👇🏻",
-            reply_markup=main_reply_keyboard()
-        )
+        if show_reply_keyboard:
+            await update.callback_query.message.reply_text(
+                "👇🏻",
+                reply_markup=main_reply_keyboard()
+            )
 
 
 # =========================================================
@@ -3126,14 +3131,21 @@ async def button_handler(
 
     if data == "back_main":
         await query.answer()
-
         context.user_data.clear()
 
-        await send_main_panel(
-            update,
-            context
+        text = (
+            "<b>درود! به پنل اصلی ربات "
+            "\" گلدن چت \" خوش آمدید.⚡</b>\n\n"
+            "<b>خوشحالم که ما انتخاب شما بودیم😉</b>\n\n"
+            "<b>برای استفاده از ربات از پنل شیشه ای زیر استفاده کنید :</b>"
         )
 
+        # فقط همان پیام فعلی ویرایش می‌شود؛ پیام جدید و 👇🏻 ارسال نمی‌شود.
+        await query.message.edit_text(
+            text,
+            reply_markup=main_keyboard(),
+            parse_mode="HTML"
+        )
         return
 
     # -----------------------------------------------------
@@ -3153,7 +3165,8 @@ async def button_handler(
 
         await send_main_panel(
             update,
-            context
+            context,
+            show_reply_keyboard=False
         )
 
         return
@@ -4172,19 +4185,32 @@ async def media_handler(update, context):
                 if original[1] == user.id
                 else f"کاربر {html.escape(get_display_name(user.id))}"
             )
-            header_msg = await context.bot.send_message(
+
+            await context.bot.send_message(
                 chat_id=sender_id,
                 text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
-                parse_mode="HTML",
-                reply_parameters=(ReplyParameters(message_id=original[10]) if original[10] else None)
+                parse_mode="HTML"
             )
-            delivered = await send_anonymous_media(
-                context.bot, sender_id, media_type, file_id, caption, keyboard,
-                reply_to_message_id=header_msg.message_id
-            )
-            set_delivered_message_id(new_id, delivered.message_id)
+
+            try:
+                delivered = await send_anonymous_media(
+                    context.bot, sender_id, media_type, file_id, caption, keyboard,
+                    reply_to_message_id=original[10] if original[10] else None
+                )
+            except TelegramError:
+                # اگر Reply به پیام قبلی قابل انجام نبود، خود فایل حتماً ارسال شود.
+                delivered = await send_anonymous_media(
+                    context.bot, sender_id, media_type, file_id, caption, keyboard
+                )
+
+            try:
+                set_delivered_message_id(new_id, delivered.message_id)
+            except Exception as e:
+                print(f"Reply delivered id save error: {e}")
+
             await message.reply_text("✅ پاسخ شما با موفقیت ارسال شد.", reply_markup=back_keyboard())
-        except TelegramError:
+        except TelegramError as e:
+            print(f"Reply media Telegram error: {e}")
             await message.reply_text("❌ ارسال پاسخ با خطا مواجه شد.")
         context.user_data.clear()
         return
@@ -4564,7 +4590,8 @@ async def handle_message(
 
         await send_main_panel(
             update,
-            context
+            context,
+            show_reply_keyboard=False
         )
 
         return
@@ -4792,28 +4819,55 @@ async def handle_message(
                 if original[1] == user.id
                 else f"کاربر {html.escape(get_display_name(user.id))}"
             )
-            header_msg = await context.bot.send_message(
+
+            # هدر جداگانه است و خودش Reply نمی‌شود.
+            await context.bot.send_message(
                 chat_id=sender_id,
                 text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
-                parse_mode="HTML",
-                reply_parameters=(ReplyParameters(message_id=original[10]) if original[10] else None)
+                parse_mode="HTML"
             )
 
-            delivered = await context.bot.send_message(
-                chat_id=sender_id,
-                text=html.escape(text),
-                reply_markup=keyboard,
-                parse_mode="HTML",
-                reply_parameters=ReplyParameters(message_id=header_msg.message_id)
-            )
-            set_delivered_message_id(new_id, delivered.message_id)
+            # پیام پاسخ باید به پیام ناشناس قبلی Reply شود.
+            # اگر Telegram آن پیام را پیدا نکرد، ارسال بدون Reply انجام می‌شود تا پاسخ خطا نخورد.
+            try:
+                if original[10]:
+                    delivered = await context.bot.send_message(
+                        chat_id=sender_id,
+                        text=html.escape(text),
+                        reply_markup=keyboard,
+                        parse_mode="HTML",
+                        reply_parameters=ReplyParameters(
+                            message_id=original[10],
+                            allow_sending_without_reply=True
+                        )
+                    )
+                else:
+                    delivered = await context.bot.send_message(
+                        chat_id=sender_id,
+                        text=html.escape(text),
+                        reply_markup=keyboard,
+                        parse_mode="HTML"
+                    )
+            except TelegramError:
+                delivered = await context.bot.send_message(
+                    chat_id=sender_id,
+                    text=html.escape(text),
+                    reply_markup=keyboard,
+                    parse_mode="HTML"
+                )
+
+            try:
+                set_delivered_message_id(new_id, delivered.message_id)
+            except Exception as e:
+                print(f"Reply delivered id save error: {e}")
 
             await message.reply_text(
                 "✅ پاسخ شما با موفقیت ارسال شد.",
                 reply_markup=back_keyboard()
             )
 
-        except TelegramError:
+        except TelegramError as e:
+            print(f"Reply send Telegram error: {e}")
             await message.reply_text(
                 "❌ ارسال پاسخ با خطا مواجه شد."
             )
@@ -5124,7 +5178,8 @@ async def handle_message(
 
     await send_main_panel(
         update,
-        context
+        context,
+        show_reply_keyboard=False
     )
 
 
