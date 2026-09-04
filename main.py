@@ -4127,38 +4127,18 @@ def get_message_payload(message):
 
 
 async def send_anonymous_media(bot, chat_id, media_type, file_id, caption, reply_markup=None, reply_to_message_id=None):
-    kwargs = {
-        "chat_id": chat_id,
-        "caption": caption or None,
-        "reply_markup": reply_markup,
-    }
-    if reply_to_message_id:
-        # برای سازگاری بیشتر با نسخه‌های مختلف کتابخانه
-        kwargs["reply_to_message_id"] = reply_to_message_id
-        try:
-            kwargs["reply_parameters"] = ReplyParameters(
-                message_id=reply_to_message_id,
-                allow_sending_without_reply=True
-            )
-        except Exception:
-            pass
-
+    rp = ReplyParameters(message_id=reply_to_message_id) if reply_to_message_id else None
     if media_type == "photo":
-        return await bot.send_photo(photo=file_id, **{k: v for k, v in kwargs.items() if k != "caption" or v})
+        return await bot.send_photo(chat_id=chat_id, photo=file_id, caption=caption or None, reply_markup=reply_markup, reply_parameters=rp)
     if media_type == "video":
-        return await bot.send_video(video=file_id, **kwargs)
+        return await bot.send_video(chat_id=chat_id, video=file_id, caption=caption or None, reply_markup=reply_markup, reply_parameters=rp)
     if media_type == "voice":
-        return await bot.send_voice(voice=file_id, **kwargs)
+        return await bot.send_voice(chat_id=chat_id, voice=file_id, caption=caption or None, reply_markup=reply_markup, reply_parameters=rp)
     if media_type == "audio":
-        return await bot.send_audio(audio=file_id, **kwargs)
+        return await bot.send_audio(chat_id=chat_id, audio=file_id, caption=caption or None, reply_markup=reply_markup, reply_parameters=rp)
     if media_type == "document":
-        return await bot.send_document(document=file_id, **kwargs)
-
-    # fallback text
-    text_kwargs = {"chat_id": chat_id, "text": caption or "", "reply_markup": reply_markup}
-    if reply_to_message_id:
-        text_kwargs["reply_to_message_id"] = reply_to_message_id
-    return await bot.send_message(**text_kwargs)
+        return await bot.send_document(chat_id=chat_id, document=file_id, caption=caption or None, reply_markup=reply_markup, reply_parameters=rp)
+    return await bot.send_message(chat_id=chat_id, text=caption or "", reply_markup=reply_markup, reply_parameters=rp)
 
 
 async def media_handler(update, context):
@@ -4195,41 +4175,23 @@ async def media_handler(update, context):
                 else f"کاربر {anon_code}"
             )
 
-            reply_to_id = original[11] if len(original) > 11 and original[11] else None
+            # هدر پاسخ روی همان پیام اصلی فرستنده Reply می‌شود.
+            header_reply = ReplyParameters(
+                message_id=original[9],
+                allow_sending_without_reply=True
+            ) if original[9] else None
 
-            try:
-                if reply_to_id:
-                    await context.bot.send_message(
-                        chat_id=sender_id,
-                        text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
-                        parse_mode="HTML",
-                        reply_to_message_id=reply_to_id,
-                        allow_sending_without_reply=True
-                    )
-                else:
-                    await context.bot.send_message(
-                        chat_id=sender_id,
-                        text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
-                        parse_mode="HTML"
-                    )
-            except TelegramError as e:
-                print(f"Media header reply error: {e}")
-                await context.bot.send_message(
-                    chat_id=sender_id,
-                    text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
-                    parse_mode="HTML"
-                )
+            await context.bot.send_message(
+                chat_id=sender_id,
+                text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
+                parse_mode="HTML",
+                reply_parameters=header_reply
+            )
 
-            try:
-                delivered = await send_anonymous_media(
-                    context.bot, sender_id, media_type, file_id, caption, keyboard,
-                    reply_to_message_id=reply_to_id
-                )
-            except TelegramError as e:
-                print(f"Media reply fallback: {e}")
-                delivered = await send_anonymous_media(
-                    context.bot, sender_id, media_type, file_id, caption, keyboard
-                )
+            # خود فایل/ویس/ویدیو/عکس/آهنگ جداگانه ارسال می‌شود و دکمه‌ها روی آن هستند.
+            delivered = await send_anonymous_media(
+                context.bot, sender_id, media_type, file_id, caption, keyboard
+            )
 
             try:
                 set_delivered_message_id(new_id, delivered.message_id)
@@ -4850,64 +4812,26 @@ async def handle_message(
                 else f"کاربر {anon_code}"
             )
 
-            # هدر + پاسخ با ریپلای روی پیام اصلی
-            reply_to_id = original[11] if len(original) > 11 else None
+            # هدر پاسخ باید روی همان پیام اصلی فرستنده Reply شود.
+            header_reply = ReplyParameters(
+                message_id=original[9],
+                allow_sending_without_reply=True
+            ) if original[9] else None
 
-            header_text = f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>"
+            await context.bot.send_message(
+                chat_id=sender_id,
+                text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
+                parse_mode="HTML",
+                reply_parameters=header_reply
+            )
 
-            # اول هدر را با ریپلای می‌فرستیم (اگر message_id موجود باشد)
-            try:
-                if reply_to_id:
-                    await context.bot.send_message(
-                        chat_id=sender_id,
-                        text=header_text,
-                        parse_mode="HTML",
-                        reply_to_message_id=reply_to_id,
-                        allow_sending_without_reply=True
-                    )
-                else:
-                    await context.bot.send_message(
-                        chat_id=sender_id,
-                        text=header_text,
-                        parse_mode="HTML"
-                    )
-            except TelegramError as e:
-                print(f"Header reply error: {e}")
-                try:
-                    await context.bot.send_message(
-                        chat_id=sender_id,
-                        text=header_text,
-                        parse_mode="HTML"
-                    )
-                except TelegramError:
-                    pass
-
-            # حالا خود پاسخ را هم با ریپلای می‌فرستیم
-            try:
-                if reply_to_id:
-                    delivered = await context.bot.send_message(
-                        chat_id=sender_id,
-                        text=html.escape(text),
-                        reply_markup=keyboard,
-                        parse_mode="HTML",
-                        reply_to_message_id=reply_to_id,
-                        allow_sending_without_reply=True
-                    )
-                else:
-                    delivered = await context.bot.send_message(
-                        chat_id=sender_id,
-                        text=html.escape(text),
-                        reply_markup=keyboard,
-                        parse_mode="HTML"
-                    )
-            except TelegramError as e:
-                print(f"Reply content error: {e}")
-                delivered = await context.bot.send_message(
-                    chat_id=sender_id,
-                    text=html.escape(text),
-                    reply_markup=keyboard,
-                    parse_mode="HTML"
-                )
+            # خود پیام پاسخ جداگانه ارسال می‌شود و دکمه‌ها روی همین پیام قرار می‌گیرند.
+            delivered = await context.bot.send_message(
+                chat_id=sender_id,
+                text=html.escape(text),
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
 
             try:
                 set_delivered_message_id(new_id, delivered.message_id)
