@@ -4127,7 +4127,7 @@ def get_message_payload(message):
 
 
 async def send_anonymous_media(bot, chat_id, media_type, file_id, caption, reply_markup=None, reply_to_message_id=None):
-    rp = ReplyParameters(message_id=reply_to_message_id) if reply_to_message_id else None
+    rp = ReplyParameters(message_id=reply_to_message_id, chat_id=chat_id, allow_sending_without_reply=False) if reply_to_message_id else None
     if media_type == "photo":
         return await bot.send_photo(chat_id=chat_id, photo=file_id, caption=caption or None, reply_markup=reply_markup, reply_parameters=rp)
     if media_type == "video":
@@ -4829,7 +4829,8 @@ async def handle_message(
                         parse_mode="HTML",
                         reply_parameters=ReplyParameters(
                             message_id=original[11],
-                            allow_sending_without_reply=True
+                            chat_id=sender_id,
+                            allow_sending_without_reply=False
                         )
                     )
                 else:
