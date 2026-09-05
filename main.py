@@ -4175,23 +4175,22 @@ async def media_handler(update, context):
                 else f"کاربر {anon_code}"
             )
 
-            # هدر پاسخ روی همان پیام اصلی فرستنده Reply می‌شود.
-            header_reply = ReplyParameters(
-                message_id=original[9],
-                allow_sending_without_reply=True
-            ) if original[9] else None
-
             await context.bot.send_message(
                 chat_id=sender_id,
                 text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
-                parse_mode="HTML",
-                reply_parameters=header_reply
+                parse_mode="HTML"
             )
 
-            # خود فایل/ویس/ویدیو/عکس/آهنگ جداگانه ارسال می‌شود و دکمه‌ها روی آن هستند.
-            delivered = await send_anonymous_media(
-                context.bot, sender_id, media_type, file_id, caption, keyboard
-            )
+            try:
+                delivered = await send_anonymous_media(
+                    context.bot, sender_id, media_type, file_id, caption, keyboard,
+                    reply_to_message_id=original[11] if original[11] else None
+                )
+            except TelegramError:
+                # اگر Reply به پیام قبلی قابل انجام نبود، خود فایل حتماً ارسال شود.
+                delivered = await send_anonymous_media(
+                    context.bot, sender_id, media_type, file_id, caption, keyboard
+                )
 
             try:
                 set_delivered_message_id(new_id, delivered.message_id)
@@ -4210,6 +4209,17 @@ async def media_handler(update, context):
         if not target_id or target_id == user.id or is_blocked(target_id, user.id):
             context.user_data.clear()
             await message.reply_text("❌ ارسال پیام انجام نشد.", reply_markup=back_keyboard())
+            return
+
+        target_ban_info = get_ban_info(target_id)
+        if target_ban_info:
+            context.user_data.clear()
+            target_user = get_user(target_id)
+            target_name = (target_user[5] if target_user and target_user[5] else target_user[2] if target_user and target_user[2] else "کاربر")
+            await message.reply_text(
+                f"<b>حساب کاربری ({html.escape(target_name)}) مسدود شده است🟡</b>\n"
+                "شما نمیتوانید به این مقصد پیامی ارسال کنید🙈\n\n"
+                "« گلدن چت »", reply_markup=back_keyboard(), parse_mode="HTML")
             return
         mid = save_anonymous_message(user.id, target_id, caption, media_type, file_id, caption, message.message_id, target_id)
         keyboard = anonymous_message_keyboard(mid, user.id, True, True)
@@ -4812,26 +4822,41 @@ async def handle_message(
                 else f"کاربر {anon_code}"
             )
 
-            # هدر پاسخ باید روی همان پیام اصلی فرستنده Reply شود.
-            header_reply = ReplyParameters(
-                message_id=original[9],
-                allow_sending_without_reply=True
-            ) if original[9] else None
-
+            # هدر جداگانه است و خودش Reply نمی‌شود.
             await context.bot.send_message(
                 chat_id=sender_id,
                 text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
-                parse_mode="HTML",
-                reply_parameters=header_reply
-            )
-
-            # خود پیام پاسخ جداگانه ارسال می‌شود و دکمه‌ها روی همین پیام قرار می‌گیرند.
-            delivered = await context.bot.send_message(
-                chat_id=sender_id,
-                text=html.escape(text),
-                reply_markup=keyboard,
                 parse_mode="HTML"
             )
+
+            # پیام پاسخ باید به پیام ناشناس قبلی Reply شود.
+            # اگر Telegram آن پیام را پیدا نکرد، ارسال بدون Reply انجام می‌شود تا پاسخ خطا نخورد.
+            try:
+                if original[11]:
+                    delivered = await context.bot.send_message(
+                        chat_id=sender_id,
+                        text=html.escape(text),
+                        reply_markup=keyboard,
+                        parse_mode="HTML",
+                        reply_parameters=ReplyParameters(
+                            message_id=original[11],
+                            allow_sending_without_reply=True
+                        )
+                    )
+                else:
+                    delivered = await context.bot.send_message(
+                        chat_id=sender_id,
+                        text=html.escape(text),
+                        reply_markup=keyboard,
+                        parse_mode="HTML"
+                    )
+            except TelegramError:
+                delivered = await context.bot.send_message(
+                    chat_id=sender_id,
+                    text=html.escape(text),
+                    reply_markup=keyboard,
+                    parse_mode="HTML"
+                )
 
             try:
                 set_delivered_message_id(new_id, delivered.message_id)
@@ -4975,6 +5000,17 @@ async def handle_message(
                 reply_markup=back_keyboard()
             )
 
+            return
+
+        target_ban_info = get_ban_info(target_id)
+        if target_ban_info:
+            context.user_data.clear()
+            target_user = get_user(target_id)
+            target_name = (target_user[5] if target_user and target_user[5] else target_user[2] if target_user and target_user[2] else "کاربر")
+            await message.reply_text(
+                f"<b>حساب کاربری ({html.escape(target_name)}) مسدود شده است🟡</b>\n"
+                "شما نمیتوانید به این مقصد پیامی ارسال کنید🙈\n\n"
+                "« گلدن چت »", reply_markup=back_keyboard(), parse_mode="HTML")
             return
 
         if is_blocked(
