@@ -1036,6 +1036,12 @@ def unban_user_by_code(code):
 
 
 def get_ban_info(user_id):
+    """Return active bot-ban information using the database clock.
+
+    Using CURRENT_TIMESTAMP here keeps the ban check consistent with the
+    database even if the bot process and PostgreSQL server have different
+    timezone/clock settings.
+    """
     conn = db()
 
     try:
@@ -1046,6 +1052,8 @@ def get_ban_info(user_id):
             SELECT ban_until, ban_reason
             FROM users
             WHERE user_id = %s
+              AND ban_until IS NOT NULL
+              AND ban_until > CURRENT_TIMESTAMP
             """,
             (user_id,)
         )
@@ -1056,26 +1064,47 @@ def get_ban_info(user_id):
         cur.close()
         release_db(conn)
 
-    if not row or not row[0]:
-        return None
-
-    ban_until = row[0]
-
-    if isinstance(ban_until, str):
-        try:
-            ban_until = datetime.fromisoformat(
-                ban_until
-            )
-        except ValueError:
-            return None
-
-    if datetime.now() >= ban_until:
+    if not row:
         return None
 
     return {
-        "until": ban_until,
+        "until": row[0],
         "reason": row[1] or "توسط مدیریت ربات"
     }
+
+
+def get_banned_destination_text(user_id):
+    """Return the blocked-destination notice only for an actively banned user."""
+    conn = db()
+
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                COALESCE(display_name, full_name, 'کاربر'),
+                ban_until
+            FROM users
+            WHERE user_id = %s
+              AND ban_until IS NOT NULL
+              AND ban_until > CURRENT_TIMESTAMP
+            """,
+            (user_id,)
+        )
+        row = cur.fetchone()
+    finally:
+        cur.close()
+        release_db(conn)
+
+    if not row:
+        return None
+
+    display_name = row[0] or "کاربر"
+    return (
+        f"<b>حساب کاربری {html.escape(display_name)} مسدود شده است🟡</b>\n"
+        "شما نمیتوانید به این مقصد پیامی ارسال کنید🙈\n\n"
+        "« گلدن چت »"
+    )
 
 
 def get_active_banned_users():
@@ -2516,6 +2545,15 @@ async def start(
             return
 
         target_id = target[0]
+
+        banned_destination_text = get_banned_destination_text(target_id)
+        if banned_destination_text:
+            await update.message.reply_text(
+                banned_destination_text,
+                reply_markup=back_keyboard(),
+                parse_mode="HTML"
+            )
+            return
 
         if target_id == user.id:
             bot = await context.bot.get_me()
@@ -4163,6 +4201,17 @@ async def media_handler(update, context):
             context.user_data.clear()
             await message.reply_text("❌ اطلاعات پیام پیدا نشد.")
             return
+
+        banned_destination_text = get_banned_destination_text(sender_id)
+        if banned_destination_text:
+            context.user_data.clear()
+            await message.reply_text(
+                banned_destination_text,
+                reply_markup=back_keyboard(),
+                parse_mode="HTML"
+            )
+            return
+
         new_id = save_anonymous_message(user.id, sender_id, caption, media_type, file_id, caption, message.message_id, original[10] if original[10] else original[2])
         keyboard = anonymous_message_keyboard(new_id, user.id, True, True)
         try:
@@ -4221,6 +4270,17 @@ async def media_handler(update, context):
                 "شما نمیتوانید به این مقصد پیامی ارسال کنید🙈\n\n"
                 "« گلدن چت »", reply_markup=back_keyboard(), parse_mode="HTML")
             return
+
+        banned_destination_text = get_banned_destination_text(target_id)
+        if banned_destination_text:
+            context.user_data.clear()
+            await message.reply_text(
+                banned_destination_text,
+                reply_markup=back_keyboard(),
+                parse_mode="HTML"
+            )
+            return
+
         mid = save_anonymous_message(user.id, target_id, caption, media_type, file_id, caption, message.message_id, target_id)
         keyboard = anonymous_message_keyboard(mid, user.id, True, True)
         row = get_user(user.id)
@@ -5026,6 +5086,16 @@ async def handle_message(
 
             return
 
+        banned_destination_text = get_banned_destination_text(target_id)
+        if banned_destination_text:
+            context.user_data.clear()
+            await message.reply_text(
+                banned_destination_text,
+                reply_markup=back_keyboard(),
+                parse_mode="HTML"
+            )
+            return
+
         message_id = save_anonymous_message(
             user.id,
             target_id,
@@ -5137,6 +5207,15 @@ async def handle_message(
             return
 
         target_id = target[0]
+
+        banned_destination_text = get_banned_destination_text(target_id)
+        if banned_destination_text:
+            await message.reply_text(
+                banned_destination_text,
+                reply_markup=back_keyboard(),
+                parse_mode="HTML"
+            )
+            return
 
         if target_id == user.id:
             bot = await context.bot.get_me()
