@@ -557,6 +557,15 @@ def supervisor_panel_keyboard():
         uid = row[0]
         name = row[3] or row[2] or (f"@{row[1]}" if row[1] else str(uid))
         rows.append([InlineKeyboardButton(f"{name} | {uid}", callback_data=f"supervisor_select:{uid}")])
+
+    # آخرین دکمه: بستن پنل نظارت و نمایش مستقیم پنل اصلی
+    rows.append([
+        InlineKeyboardButton(
+            "بستن و نمایش پنل اصلی",
+            callback_data="supervisor_close_panel",
+            style="danger"
+        )
+    ])
     return InlineKeyboardMarkup(rows)
 
 
@@ -3615,6 +3624,32 @@ async def button_handler(
         return
 
     # -----------------------------------------------------
+    # CLOSE SUPERVISOR PANEL -> MAIN PANEL
+    # -----------------------------------------------------
+
+    if data == "supervisor_close_panel":
+        if user_id != ADMIN_ID:
+            await query.answer("دسترسی ندارید ❌", show_alert=True)
+            return
+
+        await query.answer("پنل بسته شد ✅")
+        context.user_data.clear()
+
+        text = (
+            "<b>درود! به پنل اصلی ربات "
+            "\" گلدن چت \" خوش آمدید.⚡</b>\n\n"
+            "<b>خوشحالم که ما انتخاب شما بودیم😉</b>\n\n"
+            "<b>برای استفاده از ربات از پنل شیشه ای زیر استفاده کنید :</b>"
+        )
+
+        await query.message.edit_text(
+            text,
+            reply_markup=main_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+
+    # -----------------------------------------------------
     # BACK
     # -----------------------------------------------------
 
@@ -4241,6 +4276,9 @@ async def button_handler(
         sender_id = msg[1]
         receiver_id = msg[2]
         original_text = msg[3]
+        media_type = msg[6]
+        media_file_id = msg[7]
+        media_caption = msg[8]
 
         if receiver_id != user_id:
             await query.answer(
@@ -4579,22 +4617,91 @@ async def button_handler(
         )
 
         try:
-            await context.bot.send_message(
-                chat_id=ADMIN_ID,
-                text=report_text
-            )
+            # گزارش برای مدیر اصلی
+            recipients = {ADMIN_ID}
 
-            await query.answer(
-                "گزارش تخلف با موفقیت ثبت شد 🚨",
-                show_alert=True
-            )
+            # گزارش برای تمام ناظرهای فعال
+            for supervisor in get_supervisors():
+                supervisor_id = supervisor[0]
+                if supervisor_id:
+                    recipients.add(supervisor_id)
 
-            await query.message.reply_text(
-                "🚨 گزارش تخلف شما با موفقیت ثبت شد.\n"
-                "گزارش برای مدیریت ارسال شد."
-            )
+            sent_to_any = False
 
-        except TelegramError as e:
+            for recipient_id in recipients:
+                try:
+                    await context.bot.send_message(
+                        chat_id=recipient_id,
+                        text=report_text
+                    )
+
+                    # اگر پیام رسانه‌ای بوده، خود رسانه هم برای مدیر/ناظر ارسال شود.
+                    if media_type and media_type != "text" and media_file_id:
+                        admin_media_caption = html.escape(
+                            media_caption or original_text or ""
+                        )
+
+                        if media_type == "photo":
+                            await context.bot.send_photo(
+                                chat_id=recipient_id,
+                                photo=media_file_id,
+                                caption=admin_media_caption or None,
+                                parse_mode="HTML"
+                            )
+                        elif media_type == "video":
+                            await context.bot.send_video(
+                                chat_id=recipient_id,
+                                video=media_file_id,
+                                caption=admin_media_caption or None,
+                                parse_mode="HTML"
+                            )
+                        elif media_type == "voice":
+                            await context.bot.send_voice(
+                                chat_id=recipient_id,
+                                voice=media_file_id,
+                                caption=admin_media_caption or None,
+                                parse_mode="HTML"
+                            )
+                        elif media_type == "audio":
+                            await context.bot.send_audio(
+                                chat_id=recipient_id,
+                                audio=media_file_id,
+                                caption=admin_media_caption or None,
+                                parse_mode="HTML"
+                            )
+                        elif media_type == "document":
+                            await context.bot.send_document(
+                                chat_id=recipient_id,
+                                document=media_file_id,
+                                caption=admin_media_caption or None,
+                                parse_mode="HTML"
+                            )
+
+                    sent_to_any = True
+
+                except TelegramError as recipient_error:
+                    # خراب بودن چت یک ناظر نباید مانع ارسال گزارش به بقیه شود.
+                    print(
+                        f"Report delivery error for {recipient_id}: {recipient_error}"
+                    )
+
+            if sent_to_any:
+                await query.answer(
+                    "گزارش تخلف با موفقیت ثبت شد 🚨",
+                    show_alert=True
+                )
+
+                await query.message.reply_text(
+                    "🚨 گزارش تخلف شما با موفقیت ثبت شد.\n"
+                    "گزارش برای مدیریت و ناظران ارسال شد."
+                )
+            else:
+                await query.answer(
+                    "ارسال گزارش با خطا مواجه شد ❌",
+                    show_alert=True
+                )
+
+        except Exception as e:
             print(
                 f"Report error: {e}"
             )
