@@ -54,6 +54,15 @@ if not DATABASE_URL:
 DB_POOL = None
 GLOBAL_BOT = None
 
+SUPERVISOR_COMMANDS_TEXT = """/userbot  با ارسال این دستور میتونی کاربرای ربات رو ببینی و بهشون دسترسی داشته باشی
+/userban با این ارسال این دستور میتونی لیست کاربرای بن شده ربات رو ببینی
+/broadcast با این دستور میتونی پیام همگانی بفرستی 
+/changeusername با این دستور میتونی اسم کاربر رو اگه اسم مناسبی نداشت تغییر بدی
+
+/ban_   با این دستور میتونی شناسه کاربری هرکس رو داشتی بعد از _ کاربر رو بن کنی
+/unban_  این دستور مثل دستور بن هست و رفع بن میکنه کاربر رو
+"""
+
 
 # =========================================================
 # DATABASE
@@ -309,6 +318,36 @@ def init_db():
             ON group_message_views(message_id)
         """)
 
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS supervisors (
+                user_id BIGINT PRIMARY KEY,
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS supervisor_unban_requests (
+                id BIGSERIAL PRIMARY KEY,
+                supervisor_id BIGINT NOT NULL,
+                target_id BIGINT NOT NULL,
+                target_code TEXT NOT NULL,
+                target_name TEXT,
+                reason TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS supervisor_broadcast_requests (
+                id BIGSERIAL PRIMARY KEY,
+                supervisor_id BIGINT NOT NULL,
+                message_text TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         conn.commit()
 
     finally:
@@ -317,6 +356,236 @@ def init_db():
 
     fill_missing_codes()
     fill_missing_group_codes()
+
+
+# =========================================================
+# SUPERVISORS / MODERATION HELPERS
+# =========================================================
+
+def is_supervisor(user_id):
+    if not user_id or user_id == ADMIN_ID:
+        return False
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT 1 FROM supervisors WHERE user_id = %s", (user_id,))
+        return cur.fetchone() is not None
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def is_manager_or_supervisor(user_id):
+    return bool(user_id and (user_id == ADMIN_ID or is_supervisor(user_id)))
+
+
+def add_supervisor(user_id):
+    if not user_id or user_id == ADMIN_ID:
+        return False
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO supervisors (user_id)
+            VALUES (%s)
+            ON CONFLICT (user_id) DO NOTHING
+        """, (user_id,))
+        created = cur.rowcount > 0
+        conn.commit()
+        return created
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def remove_supervisor(user_id):
+    if not user_id or user_id == ADMIN_ID:
+        return False
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM supervisors WHERE user_id = %s", (user_id,))
+        removed = cur.rowcount > 0
+        conn.commit()
+        return removed
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def get_supervisors():
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT s.user_id, u.username, u.full_name, u.display_name
+            FROM supervisors s
+            LEFT JOIN users u ON u.user_id = s.user_id
+            ORDER BY s.added_at ASC
+        """)
+        return cur.fetchall()
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def find_user_by_identifier(identifier):
+    value = (identifier or '').strip()
+    if not value:
+        return None
+    conn = db()
+    try:
+        cur = conn.cursor()
+        if value.isdigit():
+            cur.execute("""
+                SELECT user_id, username, full_name, display_name, ban_code
+                FROM users WHERE user_id = %s
+            """, (int(value),))
+        else:
+            username = value.lstrip('@').lower()
+            cur.execute("""
+                SELECT user_id, username, full_name, display_name, ban_code
+                FROM users WHERE lower(username) = %s
+            """, (username,))
+        return cur.fetchone()
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def create_unban_request(supervisor_id, target_id, target_code, target_name, reason):
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO supervisor_unban_requests
+                (supervisor_id, target_id, target_code, target_name, reason)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id
+        """, (supervisor_id, target_id, target_code, target_name, reason))
+        request_id = cur.fetchone()[0]
+        conn.commit()
+        return request_id
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def get_unban_request(request_id):
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, supervisor_id, target_id, target_code, target_name, reason, status
+            FROM supervisor_unban_requests WHERE id = %s
+        """, (request_id,))
+        return cur.fetchone()
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def set_unban_request_status(request_id, status):
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE supervisor_unban_requests SET status = %s WHERE id = %s", (status, request_id))
+        conn.commit()
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def create_broadcast_request(supervisor_id, message_text):
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO supervisor_broadcast_requests (supervisor_id, message_text)
+            VALUES (%s, %s) RETURNING id
+        """, (supervisor_id, message_text))
+        request_id = cur.fetchone()[0]
+        conn.commit()
+        return request_id
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def get_broadcast_request(request_id):
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, supervisor_id, message_text, status
+            FROM supervisor_broadcast_requests WHERE id = %s
+        """, (request_id,))
+        return cur.fetchone()
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def set_broadcast_request_status(request_id, status):
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE supervisor_broadcast_requests SET status = %s WHERE id = %s", (status, request_id))
+        conn.commit()
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def supervisor_display_name(user_id):
+    row = get_user(user_id)
+    if row:
+        return row[5] or row[2] or (f"@{row[1]}" if row[1] else str(user_id))
+    return str(user_id)
+
+
+def supervisor_label(user_id):
+    row = get_user(user_id)
+    if row:
+        return row[1] and f"@{row[1]}" or row[2] or str(user_id)
+    return str(user_id)
+
+
+def supervisor_panel_keyboard():
+    rows = [[InlineKeyboardButton("افزودن ناظر ➕", callback_data="supervisor_add", style="success")]]
+    for row in get_supervisors():
+        uid = row[0]
+        name = row[3] or row[2] or (f"@{row[1]}" if row[1] else str(uid))
+        rows.append([InlineKeyboardButton(f"{name} | {uid}", callback_data=f"supervisor_select:{uid}")])
+    return InlineKeyboardMarkup(rows)
+
+
+def supervisor_delete_keyboard(user_id):
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("بله ✅", callback_data=f"supervisor_delete_yes:{user_id}", style="success"),
+            InlineKeyboardButton("خیر ✖️", callback_data="supervisor_delete_no", style="danger")
+        ]
+    ])
+
+
+def manager_approval_keyboard(kind, request_id):
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("بله ✅", callback_data=f"manager_approve:{kind}:{request_id}", style="success"),
+            InlineKeyboardButton("خیر ✖️", callback_data=f"manager_reject:{kind}:{request_id}", style="danger")
+        ]
+    ])
+
+
+def supervisor_target_ok_keyboard(callback_data="supervisor_target_ok"):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("اوکی", callback_data=callback_data, style="success")]
+    ])
+
+
+def supervisor_back_keyboard():
+    return back_keyboard()
 
 
 # =========================================================
@@ -2638,7 +2907,7 @@ def userbot_keyboard(
     return InlineKeyboardMarkup(buttons)
 
 
-def build_userbot_page(page):
+def build_userbot_page(page, viewer_id=None):
     users = get_all_users()
 
     per_page = 5
@@ -2697,9 +2966,11 @@ def build_userbot_page(page):
             f"اسم در ربات : {display_name}\n"
             f"کد بن و رفع بن : "
             f"/ban_{ban_code} | /unban_{ban_code}\n"
-            f"پیام مستقیم یه کاربر : "
-            f"/massage_{ban_code}\n"
-            "____________________________________"
+            + (
+                f"پیام مستقیم یه کاربر : /massage_{ban_code}\n"
+                if viewer_id == ADMIN_ID else ""
+            )
+            + "____________________________________"
         )
 
     text = (
@@ -2724,7 +2995,7 @@ async def userbot_command(
 ):
     user = update.effective_user
 
-    if not user or user.id != ADMIN_ID:
+    if not user or not is_manager_or_supervisor(user.id):
         return
 
     if update.effective_chat.type in (
@@ -2733,7 +3004,7 @@ async def userbot_command(
     ):
         return
 
-    text, keyboard, _ = build_userbot_page(0)
+    text, keyboard, _ = build_userbot_page(0, user.id)
 
     await update.message.reply_text(
         text,
@@ -2786,7 +3057,7 @@ async def userban_command(
 ):
     user = update.effective_user
 
-    if not user or user.id != ADMIN_ID:
+    if not user or not is_manager_or_supervisor(user.id):
         return
 
     if update.effective_chat.type in (
@@ -2844,7 +3115,7 @@ async def broadcast_command(
 ):
     user = update.effective_user
 
-    if not user or user.id != ADMIN_ID:
+    if not user or not is_manager_or_supervisor(user.id):
         return
 
     if update.effective_chat.type in (
@@ -2855,10 +3126,15 @@ async def broadcast_command(
 
     context.user_data.clear()
 
-    context.user_data[
-        "waiting_broadcast"
-    ] = True
+    if is_supervisor(user.id):
+        context.user_data["waiting_supervisor_broadcast"] = True
+        await update.message.reply_text(
+            "📢 متن پیام همگانی را وارد کنید :",
+            reply_markup=back_keyboard()
+        )
+        return
 
+    context.user_data["waiting_broadcast"] = True
     await update.message.reply_text(
         "📢 حالت ارسال پیام همگانی فعال شد.\n\n"
         "پیامی که می‌خوای برای همه کاربران ارسال بشه رو بفرست.\n"
@@ -2876,7 +3152,7 @@ async def changeusername_command(
 ):
     user = update.effective_user
 
-    if not user or user.id != ADMIN_ID:
+    if not user or not is_manager_or_supervisor(user.id):
         return
 
     if update.effective_chat.type in (
@@ -2891,6 +3167,32 @@ async def changeusername_command(
     await update.message.reply_text(
         "لطفا شناسه کاربری شخص را وارد کنید :",
         reply_markup=back_keyboard()
+    )
+
+
+# =========================================================
+# SUPERVISOR COMMANDS / MANAGEMENT
+# =========================================================
+
+async def cdb_command(update, context):
+    user = update.effective_user
+    if not user or not is_supervisor(user.id):
+        return
+    if update.effective_chat.type in ("group", "supergroup"):
+        return
+    await update.message.reply_text(SUPERVISOR_COMMANDS_TEXT)
+
+
+async def addadmin_command(update, context):
+    user = update.effective_user
+    if not user or user.id != ADMIN_ID:
+        return
+    if update.effective_chat.type in ("group", "supergroup"):
+        return
+    context.user_data.clear()
+    await update.message.reply_text(
+        "به پنل افزودن ناظر خوش امدید‌\nمدیریت ناظران ربات از پنل شیشه ای",
+        reply_markup=supervisor_panel_keyboard()
     )
 
 
@@ -3172,6 +3474,143 @@ async def button_handler(
             text,
             reply_markup=main_keyboard(),
             parse_mode="HTML"
+        )
+        return
+
+    # -----------------------------------------------------
+    # SUPERVISOR MANAGEMENT
+    # -----------------------------------------------------
+
+    if data == "supervisor_add":
+        if user_id != ADMIN_ID:
+            await query.answer("دسترسی ندارید ❌", show_alert=True); return
+        context.user_data.clear()
+        context.user_data["supervisor_add_waiting_identifier"] = True
+        await query.answer()
+        await query.edit_message_text("آیدی تلگرام شخص یا شناسه کاربری را وارد کنید :", reply_markup=back_keyboard())
+        return
+
+    if data.startswith("supervisor_select:"):
+        if user_id != ADMIN_ID:
+            await query.answer("دسترسی ندارید ❌", show_alert=True); return
+        try: target_id = int(data.split(":", 1)[1])
+        except (ValueError, IndexError):
+            await query.answer("شناسه نامعتبر است ❌", show_alert=True); return
+        if target_id == ADMIN_ID or not is_supervisor(target_id):
+            await query.answer("ناظر پیدا نشد ❌", show_alert=True); return
+        name = html.escape(supervisor_display_name(target_id))
+        await query.answer()
+        await query.edit_message_text(
+            "آیا قصد حذف ادمین را دارید؟\nبله ✅  خیر ✖️",
+            reply_markup=supervisor_delete_keyboard(target_id)
+        )
+        return
+
+    if data.startswith("supervisor_delete_yes:"):
+        if user_id != ADMIN_ID:
+            await query.answer("دسترسی ندارید ❌", show_alert=True); return
+        try: target_id = int(data.split(":", 1)[1])
+        except (ValueError, IndexError):
+            await query.answer("شناسه نامعتبر است ❌", show_alert=True); return
+        context.user_data.clear()
+        context.user_data["supervisor_remove_waiting_reason"] = True
+        context.user_data["supervisor_remove_target_id"] = target_id
+        await query.answer()
+        await query.edit_message_text("علت حذف را وارد کنید:", reply_markup=back_keyboard())
+        return
+
+    if data == "supervisor_delete_no":
+        if user_id != ADMIN_ID:
+            await query.answer("دسترسی ندارید ❌", show_alert=True); return
+        context.user_data.clear()
+        await query.answer()
+        await query.edit_message_text(
+            "به پنل افزودن ناظر خوش امدید‌\nمدیریت ناظران ربات از پنل شیشه ای",
+            reply_markup=supervisor_panel_keyboard()
+        )
+        return
+
+    if data.startswith("manager_approve:") or data.startswith("manager_reject:"):
+        if user_id != ADMIN_ID:
+            await query.answer("دسترسی ندارید ❌", show_alert=True); return
+        parts = data.split(":")
+        if len(parts) != 3:
+            await query.answer("درخواست نامعتبر است ❌", show_alert=True); return
+        action, kind, request_id = parts[0], parts[1], parts[2]
+        try: request_id = int(request_id)
+        except ValueError:
+            await query.answer("درخواست نامعتبر است ❌", show_alert=True); return
+        approved = action == "manager_approve"
+        if kind == "unban":
+            req = get_unban_request(request_id)
+            if not req or req[6] != "pending":
+                await query.answer("این درخواست قبلاً بررسی شده است.", show_alert=True); return
+            if approved:
+                target_id = unban_user_by_code(req[3])
+                if target_id:
+                    set_unban_request_status(request_id, "approved")
+                    await query.answer("رفع بن تأیید شد ✅")
+                    await query.message.edit_text("🟢 درخواست رفع بن با موفقیت تأیید شد.")
+                    try:
+                        await context.bot.send_message(chat_id=req[1], text=f"درخواست رفع بن کاربر {req[4] or 'کاربر'} توسط مدیر تأیید شد.✅")
+                    except TelegramError: pass
+                    try:
+                        await context.bot.send_message(chat_id=target_id, text="مسدودی حساب کاربری شما توسط مدیر رفع شد.\nاکنون حساب کاربری شما به حالت سبز در آمده 🟢\nمیتوانید از قابلیت های ربات استفاده کنید /start")
+                    except TelegramError: pass
+                else:
+                    set_unban_request_status(request_id, "rejected")
+                    await query.answer("کاربر دیگر بن نیست.", show_alert=True)
+                return
+            set_unban_request_status(request_id, "rejected")
+            await query.answer("درخواست رد شد ❌")
+            await query.message.edit_text(
+                "<b>درود! به پنل اصلی ربات \" گلدن چت \" خوش آمدید.⚡</b>\n\n<b>خوشحالم که ما انتخاب شما بودیم😉</b>\n\n<b>برای استفاده از ربات از پنل شیشه ای زیر استفاده کنید :</b>",
+                reply_markup=main_keyboard(), parse_mode="HTML"
+            )
+            try:
+                await context.bot.send_message(chat_id=req[1], text=f"درخواست رفع بن کاربر ( {req[4] or 'کاربر'} ) توسط مدیر تایید نشد🛑")
+            except TelegramError: pass
+            return
+        if kind == "broadcast":
+            req = get_broadcast_request(request_id)
+            if not req or req[3] != "pending":
+                await query.answer("این درخواست قبلاً بررسی شده است.", show_alert=True); return
+            if approved:
+                set_broadcast_request_status(request_id, "approved")
+                await query.answer("پیام همگانی تأیید شد ✅")
+                await query.message.edit_text("📢 درخواست پیام همگانی تأیید شد؛ ارسال آغاز شد...")
+                success = failed = 0
+                for target_id in get_all_user_ids():
+                    try:
+                        await context.bot.send_message(chat_id=target_id, text=req[2])
+                        success += 1
+                    except TelegramError:
+                        failed += 1
+                    await asyncio.sleep(0.03)
+                await query.message.edit_text(f"✅ پیام همگانی ارسال شد.\n\nموفق: {success}\nناموفق: {failed}\nکل کاربران: {success + failed}")
+                try:
+                    await context.bot.send_message(chat_id=req[1], text=f"پیام همگانی شما توسط مدیر تأیید و ارسال شد.✅\nموفق: {success}\nناموفق: {failed}")
+                except TelegramError: pass
+                return
+            set_broadcast_request_status(request_id, "rejected")
+            await query.answer("درخواست رد شد ❌")
+            await query.message.edit_text(
+                "<b>درود! به پنل اصلی ربات \" گلدن چت \" خوش آمدید.⚡</b>\n\n<b>خوشحالم که ما انتخاب شما بودیم😉</b>\n\n<b>برای استفاده از ربات از پنل شیشه ای زیر استفاده کنید :</b>",
+                reply_markup=main_keyboard(), parse_mode="HTML"
+            )
+            try:
+                await context.bot.send_message(chat_id=req[1], text="درخواست ارسال پیام همگانی شما توسط مدیر تایید نشد🛑")
+            except TelegramError: pass
+            return
+
+    if data == "supervisor_target_ok":
+        await query.answer("انجام شد ✅")
+        context.user_data.clear()
+        await query.message.edit_text(
+            "<b>درود! به پنل اصلی ربات \" گلدن چت \" خوش آمدید.⚡</b>\n\n"
+            "<b>خوشحالم که ما انتخاب شما بودیم😉</b>\n\n"
+            "<b>برای استفاده از ربات از پنل شیشه ای زیر استفاده کنید :</b>",
+            reply_markup=main_keyboard(), parse_mode="HTML"
         )
         return
 
@@ -3533,7 +3972,7 @@ async def button_handler(
     # -----------------------------------------------------
 
     if data.startswith("userbot_page:"):
-        if user_id != ADMIN_ID:
+        if not is_manager_or_supervisor(user_id):
             await query.answer(
                 "دسترسی ندارید ❌",
                 show_alert=True
@@ -3552,7 +3991,7 @@ async def button_handler(
             return
 
         text, keyboard, _ = build_userbot_page(
-            page
+            page, user_id
         )
 
         await query.answer()
@@ -4335,6 +4774,283 @@ async def handle_message(
         return
 
     # =====================================================
+    # SUPERVISOR-ONLY FLOWS
+    # =====================================================
+
+    if user.id == ADMIN_ID and context.user_data.get("supervisor_remove_waiting_reason"):
+        if text.strip() == "بازگشت 🔙" or text.lower() == "/cancel":
+            context.user_data.clear()
+            await send_main_panel(update, context, show_reply_keyboard=False)
+            return
+        target_id = context.user_data.get("supervisor_remove_target_id")
+        reason = text.strip()
+        if not target_id or not is_supervisor(target_id):
+            context.user_data.clear()
+            await message.reply_text("❌ ناظر پیدا نشد.", reply_markup=back_keyboard())
+            return
+        remove_supervisor(target_id)
+        context.user_data.clear()
+        await message.reply_text("ناظر با موفقیت حذف شد.✅", reply_markup=back_keyboard())
+        try:
+            await context.bot.send_message(
+                chat_id=target_id,
+                text=f"شما توسط مدیر ربات از ادمینی خارج شدید.😄\nعلت مدیر : {html.escape(reason)}",
+                reply_markup=supervisor_target_ok_keyboard()
+            )
+        except TelegramError:
+            pass
+        try:
+            await context.bot.set_my_commands(
+                [
+                    __import__('telegram').BotCommand("start", "شروع ربات"),
+                    __import__('telegram').BotCommand("cancel", "لغو عملیات"),
+                ],
+                scope=__import__('telegram').BotCommandScopeChat(target_id)
+            )
+        except Exception:
+            pass
+        return
+
+    if user.id == ADMIN_ID and context.user_data.get("supervisor_add_waiting_identifier"):
+        if text.strip() == "بازگشت 🔙" or text.lower() == "/cancel":
+            context.user_data.clear()
+            await send_main_panel(update, context, show_reply_keyboard=False)
+            return
+        target = find_user_by_identifier(text.strip())
+        if not target:
+            await message.reply_text("❌ کاربر پیدا نشد. باید آیدی عددی یا username کاربری باشد که ربات قبلاً او را شناخته است.", reply_markup=back_keyboard())
+            return
+        target_id = target[0]
+        if target_id == ADMIN_ID:
+            await message.reply_text("❌ مدیر اصلی نمی‌تواند ناظر شود.", reply_markup=back_keyboard())
+            return
+        if is_supervisor(target_id):
+            await message.reply_text("❌ این کاربر از قبل ناظر است.", reply_markup=back_keyboard())
+            return
+        add_supervisor(target_id)
+        context.user_data.clear()
+        target_name = target[3] or target[2] or (f"@{target[1]}" if target[1] else "کاربر")
+        await message.reply_text(f"کاربر {html.escape(target_name)} با موفقیت ناظر شد.✅", parse_mode="HTML", reply_markup=supervisor_panel_keyboard())
+        try:
+            await context.bot.send_message(
+                chat_id=target_id,
+                text="شما توسط مدیر ربات به عنوان ناظر انتخاب شدید.🎊\nدریافت کامند ها جهت استفاده از ربات /cdb را ارسال کنید.",
+                reply_markup=supervisor_target_ok_keyboard()
+            )
+            from telegram import BotCommand, BotCommandScopeChat
+            await context.bot.set_my_commands(
+                [
+                    BotCommand("cdb", "دریافت کامند های ناظر"),
+                    BotCommand("userbot", "مشاهده کاربران ربات"),
+                    BotCommand("userban", "لیست کاربران بن شده"),
+                    BotCommand("broadcast", "ارسال پیام همگانی"),
+                    BotCommand("changeusername", "تغییر نام کاربر"),
+                ],
+                scope=BotCommandScopeChat(target_id)
+            )
+        except TelegramError:
+            pass
+        return
+
+    if is_supervisor(user.id):
+        # supervisor change display name
+        if context.user_data.get("change_username_waiting_code"):
+            if text.strip() == "بازگشت 🔙" or text.lower() == "/cancel":
+                context.user_data.clear()
+                await send_main_panel(update, context, show_reply_keyboard=False)
+                return
+            target = find_user_by_identifier(text.strip())
+            if not target:
+                # Also accept the user's ban code, as the command description refers to the user identifier.
+                conn = db()
+                try:
+                    cur = conn.cursor()
+                    cur.execute("SELECT user_id, full_name, display_name, username, ban_code FROM users WHERE lower(ban_code) = %s", (text.strip().lower(),))
+                    by_code = cur.fetchone()
+                finally:
+                    cur.close(); release_db(conn)
+                if by_code:
+                    target = (by_code[0], by_code[3], by_code[1], by_code[2], by_code[4])
+            if not target:
+                await message.reply_text("❌ شناسه کاربری پیدا نشد.\nلطفا شناسه صحیح کاربر را وارد کنید :", reply_markup=back_keyboard())
+                return
+            target_id = target[0]
+            if target_id == ADMIN_ID or is_supervisor(target_id):
+                await message.reply_text("❌ نمی‌توانی نام نمایشی مدیر یا ناظر را از این بخش تغییر بدهی.", reply_markup=back_keyboard())
+                return
+            context.user_data.clear()
+            context.user_data["change_username_waiting_name"] = True
+            context.user_data["change_username_target_id"] = target_id
+            context.user_data["change_username_code"] = target[4] if len(target) > 4 else ""
+            await message.reply_text("لطفا نام نمایشی جدید کاربر را انتخاب کنید :", reply_markup=back_keyboard())
+            return
+
+        if context.user_data.get("change_username_waiting_name"):
+            if text.strip() == "بازگشت 🔙" or text.lower() == "/cancel":
+                context.user_data.clear(); await send_main_panel(update, context, show_reply_keyboard=False); return
+            new_name = text.strip()
+            if not new_name:
+                await message.reply_text("❌ نام نمایشی نمی‌تواند خالی باشد.", reply_markup=back_keyboard()); return
+            if len(new_name) > 50:
+                await message.reply_text("❌ نام خیلی طولانی است.\nحداکثر ۵۰ کاراکتر وارد کنید.", reply_markup=back_keyboard()); return
+            context.user_data["change_username_waiting_name"] = False
+            context.user_data["change_username_waiting_reason"] = True
+            context.user_data["change_username_new_name"] = new_name
+            await message.reply_text("علت تغییر نام :", reply_markup=back_keyboard())
+            return
+
+        if context.user_data.get("change_username_waiting_reason"):
+            if text.strip() == "بازگشت 🔙" or text.lower() == "/cancel":
+                context.user_data.clear(); await send_main_panel(update, context, show_reply_keyboard=False); return
+            reason = text.strip()
+            if not reason:
+                await message.reply_text("❌ علت تغییر نام نمی‌تواند خالی باشد.", reply_markup=back_keyboard()); return
+            if len(reason) > 1000:
+                await message.reply_text("❌ علت تغییر نام خیلی طولانی است.\nحداکثر ۱۰۰۰ کاراکتر وارد کنید.", reply_markup=back_keyboard()); return
+            target_id = context.user_data.get("change_username_target_id")
+            new_name = context.user_data.get("change_username_new_name")
+            if not target_id or not new_name:
+                context.user_data.clear(); await message.reply_text("❌ اطلاعات تغییر نام پیدا نشد.", reply_markup=back_keyboard()); return
+            old_name = get_display_name(target_id)
+            set_display_name(target_id, new_name)
+            try:
+                await context.bot.send_message(
+                    chat_id=target_id,
+                    text=f"نام نمایشی شما توسط ادمین به {html.escape(new_name)} تغییر یافت✅\nعلت : {html.escape(reason)}",
+                    reply_markup=change_username_confirm_keyboard(),
+                    parse_mode="HTML"
+                )
+            except TelegramError:
+                pass
+            context.user_data.clear()
+            await message.reply_text(
+                f"✅ نام نمایشی کاربر با موفقیت تغییر کرد.\n\nنام قبلی : {html.escape(old_name)}\nنام جدید : {html.escape(new_name)}\nعلت : {html.escape(reason)}",
+                parse_mode="HTML", reply_markup=back_keyboard()
+            )
+            return
+
+        # supervisor broadcast request
+        if context.user_data.get("waiting_supervisor_broadcast"):
+            if text.strip() == "بازگشت 🔙" or text.lower() == "/cancel":
+                context.user_data.clear()
+                await send_main_panel(update, context, show_reply_keyboard=False)
+                return
+            request_id = create_broadcast_request(user.id, text.strip())
+            context.user_data.clear()
+            label = html.escape(supervisor_label(user.id))
+            request_text = (
+                "<b>درخواست پیام همگانی</b>\n\n"
+                f"ناظر {label} درخواست ارسال پیام همگانی زیر را دارد:\n\n"
+                f"{html.escape(text.strip())}\n\n"
+                "<b>آیا میپذیرید ؟</b>"
+            )
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=request_text,
+                parse_mode="HTML",
+                reply_markup=manager_approval_keyboard("broadcast", request_id)
+            )
+            await message.reply_text("درخواست پیام همگانی برای مدیر ارسال شد.✅", reply_markup=back_keyboard())
+            return
+
+        # supervisor unban reason
+        if context.user_data.get("waiting_supervisor_unban_reason"):
+            if text.strip() == "بازگشت 🔙" or text.lower() == "/cancel":
+                context.user_data.clear()
+                await send_main_panel(update, context, show_reply_keyboard=False)
+                return
+            reason = text.strip()
+            if not reason:
+                await message.reply_text("❌ علت رفع بن نمی‌تواند خالی باشد.", reply_markup=back_keyboard())
+                return
+            target_id = context.user_data.get("supervisor_unban_target_id")
+            target_code = context.user_data.get("supervisor_unban_code")
+            target_name = context.user_data.get("supervisor_unban_name") or "کاربر"
+            request_id = create_unban_request(user.id, target_id, target_code, target_name, reason)
+            context.user_data.clear()
+            req_text = (
+                f"ناظر ( {html.escape(supervisor_label(user.id))} ) درخواست رفع بن کاربر "
+                f"( {html.escape(target_name)} ) را ارسال کرد.\n\n"
+                "آیا میپذیرید ؟\n\n"
+                "بله ✅  خیر ✖️"
+            )
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=req_text,
+                reply_markup=manager_approval_keyboard("unban", request_id)
+            )
+            await message.reply_text("درخواست رفع بن برای مدیر ارسال شد.✅", reply_markup=back_keyboard())
+            return
+
+        # supervisor ban reason uses the existing duration callback
+        if context.user_data.get("waiting_ban_reason"):
+            if text.strip() == "بازگشت 🔙" or text.lower() == "/cancel":
+                context.user_data.clear()
+                await send_main_panel(update, context, show_reply_keyboard=False)
+                return
+            reason = text.strip()
+            if len(reason) > 1000:
+                await message.reply_text("❌ علت بن خیلی طولانی است.\nحداکثر ۱۰۰۰ کاراکتر وارد کنید.")
+                return
+            context.user_data["ban_reason"] = reason
+            context.user_data["waiting_ban_reason"] = False
+            context.user_data["waiting_ban_duration"] = True
+            await message.reply_text("تعداد زمانی که کاربر در حالت بنی قرار بگیرد را وارد کنید", reply_markup=ban_duration_keyboard())
+            return
+
+        # supervisor dynamic ban/unban commands
+        if text.lower().startswith("/ban_"):
+            code = text[5:].strip().lower()
+            conn = db()
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT user_id FROM users WHERE lower(ban_code) = %s", (code,))
+                row = cur.fetchone()
+            finally:
+                cur.close(); release_db(conn)
+            if not row:
+                await message.reply_text("❌ کد بن پیدا نشد.")
+                return
+            target_id = row[0]
+            if target_id == ADMIN_ID or is_supervisor(target_id):
+                await message.reply_text("❌ این کاربر قابل بن شدن توسط ناظر نیست.")
+                return
+            context.user_data.clear()
+            context.user_data["waiting_ban_reason"] = True
+            context.user_data["ban_code"] = code
+            context.user_data["ban_target_id"] = target_id
+            await message.reply_text("علت بنی کاربر را وارد کنید  :", reply_markup=ban_cancel_keyboard())
+            return
+
+        if text.lower().startswith("/unban_"):
+            code = text[7:].strip().lower()
+            conn = db()
+            try:
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT user_id, full_name, display_name, username, ban_code
+                    FROM users WHERE lower(ban_code) = %s
+                """, (code,))
+                row = cur.fetchone()
+            finally:
+                cur.close(); release_db(conn)
+            if not row:
+                await message.reply_text("❌ کد رفع بن پیدا نشد.")
+                return
+            target_id, full_name, display_name, username, ban_code = row
+            if not get_ban_info(target_id):
+                await message.reply_text("❌ این کاربر در حال حاضر بن نیست.")
+                return
+            target_name = display_name or full_name or (f"@{username}" if username else "کاربر")
+            context.user_data.clear()
+            context.user_data["waiting_supervisor_unban_reason"] = True
+            context.user_data["supervisor_unban_target_id"] = target_id
+            context.user_data["supervisor_unban_code"] = ban_code or code
+            context.user_data["supervisor_unban_name"] = target_name
+            await message.reply_text("علت رفع بن کردن کاربر رو وارد کن :", reply_markup=back_keyboard())
+            return
+
+    # =====================================================
     # ADMIN
     # =====================================================
 
@@ -4497,6 +5213,7 @@ async def handle_message(
                         f"نام نمایشی شما توسط ادمین به {html.escape(new_name)} تغییر یافت✅\n"
                         f"علت : {html.escape(reason)}"
                     ),
+                    reply_markup=change_username_confirm_keyboard(),
                     parse_mode="HTML"
                 )
             except TelegramError:
@@ -4509,7 +5226,6 @@ async def handle_message(
                 f"نام قبلی : {html.escape(old_name)}\n"
                 f"نام جدید : {html.escape(new_name)}\n"
                 f"علت : {html.escape(reason)}",
-                reply_markup=change_username_confirm_keyboard(),
                 parse_mode="HTML"
             )
             return
@@ -5444,7 +6160,7 @@ async def ban_callback(
     query = update.callback_query
     user = update.effective_user
 
-    if user.id != ADMIN_ID:
+    if not is_manager_or_supervisor(user.id):
         await query.answer(
             "دسترسی ندارید ❌",
             show_alert=True
@@ -5634,6 +6350,29 @@ async def post_init(
         expire_bans_loop()
     )
 
+    try:
+        from telegram import BotCommand, BotCommandScopeChat
+        await application.bot.set_my_commands([
+            BotCommand("start", "شروع ربات"),
+            BotCommand("cancel", "لغو عملیات"),
+            BotCommand("linkgroup", "مدیریت گروه"),
+            BotCommand("broadcast", "پیام همگانی"),
+            BotCommand("userban", "لیست بن شده ها"),
+            BotCommand("userbot", "لیست کاربران"),
+            BotCommand("changeusername", "تغییر نام کاربر"),
+            BotCommand("addadmin", "مدیریت ناظران"),
+        ])
+        for row in get_supervisors():
+            await application.bot.set_my_commands([
+                BotCommand("cdb", "دریافت کامند های ناظر"),
+                BotCommand("userbot", "مشاهده کاربران ربات"),
+                BotCommand("userban", "لیست کاربران بن شده"),
+                BotCommand("broadcast", "ارسال پیام همگانی"),
+                BotCommand("changeusername", "تغییر نام کاربر"),
+            ], scope=BotCommandScopeChat(row[0]))
+    except Exception as e:
+        print("Command scope setup error:", e)
+
 
 async def post_shutdown(
     application
@@ -5720,6 +6459,20 @@ def main():
         CommandHandler(
             "changeusername",
             changeusername_command
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "cdb",
+            cdb_command
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "addadmin",
+            addadmin_command
         )
     )
 
