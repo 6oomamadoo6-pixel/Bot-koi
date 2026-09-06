@@ -1036,12 +1036,6 @@ def unban_user_by_code(code):
 
 
 def get_ban_info(user_id):
-    """Return active bot-ban information using the database clock.
-
-    Using CURRENT_TIMESTAMP here keeps the ban check consistent with the
-    database even if the bot process and PostgreSQL server have different
-    timezone/clock settings.
-    """
     conn = db()
 
     try:
@@ -1052,8 +1046,6 @@ def get_ban_info(user_id):
             SELECT ban_until, ban_reason
             FROM users
             WHERE user_id = %s
-              AND ban_until IS NOT NULL
-              AND ban_until > CURRENT_TIMESTAMP
             """,
             (user_id,)
         )
@@ -1064,47 +1056,26 @@ def get_ban_info(user_id):
         cur.close()
         release_db(conn)
 
-    if not row:
+    if not row or not row[0]:
+        return None
+
+    ban_until = row[0]
+
+    if isinstance(ban_until, str):
+        try:
+            ban_until = datetime.fromisoformat(
+                ban_until
+            )
+        except ValueError:
+            return None
+
+    if datetime.now() >= ban_until:
         return None
 
     return {
-        "until": row[0],
+        "until": ban_until,
         "reason": row[1] or "توسط مدیریت ربات"
     }
-
-
-def get_banned_destination_text(user_id):
-    """Return the blocked-destination notice only for an actively banned user."""
-    conn = db()
-
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT
-                COALESCE(display_name, full_name, 'کاربر'),
-                ban_until
-            FROM users
-            WHERE user_id = %s
-              AND ban_until IS NOT NULL
-              AND ban_until > CURRENT_TIMESTAMP
-            """,
-            (user_id,)
-        )
-        row = cur.fetchone()
-    finally:
-        cur.close()
-        release_db(conn)
-
-    if not row:
-        return None
-
-    display_name = row[0] or "کاربر"
-    return (
-        f"<b>حساب کاربری {html.escape(display_name)} مسدود شده است🟡</b>\n"
-        "شما نمیتوانید به این مقصد پیامی ارسال کنید🙈\n\n"
-        "« گلدن چت »"
-    )
 
 
 def get_active_banned_users():
@@ -1959,6 +1930,18 @@ def back_keyboard():
     ])
 
 
+def change_username_confirm_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "اوکی « ارسال پنل اصلی »",
+                callback_data="change_username_done",
+                style="success"
+            )
+        ]
+    ])
+
+
 def link_keyboard():
     return InlineKeyboardMarkup([
         [
@@ -2546,15 +2529,6 @@ async def start(
 
         target_id = target[0]
 
-        banned_destination_text = get_banned_destination_text(target_id)
-        if banned_destination_text:
-            await update.message.reply_text(
-                banned_destination_text,
-                reply_markup=back_keyboard(),
-                parse_mode="HTML"
-            )
-            return
-
         if target_id == user.id:
             bot = await context.bot.get_me()
 
@@ -2893,6 +2867,34 @@ async def broadcast_command(
 
 
 # =========================================================
+# CHANGE USERNAME / DISPLAY NAME (ADMIN)
+# =========================================================
+
+async def changeusername_command(
+    update,
+    context
+):
+    user = update.effective_user
+
+    if not user or user.id != ADMIN_ID:
+        return
+
+    if update.effective_chat.type in (
+        "group",
+        "supergroup"
+    ):
+        return
+
+    context.user_data.clear()
+    context.user_data["change_username_waiting_code"] = True
+
+    await update.message.reply_text(
+        "لطفا شناسه کاربری شخص را وارد کنید :",
+        reply_markup=back_keyboard()
+    )
+
+
+# =========================================================
 # CANCEL COMMAND
 # =========================================================
 
@@ -3149,6 +3151,28 @@ async def button_handler(
             show_reply_keyboard=True
         )
 
+        return
+
+    # -----------------------------------------------------
+    # CHANGE USERNAME DONE
+    # -----------------------------------------------------
+
+    if data == "change_username_done":
+        await query.answer("انجام شد ✅")
+        context.user_data.clear()
+
+        text = (
+            "<b>درود! به پنل اصلی ربات "
+            "\" گلدن چت \" خوش آمدید.⚡</b>\n\n"
+            "<b>خوشحالم که ما انتخاب شما بودیم😉</b>\n\n"
+            "<b>برای استفاده از ربات از پنل شیشه ای زیر استفاده کنید :</b>"
+        )
+
+        await query.message.edit_text(
+            text,
+            reply_markup=main_keyboard(),
+            parse_mode="HTML"
+        )
         return
 
     # -----------------------------------------------------
@@ -4201,17 +4225,6 @@ async def media_handler(update, context):
             context.user_data.clear()
             await message.reply_text("❌ اطلاعات پیام پیدا نشد.")
             return
-
-        banned_destination_text = get_banned_destination_text(sender_id)
-        if banned_destination_text:
-            context.user_data.clear()
-            await message.reply_text(
-                banned_destination_text,
-                reply_markup=back_keyboard(),
-                parse_mode="HTML"
-            )
-            return
-
         new_id = save_anonymous_message(user.id, sender_id, caption, media_type, file_id, caption, message.message_id, original[10] if original[10] else original[2])
         keyboard = anonymous_message_keyboard(new_id, user.id, True, True)
         try:
@@ -4270,17 +4283,6 @@ async def media_handler(update, context):
                 "شما نمیتوانید به این مقصد پیامی ارسال کنید🙈\n\n"
                 "« گلدن چت »", reply_markup=back_keyboard(), parse_mode="HTML")
             return
-
-        banned_destination_text = get_banned_destination_text(target_id)
-        if banned_destination_text:
-            context.user_data.clear()
-            await message.reply_text(
-                banned_destination_text,
-                reply_markup=back_keyboard(),
-                parse_mode="HTML"
-            )
-            return
-
         mid = save_anonymous_message(user.id, target_id, caption, media_type, file_id, caption, message.message_id, target_id)
         keyboard = anonymous_message_keyboard(mid, user.id, True, True)
         row = get_user(user.id)
@@ -4337,6 +4339,180 @@ async def handle_message(
     # =====================================================
 
     if user.id == ADMIN_ID:
+
+        # CHANGE DISPLAY NAME - STEP 1: USER CODE
+
+        if context.user_data.get(
+            "change_username_waiting_code"
+        ):
+            if text.strip() == "بازگشت 🔙":
+                context.user_data.clear()
+                await send_main_panel(
+                    update,
+                    context,
+                    show_reply_keyboard=False
+                )
+                return
+
+            code = text.strip().lower()
+
+            conn = db()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    SELECT user_id, full_name, display_name
+                    FROM users
+                    WHERE lower(ban_code) = %s
+                    """,
+                    (code,)
+                )
+                target = cur.fetchone()
+            finally:
+                cur.close()
+                release_db(conn)
+
+            if not target:
+                await message.reply_text(
+                    "❌ شناسه کاربری پیدا نشد.\n\n"
+                    "لطفا شناسه صحیح کاربر را وارد کنید :",
+                    reply_markup=back_keyboard()
+                )
+                return
+
+            if target[0] == ADMIN_ID:
+                await message.reply_text(
+                    "❌ نمی‌توانی نام نمایشی خود ادمین را از این بخش تغییر بدهی.",
+                    reply_markup=back_keyboard()
+                )
+                return
+
+            context.user_data.clear()
+            context.user_data["change_username_waiting_name"] = True
+            context.user_data["change_username_target_id"] = target[0]
+            context.user_data["change_username_code"] = code
+
+            await message.reply_text(
+                "لطفا نام نمایشی جدید کاربر را انتخاب کنید :",
+                reply_markup=back_keyboard()
+            )
+            return
+
+        # CHANGE DISPLAY NAME - STEP 2: NEW NAME
+
+        if context.user_data.get(
+            "change_username_waiting_name"
+        ):
+            if text.strip() == "بازگشت 🔙":
+                context.user_data.clear()
+                await send_main_panel(
+                    update,
+                    context,
+                    show_reply_keyboard=False
+                )
+                return
+
+            new_name = text.strip()
+
+            if not new_name:
+                await message.reply_text(
+                    "❌ نام نمایشی نمی‌تواند خالی باشد.\n\n"
+                    "لطفا نام نمایشی جدید را وارد کنید :",
+                    reply_markup=back_keyboard()
+                )
+                return
+
+            if len(new_name) > 50:
+                await message.reply_text(
+                    "❌ نام خیلی طولانی است.\n"
+                    "حداکثر ۵۰ کاراکتر وارد کنید.",
+                    reply_markup=back_keyboard()
+                )
+                return
+
+            context.user_data["change_username_waiting_name"] = False
+            context.user_data["change_username_waiting_reason"] = True
+            context.user_data["change_username_new_name"] = new_name
+
+            await message.reply_text(
+                "علت تغییر نام :",
+                reply_markup=back_keyboard()
+            )
+            return
+
+        # CHANGE DISPLAY NAME - STEP 3: REASON + APPLY
+
+        if context.user_data.get(
+            "change_username_waiting_reason"
+        ):
+            if text.strip() == "بازگشت 🔙":
+                context.user_data.clear()
+                await send_main_panel(
+                    update,
+                    context,
+                    show_reply_keyboard=False
+                )
+                return
+
+            reason = text.strip()
+
+            if not reason:
+                await message.reply_text(
+                    "❌ علت تغییر نام نمی‌تواند خالی باشد.\n\n"
+                    "لطفا علت تغییر نام را وارد کنید :",
+                    reply_markup=back_keyboard()
+                )
+                return
+
+            if len(reason) > 1000:
+                await message.reply_text(
+                    "❌ علت تغییر نام خیلی طولانی است.\n"
+                    "حداکثر ۱۰۰۰ کاراکتر وارد کنید.",
+                    reply_markup=back_keyboard()
+                )
+                return
+
+            target_id = context.user_data.get(
+                "change_username_target_id"
+            )
+            new_name = context.user_data.get(
+                "change_username_new_name"
+            )
+
+            if not target_id or not new_name:
+                context.user_data.clear()
+                await message.reply_text(
+                    "❌ اطلاعات تغییر نام پیدا نشد.",
+                    reply_markup=back_keyboard()
+                )
+                return
+
+            old_name = get_display_name(target_id)
+            set_display_name(target_id, new_name)
+
+            try:
+                await context.bot.send_message(
+                    chat_id=target_id,
+                    text=(
+                        f"نام نمایشی شما توسط ادمین به {html.escape(new_name)} تغییر یافت✅\n"
+                        f"علت : {html.escape(reason)}"
+                    ),
+                    parse_mode="HTML"
+                )
+            except TelegramError:
+                pass
+
+            context.user_data.clear()
+
+            await message.reply_text(
+                "✅ نام نمایشی کاربر با موفقیت تغییر کرد.\n\n"
+                f"نام قبلی : {html.escape(old_name)}\n"
+                f"نام جدید : {html.escape(new_name)}\n"
+                f"علت : {html.escape(reason)}",
+                reply_markup=change_username_confirm_keyboard(),
+                parse_mode="HTML"
+            )
+            return
 
         # DIRECT MESSAGE
 
@@ -5086,16 +5262,6 @@ async def handle_message(
 
             return
 
-        banned_destination_text = get_banned_destination_text(target_id)
-        if banned_destination_text:
-            context.user_data.clear()
-            await message.reply_text(
-                banned_destination_text,
-                reply_markup=back_keyboard(),
-                parse_mode="HTML"
-            )
-            return
-
         message_id = save_anonymous_message(
             user.id,
             target_id,
@@ -5207,15 +5373,6 @@ async def handle_message(
             return
 
         target_id = target[0]
-
-        banned_destination_text = get_banned_destination_text(target_id)
-        if banned_destination_text:
-            await message.reply_text(
-                banned_destination_text,
-                reply_markup=back_keyboard(),
-                parse_mode="HTML"
-            )
-            return
 
         if target_id == user.id:
             bot = await context.bot.get_me()
@@ -5556,6 +5713,13 @@ def main():
         CommandHandler(
             "userbot",
             userbot_command
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "changeusername",
+            changeusername_command
         )
     )
 
