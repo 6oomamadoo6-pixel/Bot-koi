@@ -4845,6 +4845,8 @@ async def handle_message(
                     BotCommand("userban", "لیست کاربران بن شده"),
                     BotCommand("broadcast", "ارسال پیام همگانی"),
                     BotCommand("changeusername", "تغییر نام کاربر"),
+                    BotCommand("ban_", "بن کردن کاربر با شناسه"),
+                    BotCommand("unban_", "درخواست رفع بن کاربر"),
                 ],
                 scope=BotCommandScopeChat(target_id)
             )
@@ -6352,6 +6354,15 @@ async def post_init(
 
     try:
         from telegram import BotCommand, BotCommandScopeChat
+
+        # منوی پیش فرض برای کاربران عادی فقط کامندهای عمومی ربات است.
+        # کامندهای مدیریتی/نظارتی فقط با scope اختصاصی برای مدیر یا ناظر نمایش داده می‌شوند.
+        await application.bot.set_my_commands([
+            BotCommand("start", "شروع ربات"),
+            BotCommand("cancel", "لغو عملیات"),
+        ])
+
+        # منوی اختصاصی مدیر اصلی
         await application.bot.set_my_commands([
             BotCommand("start", "شروع ربات"),
             BotCommand("cancel", "لغو عملیات"),
@@ -6361,7 +6372,9 @@ async def post_init(
             BotCommand("userbot", "لیست کاربران"),
             BotCommand("changeusername", "تغییر نام کاربر"),
             BotCommand("addadmin", "مدیریت ناظران"),
-        ])
+        ], scope=BotCommandScopeChat(ADMIN_ID))
+
+        # منوی اختصاصی هر ناظر
         for row in get_supervisors():
             await application.bot.set_my_commands([
                 BotCommand("cdb", "دریافت کامند های ناظر"),
@@ -6369,6 +6382,8 @@ async def post_init(
                 BotCommand("userban", "لیست کاربران بن شده"),
                 BotCommand("broadcast", "ارسال پیام همگانی"),
                 BotCommand("changeusername", "تغییر نام کاربر"),
+                BotCommand("ban_", "بن کردن کاربر با شناسه"),
+                BotCommand("unban_", "درخواست رفع بن کاربر"),
             ], scope=BotCommandScopeChat(row[0]))
     except Exception as e:
         print("Command scope setup error:", e)
