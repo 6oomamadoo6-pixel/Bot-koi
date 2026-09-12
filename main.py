@@ -40,8 +40,6 @@ ADMIN_ID = 6078875175
 CHANNEL_1 = "@hidemychatRobot0"
 CHANNEL_1_URL = "https://t.me/hidemychatRobot0"
 
-CHANNEL_2 = "@DoNi0r"
-CHANNEL_2_URL = "https://t.me/DoNi0r"
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -1863,13 +1861,7 @@ async def is_member(
         user_id
     )
 
-    second = await check_channel_member(
-        bot,
-        CHANNEL_2,
-        user_id
-    )
-
-    return first and second
+    return first
 
 
 # =========================================================
@@ -2182,12 +2174,6 @@ def join_keyboard():
         ],
         [
             InlineKeyboardButton(
-                "چنل 2 : کانال ( اجباری ) 📢",
-                url=CHANNEL_2_URL
-            )
-        ],
-        [
-            InlineKeyboardButton(
                 "جوین شدم ✅",
                 callback_data="check_join",
                 style="success"
@@ -2459,7 +2445,7 @@ async def send_join_message(
         "درود و عرض ادب ! 👋\n"
         "خوش اومدی\n\n"
         "برای ادامه استفاده از ربات زحمت بکش "
-        "توی کانال‌های زیر جوین شو."
+        "توی کانال زیر جوین شو."
     )
 
     if update.message:
@@ -3438,7 +3424,7 @@ async def button_handler(
             user_id
         ):
             await query.answer(
-                "هنوز توی همه کانالا عضو نشدی🤠💔",
+                "هنوز توی کانال عضو نشدی🤠💔",
                 show_alert=True
             )
             return
