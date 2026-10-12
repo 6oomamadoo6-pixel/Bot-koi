@@ -41,7 +41,7 @@ button,input{font:inherit}button{cursor:pointer}.wrap{max-width:1100px;margin:au
   <header class="top"><div class="brand"><div class="logo">✦</div><div><h1>Golden Chat</h1><div class="sub">پنل مدیریت ربات</div></div></div><div style="display:flex;gap:8px;align-items:center"><span class="pill">● اتصال امن</span><button class="btn ghost" id="logoutBtn">خروج</button></div></header>
   <section class="hero"><div class="eyebrow">GOLDEN CHAT / ADMIN</div><h2>سلام مدیر، خوش اومدی ✨</h2><p>از اینجا وضعیت ربات رو ببین، کاربران رو جست‌وجو کن و فهرست مسدودی‌ها رو مدیریت کن. اطلاعات از دیتابیس فعلی خوانده می‌شه و دیتابیس جدیدی ساخته نمی‌شه.</p></section>
   <section class="stats"><div class="stat"><div class="label">👥 کل کاربران</div><div id="usersCount" class="num">—</div></div><div class="stat"><div class="label">🔴 موارد مسدودی کاربران</div><div id="blocksCount" class="num">—</div></div><div class="stat"><div class="label">✉️ پیام‌های ناشناس</div><div id="messagesCount" class="num">—</div></div></section>
-  <nav class="tabs"><button class="tab active" data-tab="users">👥 کاربران</button><button class="tab" data-tab="blocks">🔴 لیست مسدودی‌ها</button><button class="tab" data-tab="bans">⛔ بن کاربران</button><button class="tab" data-tab="tools">🛠 مدیریت کاربر</button><button class="tab" data-tab="broadcast">📢 پیام همگانی</button><button class="tab" data-tab="supervisors">🛡 ناظران</button></nav>
+  <nav class="tabs"><button class="tab active" data-tab="users">👥 کاربران</button><button class="tab" data-tab="blocks">🔴 لیست مسدودی‌ها</button><button class="tab" data-tab="bans">⛔ بن کاربران</button><button class="tab" data-tab="tools">🛠 مدیریت کاربر</button><button class="tab" data-tab="broadcast">📢 پیام همگانی</button><button class="tab" data-tab="supervisors">🛡 ناظران</button><button class="tab" data-tab="requests">📥 درخواست‌ها</button></nav>
   <section id="usersPanel" class="card"><div class="cardhead"><h3>کاربران ربات</h3><span class="pill">جست‌وجو و مشاهده</span></div><form id="userSearch" class="searchrow"><input id="userQuery" placeholder="جست‌وجو با آیدی، یوزرنیم یا نام" autocomplete="off"><button class="btn" type="submit">جست‌وجو</button></form><div id="usersTable" class="tablewrap"><div class="empty">در حال دریافت اطلاعات…</div></div><div class="pager"><button id="prevUsers" class="btn ghost">قبلی</button><span id="userPage">صفحه ۱</span><button id="nextUsers" class="btn ghost">بعدی</button></div></section>
   <section id="blocksPanel" class="card hidden"><div class="cardhead"><h3>لیست مسدودی‌ها</h3><span class="pill">مسدودسازی بین کاربران</span></div><form id="blockSearch" class="searchrow"><input id="blockQuery" placeholder="جست‌وجو با آیدی یا یوزرنیم" autocomplete="off"><button class="btn" type="submit">جست‌وجو</button></form><div class="notice">رفع مسدودی، فقط رابطهٔ مسدودسازی انتخاب‌شده را حذف می‌کند؛ حساب کاربر یا کدهای ناشناس حذف نمی‌شوند.</div><div id="blocksTable" class="tablewrap"><div class="empty">در حال دریافت اطلاعات…</div></div><div class="pager"><button id="prevBlocks" class="btn ghost">قبلی</button><span id="blockPage">صفحه ۱</span><button id="nextBlocks" class="btn ghost">بعدی</button></div></section>
   
@@ -52,7 +52,7 @@ button,input{font:inherit}button{cursor:pointer}.wrap{max-width:1100px;margin:au
 <form id="banForm" class="searchrow" style="flex-wrap:wrap"><input id="banId" required placeholder="آیدی عددی کاربر"><input id="banDays" type="number" min="1" max="3650" value="1" required placeholder="مدت به روز"><input id="banReason" required placeholder="دلیل بن"><button class="btn danger" type="submit">بن کاربر</button></form></section>
 <section id="broadcastPanel" class="card hidden featurePanel"><div class="cardhead"><h3>ارسال پیام همگانی</h3><span class="pill">ارسال به کاربران ربات</span></div><div class="notice">پیام برای همه کاربران ثبت‌شده ارسال می‌شود. این عملیات قابل برگشت نیست؛ متن را پیش از ارسال بررسی کن.</div><form id="broadcastForm"><textarea id="broadcastText" required rows="5" maxlength="4000" placeholder="متن پیام همگانی…" style="width:100%;background:#0f100e;border:1px solid #414137;color:var(--text);border-radius:12px;padding:12px;resize:vertical"></textarea><button class="btn" type="submit" style="margin-top:12px">ارسال برای همه</button></form><div id="broadcastResult" class="notice hidden" style="margin-top:12px"></div></section>
 <section id="supervisorsPanel" class="card hidden featurePanel"><div class="cardhead"><h3>مدیریت ناظران</h3><span class="pill">فقط مدیر اصلی مجاز است</span></div><form id="addSupervisorForm" class="searchrow"><input id="supervisorId" required placeholder="آیدی عددی ناظر جدید"><button class="btn" type="submit">افزودن ناظر</button></form><div id="supervisorsTable" class="tablewrap"><div class="empty">در حال دریافت…</div></div></section>
-<div class="foot">Golden Chat • پنل خصوصی مدیریت</div>
+<section id="requestsPanel" class="card hidden featurePanel"><div class="cardhead"><h3>درخواست‌های ناظران</h3><button class="btn ghost" id="refreshRequests">به‌روزرسانی</button></div><div class="notice">درخواست‌های رفع بن و پیام همگانی که ناظران برای تأیید مدیر اصلی ثبت کرده‌اند.</div><div id="requestsTable" class="tablewrap"><div class="empty">در حال دریافت…</div></div></section><div class="foot">Golden Chat • پنل خصوصی مدیریت</div>
 </div>
 <div id="toast" class="toast hidden"></div>
 <script>
@@ -66,7 +66,7 @@ function showApp(){el("loginView").classList.add("hidden");el("appView").classLi
 async function init(){try{var s=await fetch("/admin/api/session",{credentials:"same-origin"});var d=await s.json();csrfToken=d.csrf_token||"";if(d.authenticated){showApp();await loadAll()}else showLogin()}catch(e){showLogin()}}
 el("loginForm").addEventListener("submit",async function(e){e.preventDefault();el("loginError").textContent="";try{var d=await api("login",{method:"POST",body:JSON.stringify({password:el("password").value})});csrfToken=d.csrf_token||csrfToken;el("password").value="";showApp();await loadAll()}catch(err){el("loginError").textContent=err.message}})
 el("logoutBtn").addEventListener("click",async function(){try{await api("logout",{method:"POST",body:"{}"})}catch(e){}showLogin();toast("از پنل خارج شدی")})
-document.querySelectorAll(".tab").forEach(function(button){button.addEventListener("click",function(){activeTab=button.dataset.tab;document.querySelectorAll(".tab").forEach(function(b){b.classList.toggle("active",b===button)});["users","blocks","bans","tools","broadcast","supervisors"].forEach(function(k){var p=el(k+"Panel");if(p)p.classList.toggle("hidden",activeTab!==k)});if(activeTab==="blocks")loadBlocks();if(activeTab==="bans")loadBans();if(activeTab==="supervisors")loadSupervisors()})})
+document.querySelectorAll(".tab").forEach(function(button){button.addEventListener("click",function(){activeTab=button.dataset.tab;document.querySelectorAll(".tab").forEach(function(b){b.classList.toggle("active",b===button)});["users","blocks","bans","tools","broadcast","supervisors","requests"].forEach(function(k){var p=el(k+"Panel");if(p)p.classList.toggle("hidden",activeTab!==k)});if(activeTab==="blocks")loadBlocks();if(activeTab==="bans")loadBans();if(activeTab==="supervisors")loadSupervisors();if(activeTab==="requests")loadRequests()})})
 async function loadAll(){await Promise.all([loadStats(),loadUsers(),loadBlocks()])}
 async function loadStats(){try{var d=await api("stats");el("usersCount").textContent=Number(d.users||0).toLocaleString("fa-IR");el("blocksCount").textContent=Number(d.blocks||0).toLocaleString("fa-IR");el("messagesCount").textContent=Number(d.messages||0).toLocaleString("fa-IR")}catch(e){toast(e.message)}}
 async function loadUsers(){el("usersTable").innerHTML='<div class="empty">در حال دریافت اطلاعات…</div>';try{var d=await api("users?page="+userPage+"&q="+encodeURIComponent(userQuery));el("usersTable").innerHTML= d.items.length?'<table><thead><tr><th>کاربر</th><th>شناسه</th><th>عضویت</th></tr></thead><tbody>'+d.items.map(function(u){return '<tr><td>'+esc(u.display_name||u.full_name||"بدون نام")+(u.username?'<small>@'+esc(u.username)+'</small>':'')+'</td><td><span class="userbadge">'+esc(u.user_id)+'</span></td><td>'+esc(u.created_at||"—")+'</td></tr>'}).join("")+'</tbody></table>':'<div class="empty">کاربری پیدا نشد.</div>';el("userPage").textContent="صفحه "+userPage+" از "+Math.max(1,d.pages);el("prevUsers").disabled=userPage<=1;el("nextUsers").disabled=userPage>=d.pages}catch(e){el("usersTable").innerHTML='<div class="empty error">'+esc(e.message)+'</div>'}}
@@ -81,6 +81,10 @@ el("dmForm").addEventListener("submit",async function(e){e.preventDefault();if(!
 el("banForm").addEventListener("submit",async function(e){e.preventDefault();if(!confirm("کاربر برای مدت تعیین‌شده بن شود؟"))return;try{await api("bans/ban",{method:"POST",body:JSON.stringify({user_id:el("banId").value,days:el("banDays").value,reason:el("banReason").value})});toast("بن ثبت شد");loadBans()}catch(x){toast(x.message)}});
 el("broadcastForm").addEventListener("submit",async function(e){e.preventDefault();if(!confirm("پیام برای همه کاربران ارسال شود؟ این عملیات قابل برگشت نیست."))return;var out=el("broadcastResult");out.classList.remove("hidden");out.textContent="در حال ارسال…";try{var d=await api("broadcast",{method:"POST",body:JSON.stringify({text:el("broadcastText").value})});out.textContent="ارسال تمام شد؛ موفق: "+d.sent+"، ناموفق: "+d.failed;toast("ارسال همگانی تمام شد")}catch(x){out.textContent=x.message;toast(x.message)}});
 el("addSupervisorForm").addEventListener("submit",async function(e){e.preventDefault();try{await api("supervisors/add",{method:"POST",body:JSON.stringify({user_id:el("supervisorId").value})});el("supervisorId").value="";toast("ناظر اضافه شد");loadSupervisors()}catch(x){toast(x.message)}});
+
+
+async function loadRequests(){el("requestsTable").innerHTML='<div class="empty">در حال دریافت…</div>';try{var d=await api("requests");el("requestsTable").innerHTML=d.items.length?'<table><thead><tr><th>نوع</th><th>ناظر</th><th>جزئیات</th><th>زمان</th><th>عملیات</th></tr></thead><tbody>'+d.items.map(function(x){return '<tr><td>'+esc(x.kind==="unban"?"درخواست رفع بن":"درخواست پیام همگانی")+'</td><td>'+esc(x.supervisor_id)+'</td><td style="white-space:pre-wrap">'+esc(x.details)+'</td><td>'+esc(x.created_at||"—")+'</td><td><button class="btn" data-req="approve" data-kind="'+esc(x.kind)+'" data-id="'+esc(x.id)+'">تأیید</button> <button class="btn danger" data-req="reject" data-kind="'+esc(x.kind)+'" data-id="'+esc(x.id)+'">رد</button></td></tr>'}).join("")+'</tbody></table>':'<div class="empty">درخواست معلقی وجود ندارد.</div>';document.querySelectorAll("[data-req]").forEach(function(b){b.addEventListener("click",async function(){var verb=b.dataset.req==="approve"?"تأیید":"رد";if(!confirm("درخواست "+verb+" شود؟"))return;try{await api("requests/decision",{method:"POST",body:JSON.stringify({id:b.dataset.id,kind:b.dataset.kind,decision:b.dataset.req})});toast("درخواست بررسی شد");loadRequests();loadBans()}catch(e){toast(e.message)}})})}catch(e){el("requestsTable").innerHTML='<div class="empty error">'+esc(e.message)+'</div>'}}
+el("refreshRequests").addEventListener("click",loadRequests);
 
 init();
 </script>
@@ -480,5 +484,71 @@ def remove_supervisor_web():
                 cur.execute("DELETE FROM supervisors WHERE user_id=%s RETURNING user_id",(user_id,))
                 row=cur.fetchone()
         if not row: return _json_error("ناظر پیدا نشد.",404)
+        return jsonify({"ok":True})
+    finally: conn.close()
+
+
+@admin_panel.get("/api/requests")
+@_auth_required
+def list_pending_requests():
+    conn=_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT id, supervisor_id, target_id, target_name, reason, created_at
+                FROM supervisor_unban_requests WHERE status='pending' ORDER BY created_at ASC""")
+            unbans=cur.fetchall()
+            cur.execute("""SELECT id, supervisor_id, message_text, created_at
+                FROM supervisor_broadcast_requests WHERE status='pending' ORDER BY created_at ASC""")
+            broadcasts=cur.fetchall()
+        items=[]
+        for r in unbans:
+            items.append({"id":r[0],"kind":"unban","supervisor_id":r[1],
+                "details":f"کاربر {r[2]} ({r[3] or 'بدون نام'})\nدلیل: {r[4]}",
+                "created_at":r[5].strftime("%Y-%m-%d %H:%M") if r[5] else None})
+        for r in broadcasts:
+            items.append({"id":r[0],"kind":"broadcast","supervisor_id":r[1],
+                "details":r[2],"created_at":r[3].strftime("%Y-%m-%d %H:%M") if r[3] else None})
+        items.sort(key=lambda x:x["created_at"] or "")
+        return jsonify({"items":items})
+    finally: conn.close()
+
+
+@admin_panel.post("/api/requests/decision")
+@_auth_required
+@_csrf_required
+def decide_request():
+    payload=request.get_json(silent=True) or {}
+    kind=str(payload.get("kind","")); decision=str(payload.get("decision",""))
+    try: request_id=int(payload.get("id"))
+    except (TypeError,ValueError): return _json_error("شناسه درخواست معتبر نیست.",400)
+    if kind not in ("unban","broadcast") or decision not in ("approve","reject"):
+        return _json_error("نوع تصمیم معتبر نیست.",400)
+    conn=_db()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                if kind=="unban":
+                    cur.execute("SELECT target_id, target_code FROM supervisor_unban_requests WHERE id=%s AND status='pending' FOR UPDATE",(request_id,))
+                    req=cur.fetchone()
+                    if not req: return _json_error("درخواست پیدا نشد یا قبلاً بررسی شده.",404)
+                    if decision=="approve":
+                        cur.execute("UPDATE users SET ban_until=NULL, ban_reason=NULL WHERE lower(ban_code)=lower(%s)",(req[1],))
+                    cur.execute("UPDATE supervisor_unban_requests SET status=%s WHERE id=%s",("approved" if decision=="approve" else "rejected",request_id))
+                else:
+                    cur.execute("SELECT message_text FROM supervisor_broadcast_requests WHERE id=%s AND status='pending' FOR UPDATE",(request_id,))
+                    req=cur.fetchone()
+                    if not req: return _json_error("درخواست پیدا نشد یا قبلاً بررسی شده.",404)
+                    if decision=="approve":
+                        cur.execute("SELECT user_id FROM users ORDER BY user_id")
+                        user_ids=[r[0] for r in cur.fetchall()]
+                    else: user_ids=[]
+                    cur.execute("UPDATE supervisor_broadcast_requests SET status=%s WHERE id=%s",("approved" if decision=="approve" else "rejected",request_id))
+                    message=req[0]
+        if kind=="broadcast" and decision=="approve":
+            sent=failed=0
+            for uid in user_ids:
+                try: _telegram_call("sendMessage",{"chat_id":uid,"text":message}); sent+=1
+                except Exception: failed+=1
+            return jsonify({"ok":True,"sent":sent,"failed":failed})
         return jsonify({"ok":True})
     finally: conn.close()
