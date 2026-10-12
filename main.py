@@ -3774,6 +3774,20 @@ async def button_handler(
     # -----------------------------------------------------
     # CHANNEL FEATURE CONSENT / SETUP
     # -----------------------------------------------------
+    if data == "channel_add_new_back":
+        await query.answer()
+        context.user_data.clear()
+        rows = get_owner_channel_links(user_id)
+        if rows:
+            bot_info = await context.bot.get_me()
+            parts = ["<b>چنل‌های متصل شما و لینک اختصاصی پیام ناشناس:</b>"]
+            for _, title, code in rows:
+                parts.append(f"\\n<b>نام چنل :</b> {html.escape(title)}\\n<b>لینک اختصاصی پیام ناشناس چنل :</b> https://t.me/{bot_info.username}?start=c_{code}")
+            await query.edit_message_text("\\n".join(parts), parse_mode="HTML", reply_markup=channel_links_keyboard(rows), disable_web_page_preview=True)
+        else:
+            await send_main_panel(update, context, show_reply_keyboard=True)
+        return
+
     if data == "channel_menu_back":
         await query.answer()
         context.user_data.clear()
@@ -3804,7 +3818,7 @@ async def button_handler(
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("افزودن ربات به چنل", url=f"https://t.me/{bot_info.username}?startchannel&admin=post_messages")],
                 [InlineKeyboardButton("اضافه شد ✅", callback_data="channel_added", style="success")],
-                [InlineKeyboardButton("بازگشت به منوی قبلی", callback_data="channel_menu_back", style="danger")]
+                [InlineKeyboardButton("بازگشت به منوی قبلی", callback_data="channel_add_new_back", style="danger")]
             ])
         )
         return
