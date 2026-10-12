@@ -625,6 +625,14 @@ def decide_request():
                     else: user_ids=[]
                     cur.execute("UPDATE supervisor_broadcast_requests SET status=%s WHERE id=%s",("approved" if decision=="approve" else "rejected",request_id))
                     message=req[0]
+        if kind == "unban" and decision == "approve":
+            try:
+                _telegram_call("sendMessage", {
+                    "chat_id": req[0],
+                    "text": "🟢 مسدودی حساب کاربری شما توسط مدیریت گلدن چت رفع شد.\\n\\nاکنون می‌توانید از قابلیت‌های ربات استفاده کنید. برای شروع /start را بزنید."
+                })
+            except Exception:
+                pass
         if kind=="broadcast" and decision=="approve":
             sent=failed=0
             for uid in user_ids:
