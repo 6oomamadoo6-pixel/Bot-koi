@@ -1,8 +1,7 @@
 
 version: 1
-type: worker
+type: web
 build:
   framework: auto
 run:
   command: python main.py
-  
