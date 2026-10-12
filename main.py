@@ -4,6 +4,9 @@ import string
 import asyncio
 import html
 from datetime import datetime, timedelta
+from threading import Thread
+
+from flask import Flask
 
 import psycopg2
 from psycopg2 import pool
@@ -27,6 +30,29 @@ from telegram.ext import (
     filters,
 )
 from telegram.error import TelegramError
+
+
+# =========================================================
+# WEB HEALTH CHECK (Deplexo Web Service)
+# =========================================================
+
+health_app = Flask(__name__)
+
+
+@health_app.route("/")
+@health_app.route("/health")
+def health_check():
+    return "OK", 200
+
+
+def start_health_server():
+    port = int(os.environ.get("PORT", "8080"))
+    health_app.run(
+        host="0.0.0.0",
+        port=port,
+        use_reloader=False,
+        threaded=True,
+    )
 
 
 # =========================================================
@@ -6512,6 +6538,9 @@ async def post_shutdown(
 # =========================================================
 
 def main():
+
+    # Expose HTTP health endpoints for Deplexo's web-service readiness check.
+    Thread(target=start_health_server, daemon=True).start()
 
     create_db_pool()
 
