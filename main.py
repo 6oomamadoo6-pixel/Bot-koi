@@ -247,6 +247,23 @@ def init_db():
         """)
 
         cur.execute("""
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS channel_terms_accepted BOOLEAN NOT NULL DEFAULT FALSE
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS channel_links (
+                id BIGSERIAL PRIMARY KEY,
+                owner_id BIGINT NOT NULL,
+                channel_id BIGINT NOT NULL,
+                channel_title TEXT NOT NULL,
+                link_code TEXT UNIQUE NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(owner_id, channel_id)
+            )
+        """)
+
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS group_messages (
                 id BIGSERIAL PRIMARY KEY,
                 group_id BIGINT NOT NULL,
@@ -2268,18 +2285,119 @@ def main_reply_keyboard():
     return ReplyKeyboardMarkup(
         [
             [
-                KeyboardButton(
-                    "ارسال پیام ناشناس به کاربر دلخواه 👤"
-                )
+                KeyboardButton("پیام ناشناس مستقیم به چنل 📬"),
+                KeyboardButton("پیام ناشناس به کاربر دلخواه 👤")
             ],
             [
-                KeyboardButton(
-                    "ارسال پیام ناشناس به گروه 👥"
-                )
+                KeyboardButton("پیام ناشناس به گروه 👥")
             ]
         ],
         resize_keyboard=True
     )
+
+
+def get_channel_terms_accepted(user_id):
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT channel_terms_accepted FROM users WHERE user_id = %s", (user_id,))
+        row = cur.fetchone()
+        return bool(row and row[0])
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def set_channel_terms_accepted(user_id):
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE users SET channel_terms_accepted = TRUE WHERE user_id = %s", (user_id,))
+        conn.commit()
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def save_channel_link(owner_id, channel_id, channel_title):
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT link_code FROM channel_links WHERE owner_id = %s AND channel_id = %s", (owner_id, channel_id))
+        row = cur.fetchone()
+        if row:
+            code = row[0]
+            cur.execute("UPDATE channel_links SET channel_title = %s WHERE owner_id = %s AND channel_id = %s", (channel_title, owner_id, channel_id))
+        else:
+            while True:
+                code = generate_code(10)
+                cur.execute("SELECT 1 FROM channel_links WHERE link_code = %s", (code,))
+                if not cur.fetchone():
+                    break
+            cur.execute(
+                "INSERT INTO channel_links (owner_id, channel_id, channel_title, link_code) VALUES (%s, %s, %s, %s)",
+                (owner_id, channel_id, channel_title, code)
+            )
+        conn.commit()
+        return code
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def get_channel_by_link(code):
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT owner_id, channel_id, channel_title, link_code FROM channel_links WHERE lower(link_code) = %s", (code.strip().lower(),))
+        return cur.fetchone()
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def get_owner_channel_links(owner_id):
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT channel_id, channel_title, link_code FROM channel_links WHERE owner_id = %s ORDER BY created_at ASC", (owner_id,))
+        return cur.fetchall()
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def channel_consent_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("میپذیرم ✅", callback_data="channel_terms_accept", style="success")],
+        [InlineKeyboardButton("بازگشت به منوی قبلی", callback_data="channel_menu_back", style="danger")]
+    ])
+
+
+def channel_add_prompt_keyboard(bot_username):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("افزودن ربات به چنل", url=f"https://t.me/{bot_username}?startchannel&admin=post_messages")],
+        [InlineKeyboardButton("اضافه شد ✅", callback_data="channel_added", style="success")],
+        [InlineKeyboardButton("بازگشت به منوی اصلی ⬅️", callback_data="back_main", style="danger")]
+    ])
+
+
+def channel_links_keyboard(rows):
+    buttons = []
+    for channel_id, title, code in rows:
+        buttons.append([InlineKeyboardButton(f"📬 {title}", callback_data=f"channel_show:{code}")])
+    buttons.append([InlineKeyboardButton("اضافه کردن چنل جدید ➕", callback_data="channel_add_new", style="success")])
+    buttons.append([InlineKeyboardButton("بازگشت به منوی اصلی ⬅️", callback_data="back_main", style="danger")])
+    return InlineKeyboardMarkup(buttons)
+
+
+def channel_message_keyboard(message_id, sender_id):
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("بلاک 🛑", callback_data=f"block:{sender_id}", style="danger"),
+            InlineKeyboardButton("گزارش تخلف 🚨", callback_data=f"report:{message_id}", style="danger")
+        ]
+    ])
 
 
 def join_keyboard():
@@ -2834,6 +2952,28 @@ async def start(
 
     if context.args:
         payload = context.args[0].strip()
+
+        if payload.startswith("c_"):
+            channel = get_channel_by_link(payload[2:])
+            if not channel:
+                await update.message.reply_text("🥀 لینک پیام ناشناس چنل نامعتبر است.")
+                return
+            owner_id, channel_id, channel_title, _ = channel
+            if owner_id == user.id:
+                await update.message.reply_text("🤠 این لینک مخصوص چنل خودته؛ نمی‌تونی برای خودت پیام بفرستی.")
+                return
+            get_or_create_user(user.id, user.username, user.full_name)
+            context.user_data.clear()
+            context.user_data["sending_channel_anonymous"] = True
+            context.user_data["channel_target_owner_id"] = owner_id
+            context.user_data["channel_target_id"] = channel_id
+            context.user_data["channel_target_title"] = channel_title
+            await update.message.reply_text(
+                f"پیام شما به‌صورت ناشناس برای چنل «{channel_title}» ارسال می‌شود. 📬\n"
+                "فقط متن یا ویس بفرستید؛ عکس، ویدیو و فایل پشتیبانی نمی‌شود.",
+                reply_markup=cancel_keyboard()
+            )
+            return
 
         # GROUP LINK
 
@@ -3545,6 +3685,62 @@ async def button_handler(
         ):
             await query.answer()
             return
+
+    # -----------------------------------------------------
+    # CHANNEL FEATURE CONSENT / SETUP
+    # -----------------------------------------------------
+    if data == "channel_menu_back":
+        await query.answer()
+        context.user_data.clear()
+        await send_main_panel(update, context, show_reply_keyboard=True)
+        return
+
+    if data == "channel_terms_accept":
+        await query.answer("موافقت شما ثبت شد ✅")
+        set_channel_terms_accepted(user_id)
+        bot_info = await context.bot.get_me()
+        context.user_data.clear()
+        await query.edit_message_text(
+            "<b>برای دریافت لینک ناشناس چنل، ابتدا ربات را با دکمه شیشه‌ای زیر به چنل اضافه و ادمین کن 🤠</b>\n\n"
+            "بعد از ادمین کردن، روی «اضافه شد ✅» بزن و سپس آیدی عمومی چنل مثل @YourChannel را ارسال کن.",
+            parse_mode="HTML",
+            reply_markup=channel_add_prompt_keyboard(bot_info.username)
+        )
+        return
+
+    if data == "channel_added" or data == "channel_add_new":
+        await query.answer()
+        context.user_data.clear()
+        context.user_data["waiting_channel_identifier"] = True
+        await query.edit_message_text(
+            "<b>ربات باید در چنل ادمین و دارای دسترسی ارسال پست باشد 🤠</b>\n\n"
+            "حالا آیدی عمومی چنل را بفرست (مثلاً @YourChannel). برای چنل خصوصی، شناسه عددی آن را وارد کن.",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("بازگشت به منوی اصلی ⬅️", callback_data="back_main", style="danger")]
+            ])
+        )
+        return
+
+    if data.startswith("channel_show:"):
+        await query.answer()
+        code = data.split(":", 1)[1]
+        bot_info = await context.bot.get_me()
+        row = get_channel_by_link(code)
+        if not row or row[0] != user_id:
+            await query.message.reply_text("❌ چنل پیدا نشد.")
+            return
+        await query.message.reply_text(
+            f"<b>نام چنل :</b> {html.escape(row[2])}\n"
+            f"<b>لینک اختصاصی پیام ناشناس چنل :</b> https://t.me/{bot_info.username}?start=c_{row[3]}",
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("اضافه کردن چنل جدید ➕", callback_data="channel_add_new", style="success")],
+                [InlineKeyboardButton("بازگشت به منوی اصلی ⬅️", callback_data="back_main", style="danger")]
+            ])
+        )
+        return
 
     # -----------------------------------------------------
     # JOIN
@@ -4901,6 +5097,37 @@ async def media_handler(update, context):
         await send_join_message(update, context)
         return
 
+    if context.user_data.get("sending_channel_anonymous"):
+        if media_type != "voice":
+            await message.reply_text("❌ برای پیام ناشناس چنل فقط متن و ویس قابل ارسال است.")
+            return
+        owner_id = context.user_data.get("channel_target_owner_id")
+        channel_id = context.user_data.get("channel_target_id")
+        if not owner_id or not channel_id:
+            context.user_data.clear()
+            await message.reply_text("❌ اطلاعات چنل پیدا نشد.", reply_markup=back_keyboard())
+            return
+        row = get_user(user.id)
+        anon_code = row[4] if row else "0000000"
+        message_id = save_anonymous_message(user.id, owner_id, "[پیام صوتی]", "voice", file_id, caption, message.message_id, owner_id)
+        keyboard = channel_message_keyboard(message_id, user.id)
+        try:
+            await context.bot.send_message(chat_id=channel_id, text=f"<b>پیام ناشناس از طرف کاربر {anon_code}</b>", parse_mode="HTML")
+            await context.bot.send_voice(chat_id=channel_id, voice=file_id, caption=caption or None)
+            await context.bot.send_message(
+                chat_id=owner_id,
+                text=f"<b>پیام ناشناسی از طرف کاربر {anon_code} برای چنل شما ارسال شد.</b>\n\n<b>پیام : پیام صوتی</b>\n\n<b>گزارش تخلف و بلاک 👇🏻</b>",
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+            await context.bot.send_voice(chat_id=owner_id, voice=file_id)
+            await message.reply_text("✅ ویس ناشناس با موفقیت به چنل ارسال شد.", reply_markup=back_keyboard())
+        except TelegramError as e:
+            print(f"Anonymous channel voice send error: {e}")
+            await message.reply_text("❌ ارسال ویس به چنل ناموفق بود. دسترسی ادمین ربات را بررسی کنید.")
+        context.user_data.clear()
+        return
+
     if context.user_data.get("replying"):
         original_message_id = context.user_data.get("reply_message_id")
         sender_id = context.user_data.get("reply_sender_id")
@@ -5780,6 +6007,40 @@ async def handle_message(
         user.full_name
     )
 
+    if context.user_data.get("waiting_channel_identifier"):
+        if text.strip() == "بازگشت 🔙" or text.lower() == "/cancel":
+            context.user_data.clear()
+            await send_main_panel(update, context, show_reply_keyboard=True)
+            return
+        identifier = text.strip()
+        try:
+            channel_chat = await context.bot.get_chat(identifier)
+            member = await context.bot.get_chat_member(channel_chat.id, context.bot.id)
+            if member.status not in (ChatMember.ADMINISTRATOR, ChatMember.OWNER):
+                await message.reply_text(
+                    "❌ ربات هنوز ادمین چنل نیست. ابتدا ربات را ادمین کنید و دوباره «اضافه شد ✅» را بزنید.",
+                    reply_markup=back_keyboard()
+                )
+                return
+            if hasattr(member, "can_post_messages") and member.can_post_messages is False:
+                await message.reply_text("❌ دسترسی ارسال پست برای ربات فعال نیست.", reply_markup=back_keyboard())
+                return
+            save_channel_link(user.id, channel_chat.id, channel_chat.title or identifier)
+            bot_info = await context.bot.get_me()
+            rows = get_owner_channel_links(user.id)
+            parts = ["<b>چنل‌های متصل شما و لینک اختصاصی پیام ناشناس:</b>"]
+            for _, title, code in rows:
+                parts.append(f"\n<b>نام چنل :</b> {html.escape(title)}\n<b>لینک اختصاصی پیام ناشناس چنل :</b> https://t.me/{bot_info.username}?start=c_{code}")
+            context.user_data.clear()
+            await message.reply_text("\n".join(parts), parse_mode="HTML", reply_markup=channel_links_keyboard(rows), disable_web_page_preview=True)
+        except TelegramError as e:
+            print(f"Channel setup error: {e}")
+            await message.reply_text(
+                "❌ چنل پیدا نشد یا ربات دسترسی بررسی آن را ندارد. آیدی عمومی چنل مثل @YourChannel را بفرستید و مطمئن شوید ربات ادمین با دسترسی ارسال پست است.",
+                reply_markup=back_keyboard()
+            )
+        return
+
     # =====================================================
     # BACK
     # =====================================================
@@ -6078,6 +6339,39 @@ async def handle_message(
         return
 
     # =====================================================
+    # SEND ANONYMOUS MESSAGE TO CHANNEL LINK
+    # =====================================================
+    if context.user_data.get("sending_channel_anonymous"):
+        owner_id = context.user_data.get("channel_target_owner_id")
+        channel_id = context.user_data.get("channel_target_id")
+        if not owner_id or not channel_id:
+            context.user_data.clear()
+            await message.reply_text("❌ اطلاعات چنل پیدا نشد.", reply_markup=back_keyboard())
+            return
+        row = get_user(user.id)
+        anon_code = row[4] if row else "0000000"
+        message_id = save_anonymous_message(user.id, owner_id, text, "text", None, text, message.message_id, owner_id)
+        keyboard = channel_message_keyboard(message_id, user.id)
+        try:
+            await context.bot.send_message(
+                chat_id=channel_id,
+                text=f"<b>پیام ناشناس از طرف کاربر {anon_code}</b>\n\n{html.escape(text)}",
+                parse_mode="HTML"
+            )
+            await context.bot.send_message(
+                chat_id=owner_id,
+                text=f"<b>پیام ناشناسی از طرف کاربر {anon_code} برای چنل شما ارسال شد.</b>\n\n<b>پیام :</b>\n{html.escape(text)}\n\n<b>گزارش تخلف و بلاک 👇🏻</b>",
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+            await message.reply_text("✅ پیام ناشناس با موفقیت به چنل ارسال شد.", reply_markup=back_keyboard())
+        except TelegramError as e:
+            print(f"Anonymous channel text send error: {e}")
+            await message.reply_text("❌ ارسال به چنل ناموفق بود. بررسی کنید ربات هنوز ادمین چنل و دارای دسترسی ارسال پست باشد.")
+        context.user_data.clear()
+        return
+
+    # =====================================================
     # SEND TO GROUP
     # =====================================================
 
@@ -6283,10 +6577,50 @@ async def handle_message(
         return
 
     # =====================================================
+    # CHANNEL ANONYMOUS BUTTON
+    # =====================================================
+    if text.strip() == "پیام ناشناس مستقیم به چنل 📬":
+        context.user_data.clear()
+        if get_channel_terms_accepted(user.id):
+            rows = get_owner_channel_links(user.id)
+            if rows:
+                bot_info = await context.bot.get_me()
+                parts = ["<b>چنل‌های متصل شما و لینک اختصاصی پیام ناشناس:</b>"]
+                for _, title, code in rows:
+                    parts.append(f"\n<b>نام چنل :</b> {html.escape(title)}\n<b>لینک اختصاصی پیام ناشناس چنل :</b> https://t.me/{bot_info.username}?start=c_{code}")
+                await message.reply_text("\n".join(parts), parse_mode="HTML", reply_markup=channel_links_keyboard(rows), disable_web_page_preview=True)
+            else:
+                bot_info = await context.bot.get_me()
+                context.user_data["waiting_channel_identifier"] = True
+                await message.reply_text(
+                    "<b>برای دریافت لینک ناشناس چنل، ابتدا ربات را با دکمه زیر به چنل اضافه و ادمین کنید 🤠</b>\n\n"
+                    "بعد از ادمین کردن، روی «اضافه شد ✅» بزنید؛ سپس آیدی عمومی چنل مثل @YourChannel را ارسال کنید.",
+                    parse_mode="HTML",
+                    reply_markup=channel_add_prompt_keyboard(bot_info.username)
+                )
+        else:
+            terms = (
+                "<b>اول با دقت متن زیر را بخوانید و سپس روی میپذیریم کلیک کنید :</b>\n\n"
+                "<blockquote>استفاده از این قابلیت یعنی هر کاربری هر پیامی را بتواند برای چنل شما ارسال کند.\n"
+                "این ربات هیچگونه فیلتری روی پیام ها ندارد و تنها میتوانید گزارش دهید.\n"
+                "شما با این قابلیت اجازه میدهید هر کاربری هر پیامی برای چنل شما ارسال کند.\n\n"
+                "راهنمایی :\n"
+                "این قابلیت یک لینک جداگانه از لینک پیام ناشناسی که ربات برات میفرسته ارسال میکنه با انتشار اون لینک توی چنلت ممبر های چنلت برای چنلت پیام ارسال میکنن و نیازی نیست پیام رو فوروارد کنی توی چنلت\n\n"
+                "توجه !\n"
+                "کاربرها فقط میتونن برای ارسال پیام به چنل فقط از متن و ویس استفاده کنن\n"
+                "یعنی نه عکس و ویدیو نه هیچ چیز دیگه\n"
+                "فقط متن و ویس\n"
+                "ربات حتما باید توی چنل عضو باشه!!!</blockquote>\n\n"
+                "<b>اگه میپذیری روی دکمه شیشه ای زیر کلیک کن 👇🏻</b>"
+            )
+            await message.reply_text(terms, parse_mode="HTML", reply_markup=channel_consent_keyboard())
+        return
+
+    # =====================================================
     # USER TARGET BUTTON
     # =====================================================
 
-    if text.strip() == "ارسال پیام ناشناس به کاربر دلخواه 👤":
+    if text.strip() == "پیام ناشناس به کاربر دلخواه 👤" or text.strip() == "ارسال پیام ناشناس به کاربر دلخواه 👤":
         context.user_data.clear()
 
         context.user_data[
@@ -6308,7 +6642,7 @@ async def handle_message(
     # GROUP BUTTON
     # =====================================================
 
-    if text == "ارسال پیام ناشناس به گروه 👥":
+    if text == "پیام ناشناس به گروه 👥" or text == "ارسال پیام ناشناس به گروه 👥":
         await show_group_list(
             update,
             context
