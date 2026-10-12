@@ -1977,13 +1977,9 @@ async def is_member(
     bot,
     user_id
 ):
-    first = await check_channel_member(
-        bot,
-        CHANNEL_1,
-        user_id
-    )
-
-    return first
+    # عضویت در هیچ کانالی اجباری نیست.
+    # این تابع برای سازگاری با بررسی‌های قدیمی نگه داشته شده است.
+    return True
 
 
 # =========================================================
@@ -2972,19 +2968,33 @@ async def start(
 
         return
 
-    if not await is_member(
-        context.bot,
-        user.id
-    ):
-        await send_join_message(
-            update,
-            context
-        )
-        return
+    # برای کاربرانی که قبلاً در دیتابیس ثبت نشده‌اند،
+    # پیام معرفی کانال رسمی فقط یک بار در اولین /start ارسال می‌شود.
+    first_time_user = get_user(user.id) is None
 
     get_or_create_user(user.id, user.username, user.full_name)
     context.user_data.clear()
 
+    if first_time_user:
+        welcome_text = (
+            "<b>چنل رسمی و اطلاع رسانی گلدن چت</b>\n"
+            "<b>اینجا هیچ اجباری به عضویت نیست 👨🏻‍💼</b>"
+        )
+        welcome_keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    "دیدن چنل رسمی گلدن چت",
+                    url="https://t.me/SuppoortGoldenchat"
+                )
+            ]
+        ])
+        await update.message.reply_text(
+            welcome_text,
+            reply_markup=welcome_keyboard,
+            parse_mode="HTML"
+        )
+
+    # پنل اصلی به‌صورت یک پیام جداگانه، زیر پیام معرفی ارسال می‌شود.
     await send_main_panel(
         update,
         context
