@@ -1242,6 +1242,39 @@ def find_user_by_input(text):
         release_db(conn)
 
 
+def format_jalali_datetime(value):
+    """Format a datetime as an Iranian/Jalali calendar date."""
+    if not value:
+        return "نامشخص"
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value)
+    gy, gm, gd = value.year, value.month, value.day
+    g_month_days = [31, 29 if (gy % 4 == 0 and (gy % 100 != 0 or gy % 400 == 0)) else 28,
+                    31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    gy -= 1600
+    gm -= 1
+    gd -= 1
+    g_day_no = 365 * gy + (gy + 3) // 4 - (gy + 99) // 100 + (gy + 399) // 400
+    for month in range(gm):
+        g_day_no += g_month_days[month]
+    g_day_no += gd
+    j_day_no = g_day_no - 79
+    j_np = j_day_no // 12053
+    j_day_no %= 12053
+    jy = 979 + 33 * j_np + 4 * (j_day_no // 1461)
+    j_day_no %= 1461
+    if j_day_no >= 366:
+        jy += (j_day_no - 1) // 365
+        j_day_no = (j_day_no - 1) % 365
+    if j_day_no < 186:
+        jm = 1 + j_day_no // 31
+        jd = 1 + j_day_no % 31
+    else:
+        jm = 7 + (j_day_no - 186) // 30
+        jd = 1 + (j_day_no - 186) % 30
+    return f"{jy:04d}/{jm}/{jd} {value.hour:02d}:{value.minute:02d}"
+
+
 # =========================================================
 # BAN
 # =========================================================
@@ -6468,7 +6501,7 @@ async def ban_callback(
 
             return
 
-        banned_id, _ = result
+        banned_id, ban_until = result
 
         context.user_data.clear()
 
@@ -6491,10 +6524,11 @@ async def ban_callback(
             await context.bot.send_message(
                 chat_id=banned_id,
                 text=(
-                    f"حساب کاربری شما به مدت {duration} روز مسدود شد🟡\n"
+                    f"⛔ حساب کاربری شما به مدت {duration} روز مسدود شد.\n"
                     f"شناسه کاربری : {ban_code}\n"
-                    f"علت : {reason}\n\n"
-                    "چنانچه مطمئنید که حساب کاربری شما تخلفی نداشته و مقصر نبوده اید به ادمین پیام دهید و شناسه کاربری خود + مدارک را ارسال کنید : @TMTAHAV"
+                    f"علت : {reason}\n"
+                    f"تاریخ رفع بن : {format_jalali_datetime(ban_until)}\n\n"
+                    "چنانچه مطمئنید که حساب کاربری شما تخلفی نداشته و مقصر نبوده‌اید، به ادمین پیام دهید و شناسه کاربری خود + مدارک را ارسال کنید : @TMTAHAV"
                 )
             )
         except TelegramError:
