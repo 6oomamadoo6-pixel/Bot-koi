@@ -7151,7 +7151,7 @@ async def inline_share_handler(update, context):
     own_link = f"https://t.me/{bot_info.username}?start={user.id}"
     result = InlineQueryResultArticle(
         id="golden-chat-share",
-        title="حوصلم سر رفته بیاین حرف بزنیم🗣️🥀",
+        title="حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀",
         description="G O L D E N  C H A T",
         input_message_content=InputTextMessageContent(
             f'<b>حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀</b>\n\n'
