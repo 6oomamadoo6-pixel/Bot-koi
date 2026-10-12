@@ -15,6 +15,8 @@ from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    InlineQueryResultArticle,
+    InputTextMessageContent,
     ReplyParameters,
     ReplyKeyboardMarkup,
     KeyboardButton,
@@ -25,6 +27,7 @@ from telegram.ext import (
     CommandHandler,
     MessageHandler,
     CallbackQueryHandler,
+    InlineQueryHandler,
     ContextTypes,
     ChatMemberHandler,
     filters,
@@ -260,6 +263,16 @@ def init_db():
                 link_code TEXT UNIQUE NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(owner_id, channel_id)
+            )
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS pending_channel_additions (
+                inviter_id BIGINT NOT NULL,
+                channel_id BIGINT NOT NULL,
+                channel_title TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (inviter_id, channel_id)
             )
         """)
 
@@ -2345,6 +2358,54 @@ def save_channel_link(owner_id, channel_id, channel_title):
         release_db(conn)
 
 
+def save_pending_channel_addition(inviter_id, channel_id, channel_title):
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO pending_channel_additions (inviter_id, channel_id, channel_title)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (inviter_id, channel_id)
+            DO UPDATE SET channel_title = EXCLUDED.channel_title,
+                          created_at = CURRENT_TIMESTAMP
+        """, (inviter_id, channel_id, channel_title))
+        conn.commit()
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def get_pending_channel_additions(inviter_id):
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT channel_id, channel_title
+            FROM pending_channel_additions
+            WHERE inviter_id = %s
+            ORDER BY created_at DESC
+            LIMIT 20
+        """, (inviter_id,))
+        return cur.fetchall()
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def remove_pending_channel_addition(inviter_id, channel_id):
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            DELETE FROM pending_channel_additions
+            WHERE inviter_id = %s AND channel_id = %s
+        """, (inviter_id, channel_id))
+        conn.commit()
+    finally:
+        cur.close()
+        release_db(conn)
+
+
 def get_channel_by_link(code):
     conn = db()
     try:
@@ -2446,6 +2507,12 @@ def link_keyboard():
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
+                "اشتراک گذاری مستقیم 📤",
+                switch_inline_query="share"
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 "تعداد بازدید لینک 📊",
                 callback_data="link_stats",
                 style="success"
@@ -2499,8 +2566,8 @@ def main_keyboard():
         ],
         [
             InlineKeyboardButton(
-                "چنل پشتیبانی ✅",
-                url=CHANNEL_1_URL
+                "چنل اطلاع رسانی 📢",
+                url="https://t.me/SuppoortGoldenchat"
             ),
             InlineKeyboardButton(
                 "راهنما 🤔",
@@ -2819,6 +2886,21 @@ async def bot_group_membership_update(
         return
 
     chat = change.chat
+
+    # Detect a channel where this user has just added the bot.
+    # Telegram does not expose all channels owned by a user; this update is
+    # the automatic discovery event available to the bot.
+    if chat.type == "channel":
+        status = change.new_chat_member.status
+        inviter = change.from_user
+        if status in (ChatMember.ADMINISTRATOR, ChatMember.OWNER) and inviter:
+            try:
+                inviter_member = await context.bot.get_chat_member(chat.id, inviter.id)
+                if inviter_member.status in (ChatMember.ADMINISTRATOR, ChatMember.OWNER):
+                    save_pending_channel_addition(inviter.id, chat.id, chat.title or "چنل")
+            except TelegramError as e:
+                print(f"Channel addition discovery error: {e}")
+        return
 
     if chat.type not in (
         "group",
@@ -3480,7 +3562,7 @@ async def cancel_command(
     context.user_data.clear()
 
     await update.message.reply_text(
-        "❌ عملیات لغو شد."
+        "لغو شد.\nاز منوی بالا و پایین استفاده کنید.👇🏻👆🏻"
     )
 
 
@@ -3493,15 +3575,18 @@ async def help_page(
     context
 ):
     text = (
-        "<b>راهنمای گلدن چت 👻\n\n"
-        "اول از همه میگم که امنیت شما بالاست بعدشم :\n\n"
-        "دریافت لینک : شما با دریافت لینک اختصاصی خودتون و با اشتراک گذاشتنش توی بقیه گروه ها و کانال ها و حتی بایو اکانتتون پیام های ناشناس از افراد مختلف که روشون نمیشد مستقیم بهت پیام بدن دریافت میکنی .🤠\n\n"
-        "تنظیم نام : میتونی یک اسم برای حساب خودت انتخاب کنی که وقتی لینکت رو جایی به اشتراک میزاری بقیه روی لینکت کلیک میکنن نام نمایشی تو براشون نشون داده بشه 🙍🏻‍♂️\n\n"
-        "تبلیغات : با مراجعه به پیوی ادمین میتونی تو ربات رایگان کانالت رو تبلیغ کنی 😉\n\n"
-        "ری اکشن : این قابلیت متفاوته وقتی کاربری بهت پیام میده و حوصله جواب دادنش رو نداری میتونس با ری اکشن جوابش رو بدی😄\n\n"
-        "در ضمن گزارش تخلف :\n"
-        "هر کاربری در ربات گلدن چت از دختری درخواست عکسهای شخصی، درخواست دوستی\n"
-        "و بی احترامی به باقی کاربران و فحاشی و اسپم انجام داد گزارش تخلف ثبت بشه 🛑</b>"
+        "<b>راهنمای گلدن چت 👻\n"
+        "سرعت و کیفیت بالا</b>\n\n"
+        "<blockquote><b>دریافت لینک : شما با دریافت لینک اختصاصی خودتون و با اشتراک گذاشتنش توی بقیه گروه ها و کانال ها و حتی بایو اکانتتون پیام های ناشناس از افراد مختلف که روشون نمیشد مستقیم بهت پیام بدن دریافت میکنی .🤠</b></blockquote>\n"
+        "<blockquote><b>تنظیم نام : میتونی یک اسم برای حساب خودت انتخاب کنی که وقتی لینکت رو جایی به اشتراک میزاری بقیه روی لینکت کلیک میکنن نام نمایشی تو براشون نشون داده بشه 🙍🏻‍♂️</b></blockquote>\n"
+        "<blockquote><b>تبلیغات : تبلیغات غیرفعال و به زودی فعال میشه یه صورت رفرالی و پولی</b></blockquote>\n"
+        "<blockquote><b>ری اکشن : این قابلیت متفاوته وقتی کاربری بهت پیام میده و حوصله جواب دادنش رو نداری میتونس با ری اکشن جوابش رو بدی😄</b></blockquote>\n"
+        "<blockquote><b>ارسال پیام ناشناس به گروه : به راحتی بدون اینکه شناخته بشی برای گروهت ناشناش پیام بفرست و لینک ناشناس گروه رو بزار تا بقیه ناشناس برای گروهت پیام بفرستن</b></blockquote>\n"
+        "<blockquote><b>ارسال پیام ناشناش برای چنل :\n"
+        "دیگه نیازی نیست به صورت دستی پیام هارو فور بزنی به چنل\n"
+        "لینک ناشناس چنلت رو اپلود کن و مستقیم ربات اتومات برای چنل میفرسته « راستی هیچ بی احترامی نمیشه چون تشخیص فوش و بی احترامی هست و اگر به احترامی بشه پیام برای چنل ارسال نمیشه »</b></blockquote>\n"
+        "<blockquote><b>در ضمن گزارش تخلف :\n"
+        "هرگونه بی احترامی، پخش عکس شخصی، تهدید با عکسهای شخصی، تهدید با حرف، و باقی اذیت و آزار ها گزارش بشه بررسی میشه چه گزارش تخلف چه گزارش به پیوی ادمین 🥹❤️</b></blockquote>"
     )
 
     await update.callback_query.edit_message_text(
@@ -3519,10 +3604,9 @@ async def ads_page(
     update,
     context
 ):
-    await update.callback_query.edit_message_text(
-        "جهت ثبت تبلیغات رایگان و رفرال گیری جهت تبلیغات رایگان پیام دهید :\n"
-        "@TMTAHAV",
-        reply_markup=back_keyboard()
+    await update.callback_query.answer(
+        "تبلیغات غیرفعال شده است.\nبه زودی فعال میشود\nدرحال آپدیت🫟",
+        show_alert=True
     )
 
 
@@ -3553,7 +3637,8 @@ async def show_link(
         "🔗 لینک اختصاصی شما:\n\n"
         f"{link}\n\n"
         "لینک خود را با دیگران به اشتراک بگذارید "
-        "تا بتوانند به صورت ناشناس برای شما پیام بفرستند.",
+        "تا بتوانند به صورت ناشناس برای شما پیام بفرستند.\n\n"
+        "برای اشتراک‌گذاری همراه با «از طریق @HideMyChatRobot»، دکمه اشتراک‌گذاری مستقیم را بزن و نتیجه ربات را در گفت‌وگوی موردنظر انتخاب و ارسال کن.",
         reply_markup=link_keyboard()
     )
 
@@ -3716,17 +3801,48 @@ async def button_handler(
             "<b>برای دریافت لینک ناشناس چنل، ابتدا ربات را با دکمه شیشه‌ای زیر به چنل اضافه و ادمین کن 🤠</b>\n\n"
             "بعد از ادمین کردن، روی «اضافه شد ✅» بزن.",
             parse_mode="HTML",
-            reply_markup=channel_add_prompt_keyboard(bot_info.username)
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("افزودن ربات به چنل", url=f"https://t.me/{bot_info.username}?startchannel&admin=post_messages")],
+                [InlineKeyboardButton("اضافه شد ✅", callback_data="channel_added", style="success")],
+                [InlineKeyboardButton("بازگشت به منوی قبلی", callback_data="channel_menu_back", style="danger")]
+            ])
         )
         return
 
     if data == "channel_added":
         await query.answer()
         context.user_data.clear()
+        candidates = get_pending_channel_additions(user_id)
+        connected = []
+        for candidate_id, candidate_title in candidates:
+            try:
+                bot_member = await context.bot.get_chat_member(candidate_id, context.bot.id)
+                owner_member = await context.bot.get_chat_member(candidate_id, user_id)
+                if bot_member.status not in (ChatMember.ADMINISTRATOR, ChatMember.OWNER):
+                    continue
+                if owner_member.status not in (ChatMember.ADMINISTRATOR, ChatMember.OWNER):
+                    continue
+                if hasattr(bot_member, "can_post_messages") and bot_member.can_post_messages is False:
+                    continue
+                save_channel_link(user_id, candidate_id, candidate_title)
+                remove_pending_channel_addition(user_id, candidate_id)
+                connected.append(candidate_title)
+            except TelegramError:
+                continue
+
+        if connected:
+            bot_info = await context.bot.get_me()
+            rows = get_owner_channel_links(user_id)
+            parts = ["<b>چنل‌های متصل شما و لینک اختصاصی پیام ناشناس:</b>"]
+            for _, title, code in rows:
+                parts.append(f"\n<b>نام چنل :</b> {html.escape(title)}\n<b>لینک اختصاصی پیام ناشناس چنل :</b> https://t.me/{bot_info.username}?start=c_{code}")
+            await query.edit_message_text("\n".join(parts), parse_mode="HTML", reply_markup=channel_links_keyboard(rows), disable_web_page_preview=True)
+            return
+
         context.user_data["waiting_channel_identifier"] = True
         await query.edit_message_text(
-            "<b>ربات باید در چنل ادمین و دارای دسترسی ارسال پست باشد 🤠</b>\n\n"
-            "حالا آیدی عمومی چنل را بفرست (مثلاً @YourChannel). برای چنل خصوصی، شناسه عددی آن را وارد کن.",
+            "<b>هنوز ربات از رویداد افزودن چنل نتونسته چنل شما رو شناسایی کنه.</b>\n"
+            "اگر همین الان ربات رو ادمین کردی، دوباره امتحان کن. اگر باز هم شناسایی نشد، آیدی عمومی چنل مثل @YourChannel یا شناسه عددی چنل خصوصی رو بفرست.",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("بازگشت به منوی اصلی ⬅️", callback_data="back_main", style="danger")]
@@ -4010,7 +4126,7 @@ async def button_handler(
         context.user_data.clear()
 
         await query.message.reply_text(
-            "❌ عملیات لغو شد."
+            "لغو شد.\nاز منوی بالا و پایین استفاده کنید.👇🏻👆🏻"
         )
 
         await send_main_panel(
@@ -4419,13 +4535,10 @@ async def button_handler(
         return
 
     if data == "ads":
-        await query.answer()
-
-        await ads_page(
-            update,
-            context
+        await query.answer(
+            "تبلیغات غیرفعال شده است.\nبه زودی فعال میشود\nدرحال آپدیت🫟",
+            show_alert=True
         )
-
         return
 
     if data == "block_list":
@@ -6079,7 +6192,7 @@ async def handle_message(
             context.user_data.clear()
 
             await message.reply_text(
-                "❌ عملیات لغو شد."
+                "لغو شد.\nاز منوی بالا و پایین استفاده کنید.👇🏻👆🏻"
             )
 
             return
@@ -6915,6 +7028,35 @@ async def callback_router(
 
 
 # =========================================================
+# INLINE SHARING
+# =========================================================
+
+async def inline_share_handler(update, context):
+    query = update.inline_query
+    user = update.effective_user
+    if not query or not user:
+        return
+
+    get_or_create_user(user.id, user.username, user.full_name)
+    bot_info = await context.bot.get_me()
+    own_link = f"https://t.me/{bot_info.username}?start={user.id}"
+    result = InlineQueryResultArticle(
+        id="golden-chat-share",
+        title="اشتراک‌گذاری لینک ناشناس گلدن چت",
+        description="حوصلم سر رفته بیاید حرف بزنیم🥀👇🏻",
+        input_message_content=InputTextMessageContent(
+            f"<b>حوصلم سر رفته بیاید حرف بزنیم🥀👇🏻</b>\n{own_link}",
+            parse_mode="HTML",
+            disable_web_page_preview=True
+        ),
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("حرف بزنیمم", url=own_link)]
+        ])
+    )
+    await query.answer([result], cache_time=0, is_personal=True)
+
+
+# =========================================================
 # ERROR
 # =========================================================
 
@@ -7100,6 +7242,13 @@ def main():
         ChatMemberHandler(
             bot_group_membership_update,
             ChatMemberHandler.MY_CHAT_MEMBER
+        )
+    )
+
+    # Inline mode must be enabled for this bot in BotFather.
+    application.add_handler(
+        InlineQueryHandler(
+            inline_share_handler
         )
     )
 
