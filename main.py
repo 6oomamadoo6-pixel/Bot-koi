@@ -2273,7 +2273,7 @@ def main_reply_keyboard():
         [
             [
                 KeyboardButton(
-                    "ارسال پیام ناشناس به کاربر 👤دلخواه"
+                    "ارسال پیام ناشناس به کاربر دلخواه 👤"
                 )
             ],
             [
@@ -6276,7 +6276,7 @@ async def handle_message(
     # USER TARGET BUTTON
     # =====================================================
 
-    if text == "ارسال پیام ناشناس به کاربر دلخواه":
+    if text.strip() == "ارسال پیام ناشناس به کاربر دلخواه 👤":
         context.user_data.clear()
 
         context.user_data[
@@ -6310,12 +6310,13 @@ async def handle_message(
     # WAITING TARGET
     # =====================================================
 
-    if context.user_data.get(
-        "waiting_target"
-    ):
-        target = find_user_by_input(
-            text
-        )
+    if context.user_data.get("waiting_target"):
+        if text.strip() == "بازگشت 🔙" or text.strip().lower() == "/cancel":
+            context.user_data.clear()
+            await send_main_panel(update, context, show_reply_keyboard=True)
+            return
+
+        target = find_user_by_input(text.strip())
 
         if not target:
             await message.reply_text(
