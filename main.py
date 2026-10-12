@@ -1655,9 +1655,13 @@ async def expire_bans_loop():
                         )
                     )
                 except TelegramError as e:
-                    print(
-                        f"Ban expiry notification error: {e}"
-                    )
+                    error_text = str(e).lower()
+                    if "bot was blocked by the user" in error_text or "bot is blocked by the user" in error_text:
+                        try:
+                            mark_user_bot_blocked(user_id)
+                        except Exception as mark_error:
+                            print("Could not mark blocked user:", mark_error)
+                    print(f"Ban expiry notification error: {e}")
 
         except Exception as e:
             print(
@@ -3859,10 +3863,10 @@ async def button_handler(
         parts = ["<b>چنل‌های متصل شما و لینک اختصاصی پیام ناشناس:</b>"]
         if rows:
             for _, title, code in rows:
-                parts.append(f"\\n<b>نام چنل :</b> {html.escape(title)}\\n<b>لینک اختصاصی پیام ناشناس چنل :</b> https://t.me/{bot_info.username}?start=c_{code}")
+                parts.append(f"\n<b>نام چنل :</b> {html.escape(title)}\n<b>لینک اختصاصی پیام ناشناس چنل :</b> https://t.me/{bot_info.username}?start=c_{code}")
         else:
-            parts.append("\\nهنوز چنلی اضافه نکردی؛ برای شروع روی «اضافه کردن چنل جدید ➕» بزن.")
-        await query.edit_message_text("\\n".join(parts), parse_mode="HTML", reply_markup=channel_links_keyboard(rows), disable_web_page_preview=True)
+            parts.append("\nهنوز چنلی اضافه نکردی؛ برای شروع روی «اضافه کردن چنل جدید ➕» بزن.")
+        await query.edit_message_text("\n".join(parts), parse_mode="HTML", reply_markup=channel_links_keyboard(rows), disable_web_page_preview=True)
         return
 
     if data == "channel_menu_back":
