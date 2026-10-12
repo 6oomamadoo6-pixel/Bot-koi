@@ -3,6 +3,7 @@ import random
 import string
 import asyncio
 import html
+from urllib.parse import quote
 from datetime import datetime, timedelta
 from threading import Thread
 
@@ -2584,12 +2585,12 @@ def change_username_confirm_keyboard():
     ])
 
 
-def link_keyboard():
+def link_keyboard(share_url=None):
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
                 "اشتراک گذاری مستقیم 📤",
-                switch_inline_query="share"
+                url=share_url or "https://t.me/share/url"
             )
         ],
         [
@@ -3714,13 +3715,26 @@ async def show_link(
         f"?start={user.id}"
     )
 
+    share_text = (
+        "حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀\n\n"
+        "G O L D E N  C H A T"
+    )
+    share_url = (
+        "https://t.me/share/url?url="
+        + quote(link, safe="")
+        + "&text="
+        + quote(share_text, safe="")
+    )
+
     await update.callback_query.edit_message_text(
-        "🔗 لینک اختصاصی شما:\n\n"
-        f"{link}\n\n"
+        "<b>🔗 لینک اختصاصی شما :</b>\n\n"
+        f'<a href="{html.escape(link, quote=True)}">{html.escape(link)}</a>\n\n'
         "لینک خود را با دیگران به اشتراک بگذارید "
         "تا بتوانند به صورت ناشناس برای شما پیام بفرستند.\n\n"
-        "برای اشتراک‌گذاری همراه با «از طریق @HideMyChatRobot»، دکمه اشتراک‌گذاری مستقیم را بزن و نتیجه ربات را در گفت‌وگوی موردنظر انتخاب و ارسال کن.",
-        reply_markup=link_keyboard()
+        "<b>میتونید با زدن روی اشتراک گذاری مستقیم متن آماده و لینک آماده برای بقیه ارسال کنید💌</b>",
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+        reply_markup=link_keyboard(share_url)
     )
 
 
