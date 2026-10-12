@@ -309,6 +309,39 @@ def unblock():
 
 
 # Extended admin tools matching the Telegram bot's management commands.
+def _format_jalali_datetime(value):
+    """Format a datetime as the requested Iranian/Jalali calendar date."""
+    if not value:
+        return "نامشخص"
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value)
+    gy, gm, gd = value.year, value.month, value.day
+    g_days_in_month = [31, 29 if (gy % 4 == 0 and (gy % 100 != 0 or gy % 400 == 0)) else 28,
+                       31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    jy = 979 if gy >= 1600 else 0
+    gy -= 1600 if gy >= 1600 else 621
+    if gy < 0:
+        gy += 1600
+    gy2 = gy + 1 if gm > 2 else gy
+    days = 365 * gy + (gy2 + 3) // 4 - (gy2 + 99) // 100 + (gy2 + 399) // 400 - 80 + gd
+    for month in range(gm - 1):
+        days += g_days_in_month[month]
+    jy += 33 * (days // 12053)
+    days %= 12053
+    jy += 4 * (days // 1461)
+    days %= 1461
+    if days > 365:
+        jy += (days - 1) // 365
+        days = (days - 1) % 365
+    if days < 186:
+        jm = 1 + days // 31
+        jd = 1 + days % 31
+    else:
+        jm = 7 + (days - 186) // 30
+        jd = 1 + (days - 186) % 30
+    return f"{jy:04d}/{jm}/{jd} {value.hour:02d}:{value.minute:02d}"
+
+
 def _telegram_call(method, payload):
     token = os.getenv("BOT_TOKEN")
     if not token:
@@ -351,17 +384,33 @@ def list_bans():
 @_csrf_required
 def unban_user():
     payload = request.get_json(silent=True) or {}
-    try: user_id = int(payload.get("user_id"))
-    except (TypeError, ValueError): return _json_error("شناسه کاربر معتبر نیست.", 400)
+    try:
+        user_id = int(payload.get("user_id"))
+    except (TypeError, ValueError):
+        return _json_error("شناسه کاربر معتبر نیست.", 400)
     conn = _db()
     try:
         with conn:
             with conn.cursor() as cur:
-                cur.execute("UPDATE users SET ban_until=NULL, ban_reason=NULL WHERE user_id=%s AND ban_until IS NOT NULL RETURNING user_id",(user_id,))
+                cur.execute("""
+                    UPDATE users SET ban_until=NULL, ban_reason=NULL
+                    WHERE user_id=%s AND ban_until IS NOT NULL
+                    RETURNING user_id
+                """, (user_id,))
                 row = cur.fetchone()
-        if not row: return _json_error("بن فعالی برای این کاربر پیدا نشد.", 404)
-        return jsonify({"ok":True})
-    finally: conn.close()
+        if not row:
+            return _json_error("بن فعالی برای این کاربر پیدا نشد.", 404)
+        try:
+            _telegram_call("sendMessage", {
+                "chat_id": user_id,
+                "text": "🟢 مسدودی حساب کاربری شما توسط مدیریت گلدن چت رفع شد.\n\nاکنون می‌توانید از قابلیت‌های ربات استفاده کنید. برای شروع /start را بزنید."
+            })
+        except Exception as exc:
+            return jsonify({"ok": True, "notification_sent": False,
+                            "notification_error": str(exc)})
+        return jsonify({"ok": True, "notification_sent": True})
+    finally:
+        conn.close()
 
 
 @admin_panel.post("/api/bans/ban")
@@ -370,20 +419,46 @@ def unban_user():
 def ban_user():
     payload = request.get_json(silent=True) or {}
     try:
-        user_id = int(payload.get("user_id")); days = int(payload.get("days"))
-        if days < 1 or days > 3650: raise ValueError()
-    except (TypeError, ValueError): return _json_error("آیدی یا مدت بن معتبر نیست.", 400)
-    reason = str(payload.get("reason","")).strip()[:500]
-    if not reason: return _json_error("دلیل بن را وارد کن.", 400)
+        user_id = int(payload.get("user_id"))
+        days = int(payload.get("days"))
+        if days < 1 or days > 3650:
+            raise ValueError()
+    except (TypeError, ValueError):
+        return _json_error("آیدی یا مدت بن معتبر نیست.", 400)
+    reason = str(payload.get("reason", "")).strip()[:500]
+    if not reason:
+        return _json_error("دلیل بن را وارد کن.", 400)
     conn = _db()
     try:
         with conn:
             with conn.cursor() as cur:
-                cur.execute("UPDATE users SET ban_until=CURRENT_TIMESTAMP + (%s * INTERVAL '1 day'), ban_reason=%s WHERE user_id=%s RETURNING user_id",(days,reason,user_id))
-                row=cur.fetchone()
-        if not row: return _json_error("کاربر در دیتابیس پیدا نشد.",404)
-        return jsonify({"ok":True})
-    finally: conn.close()
+                cur.execute("""
+                    UPDATE users
+                    SET ban_until=CURRENT_TIMESTAMP + (%s * INTERVAL '1 day'),
+                        ban_reason=%s
+                    WHERE user_id=%s
+                    RETURNING user_id, ban_until
+                """, (days, reason, user_id))
+                row = cur.fetchone()
+        if not row:
+            return _json_error("کاربر در دیتابیس پیدا نشد.", 404)
+        ban_until = row[1]
+        jalali_until = _format_jalali_datetime(ban_until)
+        message = (
+            f"⛔ حساب کاربری شما به مدت {days} روز مسدود شد.\n"
+            f"علت : {reason}\n"
+            f"تاریخ رفع بن : {jalali_until}"
+        )
+        try:
+            _telegram_call("sendMessage", {"chat_id": user_id, "text": message})
+        except Exception as exc:
+            return jsonify({"ok": True, "notification_sent": False,
+                            "notification_error": str(exc),
+                            "ban_until": jalali_until})
+        return jsonify({"ok": True, "notification_sent": True,
+                        "ban_until": jalali_until})
+    finally:
+        conn.close()
 
 
 @admin_panel.post("/api/users/rename")
