@@ -255,6 +255,19 @@ def init_db():
         """)
 
         cur.execute("""
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS bot_blocked_at TIMESTAMP
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS new_user_queue (
+                user_id BIGINT PRIMARY KEY,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                viewed_at TIMESTAMP
+            )
+        """)
+
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS channel_links (
                 id BIGSERIAL PRIMARY KEY,
                 owner_id BIGINT NOT NULL,
@@ -1012,7 +1025,8 @@ def get_or_create_user(
                 UPDATE users
                 SET username = %s,
                     full_name = %s,
-                    ban_code = %s
+                    ban_code = %s,
+                    bot_blocked_at = NULL
                 WHERE user_id = %s
                 """,
                 (
@@ -1064,10 +1078,66 @@ def get_or_create_user(
             )
         )
 
+        cur.execute("""
+            INSERT INTO new_user_queue (user_id, created_at, viewed_at)
+            VALUES (%s, CURRENT_TIMESTAMP, NULL)
+            ON CONFLICT (user_id)
+            DO UPDATE SET created_at = CURRENT_TIMESTAMP, viewed_at = NULL
+        """, (user_id,))
+
         conn.commit()
 
         return link_code, anon_code
 
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def mark_user_bot_blocked(user_id):
+    """Mark a user as blocked only when Telegram explicitly reports that condition."""
+    if not user_id:
+        return
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE users
+            SET bot_blocked_at = COALESCE(bot_blocked_at, CURRENT_TIMESTAMP)
+            WHERE user_id = %s
+        """, (user_id,))
+        conn.commit()
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def cleanup_blocked_users():
+    """Remove users known to have blocked the bot for at least three days.
+    Historical anonymous messages and block records are deliberately preserved.
+    """
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            DELETE FROM new_user_queue
+            WHERE user_id IN (
+                SELECT user_id FROM users
+                WHERE bot_blocked_at IS NOT NULL
+                  AND bot_blocked_at <= CURRENT_TIMESTAMP - INTERVAL '3 days'
+            )
+        """)
+        cur.execute("""
+            DELETE FROM users
+            WHERE bot_blocked_at IS NOT NULL
+              AND bot_blocked_at <= CURRENT_TIMESTAMP - INTERVAL '3 days'
+        """)
+        deleted = cur.rowcount
+        conn.commit()
+        return deleted
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         cur.close()
         release_db(conn)
@@ -1535,6 +1605,13 @@ def get_active_banned_users():
 async def expire_bans_loop():
     while True:
         try:
+            try:
+                deleted_blocked = cleanup_blocked_users()
+                if deleted_blocked:
+                    print(f"Removed {deleted_blocked} users who had blocked the bot for 3 days.")
+            except Exception as cleanup_error:
+                print("Blocked-user cleanup error:", cleanup_error)
+
             conn = db()
 
             try:
@@ -2439,7 +2516,7 @@ def channel_add_prompt_keyboard(bot_username):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("افزودن ربات به چنل", url=f"https://t.me/{bot_username}?startchannel&admin=post_messages")],
         [InlineKeyboardButton("اضافه شد ✅", callback_data="channel_added", style="success")],
-        [InlineKeyboardButton("بازگشت به منوی اصلی ⬅️", callback_data="back_main", style="danger")]
+        [InlineKeyboardButton("بازگشت به لیست چنل‌ها", callback_data="channel_add_new_back", style="danger")]
     ])
 
 
@@ -3778,14 +3855,14 @@ async def button_handler(
         await query.answer()
         context.user_data.clear()
         rows = get_owner_channel_links(user_id)
+        bot_info = await context.bot.get_me()
+        parts = ["<b>چنل‌های متصل شما و لینک اختصاصی پیام ناشناس:</b>"]
         if rows:
-            bot_info = await context.bot.get_me()
-            parts = ["<b>چنل‌های متصل شما و لینک اختصاصی پیام ناشناس:</b>"]
             for _, title, code in rows:
                 parts.append(f"\\n<b>نام چنل :</b> {html.escape(title)}\\n<b>لینک اختصاصی پیام ناشناس چنل :</b> https://t.me/{bot_info.username}?start=c_{code}")
-            await query.edit_message_text("\\n".join(parts), parse_mode="HTML", reply_markup=channel_links_keyboard(rows), disable_web_page_preview=True)
         else:
-            await send_main_panel(update, context, show_reply_keyboard=True)
+            parts.append("\\nهنوز چنلی اضافه نکردی؛ برای شروع روی «اضافه کردن چنل جدید ➕» بزن.")
+        await query.edit_message_text("\\n".join(parts), parse_mode="HTML", reply_markup=channel_links_keyboard(rows), disable_web_page_preview=True)
         return
 
     if data == "channel_menu_back":
@@ -3859,7 +3936,7 @@ async def button_handler(
             "اگر همین الان ربات رو ادمین کردی، دوباره امتحان کن. اگر باز هم شناسایی نشد، آیدی عمومی چنل مثل @YourChannel یا شناسه عددی چنل خصوصی رو بفرست.",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("بازگشت به منوی اصلی ⬅️", callback_data="back_main", style="danger")]
+                [InlineKeyboardButton("بازگشت به لیست چنل‌ها", callback_data="channel_add_new_back", style="danger")]
             ])
         )
         return
@@ -7078,10 +7155,19 @@ async def error_handler(
     update,
     context
 ):
-    print(
-        "BOT ERROR:",
-        repr(context.error)
-    )
+    error_text = str(context.error or "").lower()
+    user = update.effective_user if update else None
+    # Telegram sends no update when a person presses Stop/blocks the bot.
+    # We can only mark the account when an outgoing API call reports this explicitly.
+    if user and (
+        "bot was blocked by the user" in error_text
+        or "bot is blocked by the user" in error_text
+    ):
+        try:
+            mark_user_bot_blocked(user.id)
+        except Exception as mark_error:
+            print("Could not mark blocked user:", mark_error)
+    print("BOT ERROR:", repr(context.error))
 
 
 # =========================================================
