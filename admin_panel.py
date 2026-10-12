@@ -447,19 +447,10 @@ def list_supervisors():
     finally: conn.close()
 
 
-def _is_primary_admin():
-    # This project defines the primary administrator in main.py.
-    return session.get("admin_authenticated") is True and session.get("web_primary_admin") is True
-
-
 @admin_panel.post("/api/supervisors/add")
 @_auth_required
 @_csrf_required
 def add_supervisor_web():
-    # Web-panel password is the primary admin credential; this operation is intentionally
-    # available only when ADMIN_PANEL_PRIMARY_ADMIN is explicitly configured.
-    if os.getenv("ADMIN_PANEL_PRIMARY_ADMIN") != "1":
-        return _json_error("برای مدیریت ناظران، ADMIN_PANEL_PRIMARY_ADMIN=1 را در Deplexo فعال کن.",403)
     payload=request.get_json(silent=True) or {}
     try: user_id=int(payload.get("user_id"))
     except (TypeError,ValueError): return _json_error("شناسه ناظر معتبر نیست.",400)
@@ -479,8 +470,6 @@ def add_supervisor_web():
 @_auth_required
 @_csrf_required
 def remove_supervisor_web():
-    if os.getenv("ADMIN_PANEL_PRIMARY_ADMIN") != "1":
-        return _json_error("برای مدیریت ناظران، ADMIN_PANEL_PRIMARY_ADMIN=1 را در Deplexo فعال کن.",403)
     payload=request.get_json(silent=True) or {}
     try: user_id=int(payload.get("user_id"))
     except (TypeError,ValueError): return _json_error("شناسه ناظر معتبر نیست.",400)
