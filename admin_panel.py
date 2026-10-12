@@ -310,35 +310,35 @@ def unblock():
 
 # Extended admin tools matching the Telegram bot's management commands.
 def _format_jalali_datetime(value):
-    """Format a datetime as the requested Iranian/Jalali calendar date."""
+    """Format a datetime as an Iranian/Jalali calendar date."""
     if not value:
         return "نامشخص"
     if isinstance(value, str):
         value = datetime.fromisoformat(value)
     gy, gm, gd = value.year, value.month, value.day
-    g_days_in_month = [31, 29 if (gy % 4 == 0 and (gy % 100 != 0 or gy % 400 == 0)) else 28,
-                       31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    jy = 979 if gy >= 1600 else 0
-    gy -= 1600 if gy >= 1600 else 621
-    if gy < 0:
-        gy += 1600
-    gy2 = gy + 1 if gm > 2 else gy
-    days = 365 * gy + (gy2 + 3) // 4 - (gy2 + 99) // 100 + (gy2 + 399) // 400 - 80 + gd
-    for month in range(gm - 1):
-        days += g_days_in_month[month]
-    jy += 33 * (days // 12053)
-    days %= 12053
-    jy += 4 * (days // 1461)
-    days %= 1461
-    if days > 365:
-        jy += (days - 1) // 365
-        days = (days - 1) % 365
-    if days < 186:
-        jm = 1 + days // 31
-        jd = 1 + days % 31
+    g_month_days = [31, 29 if (gy % 4 == 0 and (gy % 100 != 0 or gy % 400 == 0)) else 28,
+                    31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    gy -= 1600
+    gm -= 1
+    gd -= 1
+    g_day_no = 365 * gy + (gy + 3) // 4 - (gy + 99) // 100 + (gy + 399) // 400
+    for month in range(gm):
+        g_day_no += g_month_days[month]
+    g_day_no += gd
+    j_day_no = g_day_no - 79
+    j_np = j_day_no // 12053
+    j_day_no %= 12053
+    jy = 979 + 33 * j_np + 4 * (j_day_no // 1461)
+    j_day_no %= 1461
+    if j_day_no >= 366:
+        jy += (j_day_no - 1) // 365
+        j_day_no = (j_day_no - 1) % 365
+    if j_day_no < 186:
+        jm = 1 + j_day_no // 31
+        jd = 1 + j_day_no % 31
     else:
-        jm = 7 + (days - 186) // 30
-        jd = 1 + (days - 186) % 30
+        jm = 7 + (j_day_no - 186) // 30
+        jd = 1 + (j_day_no - 186) % 30
     return f"{jy:04d}/{jm}/{jd} {value.hour:02d}:{value.minute:02d}"
 
 
