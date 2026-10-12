@@ -3708,7 +3708,19 @@ async def button_handler(
         )
         return
 
-    if data == "channel_added" or data == "channel_add_new":
+    if data == "channel_add_new":
+        await query.answer()
+        context.user_data.clear()
+        bot_info = await context.bot.get_me()
+        await query.edit_message_text(
+            "<b>برای دریافت لینک ناشناس چنل، ابتدا ربات را با دکمه شیشه‌ای زیر به چنل اضافه و ادمین کن 🤠</b>\n\n"
+            "بعد از ادمین کردن، روی «اضافه شد ✅» بزن.",
+            parse_mode="HTML",
+            reply_markup=channel_add_prompt_keyboard(bot_info.username)
+        )
+        return
+
+    if data == "channel_added":
         await query.answer()
         context.user_data.clear()
         context.user_data["waiting_channel_identifier"] = True
