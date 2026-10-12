@@ -3,6 +3,9 @@ import random
 import string
 import asyncio
 import html
+import json
+import urllib.request
+import urllib.error
 from urllib.parse import quote
 from datetime import datetime, timedelta
 from threading import Thread
@@ -82,6 +85,7 @@ CHANNEL_1_URL = "https://t.me/hidemychatRobot0"
 
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN environment variable is not set.")
@@ -265,6 +269,14 @@ def init_db():
                 user_id BIGINT PRIMARY KEY,
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 viewed_at TIMESTAMP
+            )
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS channel_profanity_violations (
+                user_id BIGINT PRIMARY KEY,
+                violation_count INTEGER NOT NULL DEFAULT 0,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
@@ -2532,6 +2544,84 @@ def channel_links_keyboard(rows):
     buttons.append([InlineKeyboardButton("اضافه کردن چنل جدید ➕", callback_data="channel_add_new", style="success")])
     buttons.append([InlineKeyboardButton("بازگشت به منوی اصلی ⬅️", callback_data="back_main", style="danger")])
     return InlineKeyboardMarkup(buttons)
+
+
+async def classify_channel_profanity(text):
+    """Use OpenAI to detect Persian/Finglish profanity before channel publication."""
+    if not OPENAI_API_KEY:
+        return None
+
+    payload = {
+        "model": "gpt-4o-mini",
+        "temperature": 0,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You classify Persian-language anonymous channel messages. Detect swear words, vulgar profanity, "
+                    "obscene insults, and abusive slurs in Persian or Finglish, including intentionally misspelled "
+                    "or spaced forms. Do not flag ordinary criticism, disagreement, or academic discussion of profanity. "
+                    'Return JSON only: {"profanity": true} or {"profanity": false}.'
+                )
+            },
+            {"role": "user", "content": text[:6000]}
+        ]
+    }
+
+    def _request():
+        req = urllib.request.Request(
+            "https://api.openai.com/v1/chat/completions",
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {OPENAI_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=15) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    try:
+        result = await asyncio.to_thread(_request)
+        parsed = json.loads(result["choices"][0]["message"]["content"])
+        return bool(parsed.get("profanity", False))
+    except Exception as e:
+        print(f"OpenAI profanity check failed: {type(e).__name__}: {e}")
+        return None
+
+
+def add_channel_profanity_violation(user_id):
+    conn = db()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO channel_profanity_violations (user_id, violation_count, updated_at)
+            VALUES (%s, 1, CURRENT_TIMESTAMP)
+            ON CONFLICT (user_id)
+            DO UPDATE SET
+                violation_count = channel_profanity_violations.violation_count + 1,
+                updated_at = CURRENT_TIMESTAMP
+            RETURNING violation_count
+            """,
+            (user_id,)
+        )
+        row = cur.fetchone()
+        conn.commit()
+        return int(row[0]) if row else 1
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        release_db(conn)
+
+
+def channel_profanity_warning_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("بازگشت 🔙", callback_data="back_main", style="danger")]
+    ])
 
 
 def channel_message_keyboard(message_id, sender_id):
@@ -6582,6 +6672,62 @@ async def handle_message(
             context.user_data.clear()
             await message.reply_text("❌ اطلاعات چنل پیدا نشد.", reply_markup=back_keyboard())
             return
+
+        profanity = await classify_channel_profanity(text)
+        if profanity is None:
+            await message.reply_text(
+                "⚠️ در حال حاضر بررسی هوشمند پیام در دسترس نیست؛ پیام شما ارسال نشد. لطفاً کمی بعد دوباره تلاش کنید.",
+                reply_markup=channel_profanity_warning_keyboard()
+            )
+            return
+
+        if profanity:
+            try:
+                violations = add_channel_profanity_violation(user.id)
+            except Exception as e:
+                print(f"Could not save profanity violation: {e}")
+                await message.reply_text(
+                    "⚠️ ذخیره تخلف انجام نشد و پیام ارسال نشد. لطفاً دوباره تلاش کنید.",
+                    reply_markup=channel_profanity_warning_keyboard()
+                )
+                return
+
+            if violations >= 3:
+                conn = db()
+                try:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "UPDATE users SET ban_until = %s, ban_reason = %s WHERE user_id = %s",
+                        (
+                            datetime.now() + timedelta(days=36500),
+                            "ارسال سه پیام حاوی الفاظ رکیک به چنل",
+                            user.id
+                        )
+                    )
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    raise
+                finally:
+                    cur.close()
+                    release_db(conn)
+
+                context.user_data.clear()
+                await message.reply_text(
+                    "⛔ به دلیل تکرار سه‌بارهٔ ارسال پیام حاوی الفاظ رکیک، حساب کاربری شما مسدود شد.",
+                    reply_markup=channel_profanity_warning_keyboard()
+                )
+                return
+
+            context.user_data.clear()
+            await message.reply_text(
+                "⚠️ پیام شما حاوی الفاظ رکیک است.\n"
+                "در صورت تکرار 3 مرتبه، حساب کاربری شما مسدود خواهد شد!\n\n"
+                "پیام با نقل قول : در ارسال پیام ناشناس به چنل استفاده از الفاظ رکیک مجاز نیست.",
+                reply_markup=channel_profanity_warning_keyboard()
+            )
+            return
+
         row = get_user(user.id)
         anon_code = row[4] if row else "0000000"
         message_id = save_anonymous_message(user.id, owner_id, text, "text", None, text, message.message_id, owner_id)
