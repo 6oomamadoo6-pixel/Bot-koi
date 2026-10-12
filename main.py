@@ -7146,6 +7146,13 @@ async def inline_share_handler(update, context):
     if not query or not user:
         return
 
+    # Only show the share card when the user explicitly invokes it
+    # with the "share" query. Typing/pasting @HideMyChatRobot alone
+    # must not return a share result.
+    if (query.query or "").strip().lower() != "share":
+        await query.answer([], cache_time=0, is_personal=True)
+        return
+
     get_or_create_user(user.id, user.username, user.full_name)
     bot_info = await context.bot.get_me()
     own_link = f"https://t.me/{bot_info.username}?start={user.id}"
@@ -7154,7 +7161,7 @@ async def inline_share_handler(update, context):
         title="حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀",
         description="G O L D E N  C H A T",
         input_message_content=InputTextMessageContent(
-            f'<b>حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀</b>\n\n'
+            f'<a href="{html.escape(own_link, quote=True)}"><b>حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀</b></a>\n\n'
             f'<a href="{html.escape(own_link, quote=True)}">{html.escape(own_link)}</a>\n\n'
             f'<b>G O L D E N  C H A T</b>',
             parse_mode="HTML",
