@@ -127,6 +127,36 @@ def release_db(conn):
         DB_POOL.putconn(conn)
 
 
+def save_abuse_report(report_type, reporter_id, reporter_name, reported_user_id,
+                      reported_username, reported_name, message_id, message_text,
+                      group_id=None, group_title=None):
+    """Persist a user-submitted abuse report without changing existing user/message records."""
+    conn = db()
+    cur = None
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO abuse_reports
+                (report_type, reporter_id, reporter_name, reported_user_id,
+                 reported_username, reported_name, message_id, message_text,
+                 group_id, group_title)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            RETURNING id
+        """, (report_type, reporter_id, reporter_name, reported_user_id,
+              reported_username, reported_name, message_id, message_text,
+              group_id, group_title))
+        report_id = cur.fetchone()[0]
+        conn.commit()
+        return report_id
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        if cur is not None:
+            cur.close()
+        release_db(conn)
+
+
 def init_db():
     conn = db()
 
@@ -350,6 +380,29 @@ def init_db():
         cur.execute("""
             CREATE INDEX IF NOT EXISTS idx_group_views_message
             ON group_message_views(message_id)
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS abuse_reports (
+                id BIGSERIAL PRIMARY KEY,
+                report_type TEXT NOT NULL DEFAULT 'private',
+                reporter_id BIGINT NOT NULL,
+                reporter_name TEXT,
+                reported_user_id BIGINT NOT NULL,
+                reported_username TEXT,
+                reported_name TEXT,
+                message_id BIGINT,
+                group_id BIGINT,
+                group_title TEXT,
+                message_text TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_read BOOLEAN NOT NULL DEFAULT FALSE
+            )
+        """)
+
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_abuse_reports_unread
+            ON abuse_reports(is_read, created_at DESC)
         """)
 
         cur.execute("""
@@ -3980,6 +4033,16 @@ async def button_handler(
             original_text
         )
 
+        try:
+            save_abuse_report(
+                "group", user_id, reporter_name, sender_id, username,
+                full_name or "کاربر", message_id, original_text, group_id, group_title
+            )
+        except Exception as report_db_error:
+            print(f"Could not save group abuse report: {report_db_error}")
+            await query.answer("ثبت گزارش در دیتابیس با خطا مواجه شد ❌", show_alert=True)
+            return
+
         report_text = (
             "<b>🚨 گزارش تخلف پیام ناشناس گروه</b>\n\n"
             f"<b>نام گروه :</b> {safe_group_title}\n"
@@ -4626,6 +4689,16 @@ async def button_handler(
             ban_code
             or get_ban_code(sender_id)
         )
+
+        try:
+            save_abuse_report(
+                "private", user_id, user.full_name or "کاربر", sender_id,
+                username, full_name or "کاربر", message_id, original_text
+            )
+        except Exception as report_db_error:
+            print(f"Could not save private abuse report: {report_db_error}")
+            await query.answer("ثبت گزارش در دیتابیس با خطا مواجه شد ❌", show_alert=True)
+            return
 
         report_text = (
             "🚨 گزارش تخلف برای کاربر و پیام زیر ثبت شد .👇🏻\n\n"
