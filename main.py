@@ -2590,7 +2590,7 @@ def link_keyboard(share_url=None):
         [
             InlineKeyboardButton(
                 "اشتراک گذاری مستقیم 📤",
-                url=share_url or "https://t.me/share/url"
+                switch_inline_query="share"
             )
         ],
         [
@@ -7151,15 +7151,17 @@ async def inline_share_handler(update, context):
     own_link = f"https://t.me/{bot_info.username}?start={user.id}"
     result = InlineQueryResultArticle(
         id="golden-chat-share",
-        title="اشتراک‌گذاری لینک ناشناس گلدن چت",
-        description="حوصلم سر رفته بیاید حرف بزنیم🥀👇🏻",
+        title="حوصلم سر رفته بیاین حرف بزنیم🗣️🥀",
+        description="G O L D E N  C H A T",
         input_message_content=InputTextMessageContent(
-            f"<b>حوصلم سر رفته بیاید حرف بزنیم🥀👇🏻</b>\n{own_link}",
+            f'<b>حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀</b>\n\n'
+            f'<a href="{html.escape(own_link, quote=True)}">{html.escape(own_link)}</a>\n\n'
+            f'<b>G O L D E N  C H A T</b>',
             parse_mode="HTML",
             disable_web_page_preview=True
         ),
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("حرف بزنیمم", url=own_link)]
+            [InlineKeyboardButton("حرف بزنیممم", url=own_link, style="primary")]
         ])
     )
     await query.answer([result], cache_time=0, is_personal=True)
