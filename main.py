@@ -37,6 +37,16 @@ from telegram.error import TelegramError
 # =========================================================
 
 health_app = Flask(__name__)
+health_app.secret_key = os.getenv("ADMIN_PANEL_SECRET_KEY") or os.urandom(32)
+health_app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=True,
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
+)
+
+from admin_panel import admin_panel
+health_app.register_blueprint(admin_panel)
 
 
 @health_app.route("/")
