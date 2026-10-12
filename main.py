@@ -1680,7 +1680,7 @@ REACTIONS = [
     "😭",
     "❤️",
     "😍",
-    "❤️‍🔥",
+    "😡",
     "😉",
     "👎🏻",
     "👍🏻",
@@ -2240,7 +2240,7 @@ def main_reply_keyboard():
         [
             [
                 KeyboardButton(
-                    "ارسال پیام ناشناس به کاربر دلخواه"
+                    "ارسال پیام ناشناس به کاربر 👤دلخواه"
                 )
             ],
             [
@@ -2257,7 +2257,7 @@ def join_keyboard():
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
-                "چنل 1 : کانال رسمی گلدن چت",
+                "کانال رسمی گلدن چت",
                 url=CHANNEL_1_URL
             )
         ],
@@ -2316,7 +2316,7 @@ def cancel_keyboard():
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
-                "لغو ارسال پیام ❌",
+                "لغو ارسال پیام",
                 callback_data="cancel_send",
                 style="danger"
             )
@@ -2345,7 +2345,7 @@ def main_keyboard():
         ],
         [
             InlineKeyboardButton(
-                "لیست مسدودی 🔴",
+                "لیست مسدودی 🚫",
                 callback_data="block_list",
                 style="danger"
             )
@@ -2762,7 +2762,7 @@ async def linkgroup_command(
     )
 
     await update.message.reply_text(
-        "لینک پیام ناشنا مخصوص برای گروه شما :\n"
+        "لینک پیام ناشناش مخصوص برای گروه شما :\n"
         f"{link}"
     )
 
@@ -2815,7 +2815,7 @@ async def start(
 
             if not group:
                 await update.message.reply_text(
-                    "❌ لینک گروه نامعتبر است."
+                    "🥀 لینک گروه نامعتبر است."
                 )
                 return
 
@@ -2841,7 +2841,7 @@ async def start(
                 user.id
             ):
                 await update.message.reply_text(
-                    "به نظر میرسه شما عضو این گروه نیستید ❌",
+                    "به نظر میرسه شما عضو این گروه نیستید 🥀",
                     reply_markup=back_keyboard()
                 )
                 return
@@ -2861,7 +2861,7 @@ async def start(
             ] = group_title
 
             await update.message.reply_text(
-                f"شمال درحال ارسال پیام ناشناس به گروه {group_title} هستید .🗨️\n"
+                f"شما درحال ارسال پیام ناشناس به گروه {group_title} هستید .🗨️\n"
                 "پیام خود را بنویسید :",
                 reply_markup=cancel_keyboard()
             )
@@ -2876,7 +2876,7 @@ async def start(
 
         if not target:
             await update.message.reply_text(
-                "❌ لینک نامعتبر است."
+                "🥀 لینک نامعتبر است."
             )
             return
 
@@ -2891,7 +2891,8 @@ async def start(
             )
 
             await update.message.reply_text(
-                "به خودت که نمیتونی پیام بفرستی عزیز 🥹\n\n"
+                "به خودت که نمیتونی پیام بفرستی 
+زیبا 🥹\n\n"
                 "ولی منتظر بمون و لینکتو بیشتر به اشتراک "
                 "بزار و منتظر پیام ناشناست باش😍\n\n"
                 f"لینک خودت :\n{own_link}",
@@ -2933,7 +2934,7 @@ async def start(
         await update.message.reply_text(
             f"شما در حال ارسال پیام ناشناس به "
             f"{target_name} هستید.\n\n"
-            "پیام خود را بنویسید : 💤",
+            "پیام خود را بنویسید 💌",
             reply_markup=cancel_keyboard()
         )
 
