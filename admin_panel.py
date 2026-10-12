@@ -42,7 +42,7 @@ button,input{font:inherit}button{cursor:pointer}.wrap{max-width:1100px;margin:au
   <section class="hero"><div class="eyebrow">GOLDEN CHAT / ADMIN</div><h2>سلام مدیر، خوش اومدی ✨</h2><p>از اینجا وضعیت ربات رو ببین، کاربران رو جست‌وجو کن و فهرست مسدودی‌ها رو مدیریت کن. اطلاعات از دیتابیس فعلی خوانده می‌شه و دیتابیس جدیدی ساخته نمی‌شه.</p></section>
   <section class="stats"><div class="stat"><div class="label">👥 تعداد کل کاربران ربات</div><div id="usersCount" class="num">—</div></div><div class="stat"><div class="label">🔴 موارد مسدودی کاربران</div><div id="blocksCount" class="num">—</div></div><div class="stat"><div class="label">✉️ پیام‌های ناشناس</div><div id="messagesCount" class="num">—</div></div></section>
   <nav class="tabs"><button class="tab active" data-tab="users">👥 کاربران</button><button class="tab" data-tab="blocks">🔴 لیست مسدودی‌ها</button><button class="tab" data-tab="bans">⛔ بن کاربران</button><button class="tab" data-tab="tools">🛠 مدیریت کاربر</button><button class="tab" data-tab="broadcast">📢 پیام همگانی</button><button class="tab" data-tab="supervisors">🛡 ناظران</button><button class="tab" data-tab="requests">📥 درخواست‌ها</button><button class="tab" data-tab="reports"><span id="reportLight" class="reportlight hidden"></span>🚨 گزارش تخلف کاربران <span id="reportCount" class="reportcount zero">۰</span></button></nav>
-  <section id="usersPanel" class="card"><div class="cardhead"><h3>کاربران ربات</h3><span class="pill">جست‌وجو و مشاهده</span></div><form id="userSearch" class="searchrow"><input id="userQuery" placeholder="جست‌وجو با آیدی، یوزرنیم یا نام" autocomplete="off"><button class="btn" type="submit">جست‌وجو</button></form><div id="usersTable" class="tablewrap"><div class="empty">در حال دریافت اطلاعات…</div></div><div class="pager"><button id="prevUsers" class="btn ghost">قبلی</button><span id="userPage">صفحه ۱</span><button id="nextUsers" class="btn ghost">بعدی</button></div></section>
+  <section id="usersPanel" class="card"><div class="cardhead"><h3>کاربران ربات</h3><button id="newUsersButton" class="btn" type="button">🆕 ۰ کاربر جدید</button></div><form id="userSearch" class="searchrow"><input id="userQuery" placeholder="جست‌وجو با آیدی، یوزرنیم یا نام" autocomplete="off"><button class="btn" type="submit">جست‌وجو</button></form><div id="usersTable" class="tablewrap"><div class="empty">در حال دریافت اطلاعات…</div></div><div class="pager"><button id="prevUsers" class="btn ghost">قبلی</button><span id="userPage">صفحه ۱</span><button id="nextUsers" class="btn ghost">بعدی</button></div><div id="newUsersPanel" class="notice hidden" style="margin-top:18px"><div class="cardhead"><h3>🆕 کاربران جدید</h3><button id="closeNewUsers" class="btn ghost" type="button">بستن</button></div><p>این فهرست دو ساعت بعد از اولین مشاهده پاک می‌شود؛ کاربران از فهرست جدید خارج می‌شوند اما حسابشان حذف نمی‌شود.</p><div id="newUsersTable" class="tablewrap"></div></div></section>
   <section id="blocksPanel" class="card hidden"><div class="cardhead"><h3>لیست مسدودی‌ها</h3><span class="pill">مسدودسازی بین کاربران</span></div><form id="blockSearch" class="searchrow"><input id="blockQuery" placeholder="جست‌وجو با آیدی یا یوزرنیم" autocomplete="off"><button class="btn" type="submit">جست‌وجو</button></form><div class="notice">رفع مسدودی، فقط رابطهٔ مسدودسازی انتخاب‌شده را حذف می‌کند؛ حساب کاربر یا کدهای ناشناس حذف نمی‌شوند.</div><div id="blocksTable" class="tablewrap"><div class="empty">در حال دریافت اطلاعات…</div></div><div class="pager"><button id="prevBlocks" class="btn ghost">قبلی</button><span id="blockPage">صفحه ۱</span><button id="nextBlocks" class="btn ghost">بعدی</button></div></section>
   
 <section id="bansPanel" class="card hidden featurePanel"><div class="cardhead"><h3>مدیریت بن کاربران</h3><span class="pill">همه کاربران + وضعیت حساب</span></div><div class="notice">تمام کاربران ثبت‌شده نمایش داده می‌شوند؛ برای هر حساب وضعیت بن و دکمهٔ بن یا رفع بن در دسترس است.</div><form id="banSearch" class="searchrow"><input id="banQuery" placeholder="جست‌وجوی کاربر با آیدی، یوزرنیم یا نام" autocomplete="off"><button class="btn" type="submit">جست‌وجو</button></form><div id="bansTable" class="tablewrap"><div class="empty">در حال دریافت…</div></div><button class="btn ghost" id="refreshBans">به‌روزرسانی</button></section>
@@ -67,7 +67,11 @@ async function init(){try{var s=await fetch("/admin/api/session",{credentials:"s
 el("loginForm").addEventListener("submit",async function(e){e.preventDefault();el("loginError").textContent="";try{var d=await api("login",{method:"POST",body:JSON.stringify({password:el("password").value})});csrfToken=d.csrf_token||csrfToken;el("password").value="";showApp();await loadAll()}catch(err){el("loginError").textContent=err.message}})
 el("logoutBtn").addEventListener("click",async function(){try{await api("logout",{method:"POST",body:"{}"})}catch(e){}showLogin();toast("از پنل خارج شدی")})
 document.querySelectorAll(".tab").forEach(function(button){button.addEventListener("click",function(){activeTab=button.dataset.tab;document.querySelectorAll(".tab").forEach(function(b){b.classList.toggle("active",b===button)});["users","blocks","bans","tools","broadcast","supervisors","requests","reports"].forEach(function(k){var p=el(k+"Panel");if(p)p.classList.toggle("hidden",activeTab!==k)});if(activeTab==="blocks")loadBlocks();if(activeTab==="bans")loadBans();if(activeTab==="supervisors")loadSupervisors();if(activeTab==="requests")loadRequests();if(activeTab==="reports")loadReports()})})
-async function loadAll(){await Promise.all([loadStats(),loadUsers(),loadBlocks(),loadReportCount()])}
+async function loadAll(){await Promise.all([loadStats(),loadUsers(),loadBlocks(),loadReportCount(),loadNewUserCount()])}
+async function loadNewUserCount(){try{var d=await api("new-users/count");el("newUsersButton").textContent="🆕 "+Number(d.count||0).toLocaleString("fa-IR")+" کاربر جدید";}catch(e){}}
+async function openNewUsers(){el("newUsersPanel").classList.remove("hidden");el("newUsersTable").innerHTML='<div class="empty">در حال دریافت کاربران جدید…</div>';try{var d=await api("new-users");el("newUsersTable").innerHTML=d.items.length?'<table><thead><tr><th>کاربر</th><th>شناسه</th><th>تاریخ ورود</th></tr></thead><tbody>'+d.items.map(function(u){return '<tr><td>'+esc(u.display_name||u.full_name||"بدون نام")+(u.username?'<small>@'+esc(u.username)+'</small>':'')+'</td><td><span class="userbadge">'+esc(u.user_id)+'</span></td><td>'+esc(u.created_at||"—")+'</td></tr>'}).join("")+'</tbody></table>':'<div class="empty">کاربر جدیدی برای نمایش نیست.</div>';await loadNewUserCount();}catch(e){el("newUsersTable").innerHTML='<div class="empty error">'+esc(e.message)+'</div>'}}
+el("newUsersButton").addEventListener("click",openNewUsers);
+el("closeNewUsers").addEventListener("click",function(){el("newUsersPanel").classList.add("hidden")});
 async function loadStats(){try{var d=await api("stats");el("usersCount").textContent=Number(d.users||0).toLocaleString("fa-IR");el("blocksCount").textContent=Number(d.blocks||0).toLocaleString("fa-IR");el("messagesCount").textContent=Number(d.messages||0).toLocaleString("fa-IR")}catch(e){toast(e.message)}}
 async function loadUsers(){el("usersTable").innerHTML='<div class="empty">در حال دریافت اطلاعات…</div>';try{var d=await api("users?page="+userPage+"&q="+encodeURIComponent(userQuery));el("usersTable").innerHTML= d.items.length?'<table><thead><tr><th>کاربر</th><th>شناسه</th><th>عضویت</th></tr></thead><tbody>'+d.items.map(function(u){return '<tr><td>'+esc(u.display_name||u.full_name||"بدون نام")+(u.username?'<small>@'+esc(u.username)+'</small>':'')+'</td><td><span class="userbadge">'+esc(u.user_id)+'</span></td><td>'+esc(u.created_at||"—")+'</td></tr>'}).join("")+'</tbody></table>':'<div class="empty">کاربری پیدا نشد.</div>';el("userPage").textContent="صفحه "+userPage+" از "+Math.max(1,d.pages);el("prevUsers").disabled=userPage<=1;el("nextUsers").disabled=userPage>=d.pages}catch(e){el("usersTable").innerHTML='<div class="empty error">'+esc(e.message)+'</div>'}}
 async function loadBlocks(){el("blocksTable").innerHTML='<div class="empty">در حال دریافت اطلاعات…</div>';try{var d=await api("blocks?page="+blockPage+"&q="+encodeURIComponent(blockQuery));el("blocksTable").innerHTML=d.items.length?'<table><thead><tr><th>مسدودکننده</th><th>کاربر مسدودشده</th><th>تاریخ</th><th>عملیات</th></tr></thead><tbody>'+d.items.map(function(b){return '<tr><td>'+esc(b.blocker_name||"بدون نام")+'<small>'+esc(b.blocker_id)+'</small></td><td>'+esc(b.blocked_name||"بدون نام")+'<small>'+esc(b.blocked_id)+'</small></td><td>'+esc(b.created_at||"—")+'</td><td><button class="btn danger" data-unblock="'+esc(b.blocker_id)+'" data-blocked="'+esc(b.blocked_id)+'">رفع مسدودی</button></td></tr>'}).join("")+'</tbody></table>':'<div class="empty">موردی پیدا نشد.</div>';el("blockPage").textContent="صفحه "+blockPage+" از "+Math.max(1,d.pages);el("prevBlocks").disabled=blockPage<=1;el("nextBlocks").disabled=blockPage>=d.pages;document.querySelectorAll("[data-unblock]").forEach(function(btn){btn.addEventListener("click",async function(){if(!confirm("فقط این رابطهٔ مسدودی حذف شود؟"))return;try{await api("blocks/unblock",{method:"POST",body:JSON.stringify({blocker_id:btn.dataset.unblock,blocked_id:btn.dataset.blocked})});toast("مسدودی رفع شد");await Promise.all([loadBlocks(),loadStats()])}catch(e){toast(e.message)}})})}catch(e){el("blocksTable").innerHTML='<div class="empty error">'+esc(e.message)+'</div>'}}
@@ -90,7 +94,7 @@ el("refreshRequests").addEventListener("click",loadRequests);
 async function loadReportCount(){try{var d=await api("reports/unread-count");var n=Number(d.unread||0);el("reportCount").textContent=n.toLocaleString("fa-IR");el("reportsUnreadPill").textContent="خوانده‌نشده: "+n.toLocaleString("fa-IR");el("reportCount").classList.toggle("zero",n===0);el("reportLight").classList.toggle("hidden",n===0)}catch(e){}}
 async function loadReports(){el("reportsTable").innerHTML='<div class="empty">در حال دریافت گزارش‌ها…</div>';try{var d=await api("reports");await loadReportCount();el("reportsTable").innerHTML=d.items.length?'<table><thead><tr><th>وضعیت</th><th>گزارش‌دهنده</th><th>کاربر گزارش‌شده</th><th>متن پیام</th><th>گروه</th><th>زمان</th><th>عملیات</th></tr></thead><tbody>'+d.items.map(function(r){return '<tr><td><span class="pill">خوانده‌شده</span></td><td>'+esc(r.reporter_name||"کاربر")+'<small>'+esc(r.reporter_id)+'</small></td><td>'+esc(r.reported_name||"کاربر")+'<small>'+esc(r.reported_username?"@"+r.reported_username:"بدون یوزرنیم")+' · '+esc(r.reported_user_id)+'</small></td><td style="white-space:pre-wrap;min-width:220px;max-width:360px">'+esc(r.message_text||"—")+'</td><td>'+esc(r.group_title||"پیام خصوصی")+(r.group_id?'<small>'+esc(r.group_id)+'</small>':'')+'</td><td>'+esc(r.created_at||"—")+'</td><td><button class="btn danger" data-reportban="'+esc(r.reported_user_id)+'" data-reportname="'+esc(r.reported_name||r.reported_username||r.reported_user_id)+'">بن کاربر</button></td></tr>'}).join("")+'</tbody></table>':'<div class="empty">هنوز گزارشی ثبت نشده است.</div>';document.querySelectorAll("[data-reportban]").forEach(function(b){b.addEventListener("click",async function(){var days=prompt("مدت بن به روز (مثلاً 1):","1");if(days===null)return;if(!/^\d+$/.test(days)||Number(days)<1||Number(days)>3650){toast("مدت باید عددی بین ۱ تا ۳۶۵۰ روز باشد");return}var reason=prompt("دلیل بن "+b.dataset.reportname+":","گزارش تخلف");if(reason===null)return;if(!reason.trim())return toast("دلیل بن را وارد کن");if(!confirm("کاربر "+b.dataset.reportname+" برای "+days+" روز بن شود؟"))return;try{await api("bans/ban",{method:"POST",body:JSON.stringify({user_id:b.dataset.reportban,days:Number(days),reason:reason.trim()})});toast("کاربر گزارش‌شده بن شد");await Promise.all([loadReports(),loadReportCount(),loadBans(),loadStats()])}catch(e){toast(e.message)}})})}catch(e){el("reportsTable").innerHTML='<div class="empty error">'+esc(e.message)+'</div>'}}
 el("refreshReports").addEventListener("click",loadReports);
-setInterval(function(){if(!el("appView").classList.contains("hidden")){loadReportCount();if(activeTab==="reports")loadReports()}},15000);
+setInterval(function(){if(!el("appView").classList.contains("hidden")){loadReportCount();loadNewUserCount();if(activeTab==="reports")loadReports()}},15000);
 
 init();
 </script>
@@ -232,6 +236,67 @@ def users():
             "created_at": row[4].strftime("%Y-%m-%d") if row[4] else None,
         } for row in rows]
         return jsonify({"items": items, "page": page, "pages": _pages(total), "total": total})
+    finally:
+        conn.close()
+
+
+@admin_panel.get("/api/new-users/count")
+@_auth_required
+def new_user_count():
+    conn = _db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                DELETE FROM new_user_queue
+                WHERE viewed_at IS NOT NULL
+                  AND viewed_at <= CURRENT_TIMESTAMP - INTERVAL '2 hours'
+            """)
+            cur.execute("""
+                SELECT COUNT(*) FROM new_user_queue
+                WHERE viewed_at IS NULL
+                   OR viewed_at > CURRENT_TIMESTAMP - INTERVAL '2 hours'
+            """)
+            count = cur.fetchone()[0]
+        conn.commit()
+        return jsonify({"count": count})
+    finally:
+        conn.close()
+
+
+@admin_panel.get("/api/new-users")
+@_auth_required
+def new_users():
+    conn = _db()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    DELETE FROM new_user_queue
+                    WHERE viewed_at IS NOT NULL
+                      AND viewed_at <= CURRENT_TIMESTAMP - INTERVAL '2 hours'
+                """)
+                # Start the two-hour countdown only the first time the admin opens the list.
+                cur.execute("""
+                    UPDATE new_user_queue
+                    SET viewed_at = CURRENT_TIMESTAMP
+                    WHERE viewed_at IS NULL
+                """)
+                cur.execute("""
+                    SELECT q.user_id, u.username, u.full_name, u.display_name, q.created_at
+                    FROM new_user_queue q
+                    LEFT JOIN users u ON u.user_id = q.user_id
+                    WHERE q.viewed_at > CURRENT_TIMESTAMP - INTERVAL '2 hours'
+                    ORDER BY q.created_at DESC
+                """)
+                rows = cur.fetchall()
+        items = [{
+            "user_id": row[0],
+            "username": row[1],
+            "full_name": row[2],
+            "display_name": row[3],
+            "created_at": row[4].strftime("%Y-%m-%d %H:%M") if row[4] else None,
+        } for row in rows]
+        return jsonify({"items": items, "total": len(items)})
     finally:
         conn.close()
 
