@@ -1,6 +1,9 @@
 import os
 import hmac
 import secrets
+import json
+import urllib.request
+import urllib.error
 from datetime import datetime
 from functools import wraps
 
@@ -38,10 +41,18 @@ button,input{font:inherit}button{cursor:pointer}.wrap{max-width:1100px;margin:au
   <header class="top"><div class="brand"><div class="logo">✦</div><div><h1>Golden Chat</h1><div class="sub">پنل مدیریت ربات</div></div></div><div style="display:flex;gap:8px;align-items:center"><span class="pill">● اتصال امن</span><button class="btn ghost" id="logoutBtn">خروج</button></div></header>
   <section class="hero"><div class="eyebrow">GOLDEN CHAT / ADMIN</div><h2>سلام مدیر، خوش اومدی ✨</h2><p>از اینجا وضعیت ربات رو ببین، کاربران رو جست‌وجو کن و فهرست مسدودی‌ها رو مدیریت کن. اطلاعات از دیتابیس فعلی خوانده می‌شه و دیتابیس جدیدی ساخته نمی‌شه.</p></section>
   <section class="stats"><div class="stat"><div class="label">👥 کل کاربران</div><div id="usersCount" class="num">—</div></div><div class="stat"><div class="label">🔴 موارد مسدودی کاربران</div><div id="blocksCount" class="num">—</div></div><div class="stat"><div class="label">✉️ پیام‌های ناشناس</div><div id="messagesCount" class="num">—</div></div></section>
-  <nav class="tabs"><button class="tab active" data-tab="users">👥 کاربران</button><button class="tab" data-tab="blocks">🔴 لیست مسدودی‌ها</button></nav>
+  <nav class="tabs"><button class="tab active" data-tab="users">👥 کاربران</button><button class="tab" data-tab="blocks">🔴 لیست مسدودی‌ها</button><button class="tab" data-tab="bans">⛔ بن کاربران</button><button class="tab" data-tab="tools">🛠 مدیریت کاربر</button><button class="tab" data-tab="broadcast">📢 پیام همگانی</button><button class="tab" data-tab="supervisors">🛡 ناظران</button></nav>
   <section id="usersPanel" class="card"><div class="cardhead"><h3>کاربران ربات</h3><span class="pill">جست‌وجو و مشاهده</span></div><form id="userSearch" class="searchrow"><input id="userQuery" placeholder="جست‌وجو با آیدی، یوزرنیم یا نام" autocomplete="off"><button class="btn" type="submit">جست‌وجو</button></form><div id="usersTable" class="tablewrap"><div class="empty">در حال دریافت اطلاعات…</div></div><div class="pager"><button id="prevUsers" class="btn ghost">قبلی</button><span id="userPage">صفحه ۱</span><button id="nextUsers" class="btn ghost">بعدی</button></div></section>
   <section id="blocksPanel" class="card hidden"><div class="cardhead"><h3>لیست مسدودی‌ها</h3><span class="pill">مسدودسازی بین کاربران</span></div><form id="blockSearch" class="searchrow"><input id="blockQuery" placeholder="جست‌وجو با آیدی یا یوزرنیم" autocomplete="off"><button class="btn" type="submit">جست‌وجو</button></form><div class="notice">رفع مسدودی، فقط رابطهٔ مسدودسازی انتخاب‌شده را حذف می‌کند؛ حساب کاربر یا کدهای ناشناس حذف نمی‌شوند.</div><div id="blocksTable" class="tablewrap"><div class="empty">در حال دریافت اطلاعات…</div></div><div class="pager"><button id="prevBlocks" class="btn ghost">قبلی</button><span id="blockPage">صفحه ۱</span><button id="nextBlocks" class="btn ghost">بعدی</button></div></section>
-  <div class="foot">Golden Chat • پنل خصوصی مدیریت</div>
+  
+<section id="bansPanel" class="card hidden featurePanel"><div class="cardhead"><h3>کاربران بن‌شده</h3><span class="pill">بن و رفع بن</span></div><div id="bansTable" class="tablewrap"><div class="empty">در حال دریافت…</div></div><button class="btn ghost" id="refreshBans">به‌روزرسانی</button></section>
+<section id="toolsPanel" class="card hidden featurePanel"><div class="cardhead"><h3>مدیریت مستقیم کاربر</h3></div><div class="notice">شناسه عددی تلگرام کاربر را وارد کن. تغییر نام فقط نام نمایشی ذخیره‌شده در ربات را تغییر می‌دهد.</div>
+<form id="renameForm" class="searchrow"><input id="renameId" required placeholder="آیدی عددی کاربر"><input id="renameName" required placeholder="نام نمایشی جدید"><button class="btn" type="submit">تغییر نام</button></form>
+<form id="dmForm" class="searchrow" style="flex-wrap:wrap"><input id="dmId" required placeholder="آیدی عددی کاربر"><input id="dmText" required placeholder="متن پیام مدیریت"><button class="btn" type="submit">ارسال پیام</button></form>
+<form id="banForm" class="searchrow" style="flex-wrap:wrap"><input id="banId" required placeholder="آیدی عددی کاربر"><input id="banDays" type="number" min="1" max="3650" value="1" required placeholder="مدت به روز"><input id="banReason" required placeholder="دلیل بن"><button class="btn danger" type="submit">بن کاربر</button></form></section>
+<section id="broadcastPanel" class="card hidden featurePanel"><div class="cardhead"><h3>ارسال پیام همگانی</h3><span class="pill">ارسال به کاربران ربات</span></div><div class="notice">پیام برای همه کاربران ثبت‌شده ارسال می‌شود. این عملیات قابل برگشت نیست؛ متن را پیش از ارسال بررسی کن.</div><form id="broadcastForm"><textarea id="broadcastText" required rows="5" maxlength="4000" placeholder="متن پیام همگانی…" style="width:100%;background:#0f100e;border:1px solid #414137;color:var(--text);border-radius:12px;padding:12px;resize:vertical"></textarea><button class="btn" type="submit" style="margin-top:12px">ارسال برای همه</button></form><div id="broadcastResult" class="notice hidden" style="margin-top:12px"></div></section>
+<section id="supervisorsPanel" class="card hidden featurePanel"><div class="cardhead"><h3>مدیریت ناظران</h3><span class="pill">فقط مدیر اصلی مجاز است</span></div><form id="addSupervisorForm" class="searchrow"><input id="supervisorId" required placeholder="آیدی عددی ناظر جدید"><button class="btn" type="submit">افزودن ناظر</button></form><div id="supervisorsTable" class="tablewrap"><div class="empty">در حال دریافت…</div></div></section>
+<div class="foot">Golden Chat • پنل خصوصی مدیریت</div>
 </div>
 <div id="toast" class="toast hidden"></div>
 <script>
@@ -55,12 +66,22 @@ function showApp(){el("loginView").classList.add("hidden");el("appView").classLi
 async function init(){try{var s=await fetch("/admin/api/session",{credentials:"same-origin"});var d=await s.json();csrfToken=d.csrf_token||"";if(d.authenticated){showApp();await loadAll()}else showLogin()}catch(e){showLogin()}}
 el("loginForm").addEventListener("submit",async function(e){e.preventDefault();el("loginError").textContent="";try{var d=await api("login",{method:"POST",body:JSON.stringify({password:el("password").value})});csrfToken=d.csrf_token||csrfToken;el("password").value="";showApp();await loadAll()}catch(err){el("loginError").textContent=err.message}})
 el("logoutBtn").addEventListener("click",async function(){try{await api("logout",{method:"POST",body:"{}"})}catch(e){}showLogin();toast("از پنل خارج شدی")})
-document.querySelectorAll(".tab").forEach(function(button){button.addEventListener("click",function(){activeTab=button.dataset.tab;document.querySelectorAll(".tab").forEach(function(b){b.classList.toggle("active",b===button)});el("usersPanel").classList.toggle("hidden",activeTab!=="users");el("blocksPanel").classList.toggle("hidden",activeTab!=="blocks");if(activeTab==="blocks")loadBlocks()})})
+document.querySelectorAll(".tab").forEach(function(button){button.addEventListener("click",function(){activeTab=button.dataset.tab;document.querySelectorAll(".tab").forEach(function(b){b.classList.toggle("active",b===button)});["users","blocks","bans","tools","broadcast","supervisors"].forEach(function(k){var p=el(k+"Panel");if(p)p.classList.toggle("hidden",activeTab!==k)});if(activeTab==="blocks")loadBlocks();if(activeTab==="bans")loadBans();if(activeTab==="supervisors")loadSupervisors()})})
 async function loadAll(){await Promise.all([loadStats(),loadUsers(),loadBlocks()])}
 async function loadStats(){try{var d=await api("stats");el("usersCount").textContent=Number(d.users||0).toLocaleString("fa-IR");el("blocksCount").textContent=Number(d.blocks||0).toLocaleString("fa-IR");el("messagesCount").textContent=Number(d.messages||0).toLocaleString("fa-IR")}catch(e){toast(e.message)}}
 async function loadUsers(){el("usersTable").innerHTML='<div class="empty">در حال دریافت اطلاعات…</div>';try{var d=await api("users?page="+userPage+"&q="+encodeURIComponent(userQuery));el("usersTable").innerHTML= d.items.length?'<table><thead><tr><th>کاربر</th><th>شناسه</th><th>عضویت</th></tr></thead><tbody>'+d.items.map(function(u){return '<tr><td>'+esc(u.display_name||u.full_name||"بدون نام")+(u.username?'<small>@'+esc(u.username)+'</small>':'')+'</td><td><span class="userbadge">'+esc(u.user_id)+'</span></td><td>'+esc(u.created_at||"—")+'</td></tr>'}).join("")+'</tbody></table>':'<div class="empty">کاربری پیدا نشد.</div>';el("userPage").textContent="صفحه "+userPage+" از "+Math.max(1,d.pages);el("prevUsers").disabled=userPage<=1;el("nextUsers").disabled=userPage>=d.pages}catch(e){el("usersTable").innerHTML='<div class="empty error">'+esc(e.message)+'</div>'}}
 async function loadBlocks(){el("blocksTable").innerHTML='<div class="empty">در حال دریافت اطلاعات…</div>';try{var d=await api("blocks?page="+blockPage+"&q="+encodeURIComponent(blockQuery));el("blocksTable").innerHTML=d.items.length?'<table><thead><tr><th>مسدودکننده</th><th>کاربر مسدودشده</th><th>تاریخ</th><th>عملیات</th></tr></thead><tbody>'+d.items.map(function(b){return '<tr><td>'+esc(b.blocker_name||"بدون نام")+'<small>'+esc(b.blocker_id)+'</small></td><td>'+esc(b.blocked_name||"بدون نام")+'<small>'+esc(b.blocked_id)+'</small></td><td>'+esc(b.created_at||"—")+'</td><td><button class="btn danger" data-unblock="'+esc(b.blocker_id)+'" data-blocked="'+esc(b.blocked_id)+'">رفع مسدودی</button></td></tr>'}).join("")+'</tbody></table>':'<div class="empty">موردی پیدا نشد.</div>';el("blockPage").textContent="صفحه "+blockPage+" از "+Math.max(1,d.pages);el("prevBlocks").disabled=blockPage<=1;el("nextBlocks").disabled=blockPage>=d.pages;document.querySelectorAll("[data-unblock]").forEach(function(btn){btn.addEventListener("click",async function(){if(!confirm("فقط این رابطهٔ مسدودی حذف شود؟"))return;try{await api("blocks/unblock",{method:"POST",body:JSON.stringify({blocker_id:btn.dataset.unblock,blocked_id:btn.dataset.blocked})});toast("مسدودی رفع شد");await Promise.all([loadBlocks(),loadStats()])}catch(e){toast(e.message)}})})}catch(e){el("blocksTable").innerHTML='<div class="empty error">'+esc(e.message)+'</div>'}}
 el("userSearch").addEventListener("submit",function(e){e.preventDefault();userQuery=el("userQuery").value.trim();userPage=1;loadUsers()});el("blockSearch").addEventListener("submit",function(e){e.preventDefault();blockQuery=el("blockQuery").value.trim();blockPage=1;loadBlocks()});el("prevUsers").addEventListener("click",function(){if(userPage>1){userPage--;loadUsers()}});el("nextUsers").addEventListener("click",function(){userPage++;loadUsers()});el("prevBlocks").addEventListener("click",function(){if(blockPage>1){blockPage--;loadBlocks()}});el("nextBlocks").addEventListener("click",function(){blockPage++;loadBlocks()});
+
+async function loadBans(){el("bansTable").innerHTML='<div class="empty">در حال دریافت…</div>';try{var d=await api("bans");el("bansTable").innerHTML=d.items.length?'<table><thead><tr><th>کاربر</th><th>شناسه</th><th>پایان بن</th><th>دلیل</th><th>عملیات</th></tr></thead><tbody>'+d.items.map(function(b){return '<tr><td>'+esc(b.username||b.full_name||"بدون نام")+'</td><td><span class="userbadge">'+esc(b.user_id)+'</span></td><td>'+esc(b.ban_until||"—")+'</td><td>'+esc(b.reason||"—")+'</td><td><button class="btn" data-unban="'+esc(b.user_id)+'">رفع بن</button></td></tr>'}).join("")+'</tbody></table>':'<div class="empty">کاربر بن‌شده‌ای وجود ندارد.</div>';document.querySelectorAll("[data-unban]").forEach(function(b){b.addEventListener("click",async function(){if(!confirm("بن این کاربر برداشته شود؟"))return;try{await api("bans/unban",{method:"POST",body:JSON.stringify({user_id:b.dataset.unban})});toast("بن کاربر برداشته شد");loadBans()}catch(e){toast(e.message)}})})}catch(e){el("bansTable").innerHTML='<div class="empty error">'+esc(e.message)+'</div>'}}
+async function loadSupervisors(){el("supervisorsTable").innerHTML='<div class="empty">در حال دریافت…</div>';try{var d=await api("supervisors");el("supervisorsTable").innerHTML=d.items.length?'<table><thead><tr><th>شناسه</th><th>نام کاربری</th><th>افزوده‌شده</th><th>عملیات</th></tr></thead><tbody>'+d.items.map(function(x){return '<tr><td>'+esc(x.user_id)+'</td><td>'+esc(x.username||x.full_name||"—")+'</td><td>'+esc(x.added_at||"—")+'</td><td><button class="btn danger" data-rmsup="'+esc(x.user_id)+'">حذف ناظر</button></td></tr>'}).join("")+'</tbody></table>':'<div class="empty">هنوز ناظری ثبت نشده است.</div>';document.querySelectorAll("[data-rmsup]").forEach(function(b){b.addEventListener("click",async function(){if(!confirm("این ناظر حذف شود؟"))return;try{await api("supervisors/remove",{method:"POST",body:JSON.stringify({user_id:b.dataset.rmsup})});toast("ناظر حذف شد");loadSupervisors()}catch(e){toast(e.message)}})})}catch(e){el("supervisorsTable").innerHTML='<div class="empty error">'+esc(e.message)+'</div>'}}
+el("refreshBans").addEventListener("click",loadBans);
+el("renameForm").addEventListener("submit",async function(e){e.preventDefault();try{await api("users/rename",{method:"POST",body:JSON.stringify({user_id:el("renameId").value,display_name:el("renameName").value})});toast("نام نمایشی تغییر کرد");loadUsers()}catch(x){toast(x.message)}});
+el("dmForm").addEventListener("submit",async function(e){e.preventDefault();if(!confirm("پیام از طرف مدیریت ارسال شود؟"))return;try{await api("users/message",{method:"POST",body:JSON.stringify({user_id:el("dmId").value,text:el("dmText").value})});toast("پیام ارسال شد");el("dmText").value=""}catch(x){toast(x.message)}});
+el("banForm").addEventListener("submit",async function(e){e.preventDefault();if(!confirm("کاربر برای مدت تعیین‌شده بن شود؟"))return;try{await api("bans/ban",{method:"POST",body:JSON.stringify({user_id:el("banId").value,days:el("banDays").value,reason:el("banReason").value})});toast("بن ثبت شد");loadBans()}catch(x){toast(x.message)}});
+el("broadcastForm").addEventListener("submit",async function(e){e.preventDefault();if(!confirm("پیام برای همه کاربران ارسال شود؟ این عملیات قابل برگشت نیست."))return;var out=el("broadcastResult");out.classList.remove("hidden");out.textContent="در حال ارسال…";try{var d=await api("broadcast",{method:"POST",body:JSON.stringify({text:el("broadcastText").value})});out.textContent="ارسال تمام شد؛ موفق: "+d.sent+"، ناموفق: "+d.failed;toast("ارسال همگانی تمام شد")}catch(x){out.textContent=x.message;toast(x.message)}});
+el("addSupervisorForm").addEventListener("submit",async function(e){e.preventDefault();try{await api("supervisors/add",{method:"POST",body:JSON.stringify({user_id:el("supervisorId").value})});el("supervisorId").value="";toast("ناظر اضافه شد");loadSupervisors()}catch(x){toast(x.message)}});
+
 init();
 </script>
 </body>
@@ -275,3 +296,200 @@ def unblock():
         return jsonify({"ok": True})
     finally:
         conn.close()
+
+
+# Extended admin tools matching the Telegram bot's management commands.
+def _telegram_call(method, payload):
+    token = os.getenv("BOT_TOKEN")
+    if not token:
+        raise RuntimeError("BOT_TOKEN در تنظیمات هاست موجود نیست.")
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.telegram.org/bot" + token + "/" + method,
+        data=body, headers={"Content-Type": "application/json"}, method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try: details = json.loads(exc.read().decode("utf-8")).get("description", "خطای تلگرام")
+        except Exception: details = "خطای تلگرام"
+        raise RuntimeError(details)
+    if not result.get("ok"):
+        raise RuntimeError(result.get("description", "خطای تلگرام"))
+    return result.get("result")
+
+
+@admin_panel.get("/api/bans")
+@_auth_required
+def list_bans():
+    conn = _db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT user_id, username, full_name, ban_until, ban_reason
+                FROM users WHERE ban_until IS NOT NULL AND ban_until > CURRENT_TIMESTAMP
+                ORDER BY ban_until ASC""")
+            rows = cur.fetchall()
+        return jsonify({"items":[{"user_id":r[0],"username":r[1],"full_name":r[2],
+            "ban_until":r[3].strftime("%Y-%m-%d %H:%M") if r[3] else None,"reason":r[4]} for r in rows]})
+    finally:
+        conn.close()
+
+
+@admin_panel.post("/api/bans/unban")
+@_auth_required
+@_csrf_required
+def unban_user():
+    payload = request.get_json(silent=True) or {}
+    try: user_id = int(payload.get("user_id"))
+    except (TypeError, ValueError): return _json_error("شناسه کاربر معتبر نیست.", 400)
+    conn = _db()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE users SET ban_until=NULL, ban_reason=NULL WHERE user_id=%s AND ban_until IS NOT NULL RETURNING user_id",(user_id,))
+                row = cur.fetchone()
+        if not row: return _json_error("بن فعالی برای این کاربر پیدا نشد.", 404)
+        return jsonify({"ok":True})
+    finally: conn.close()
+
+
+@admin_panel.post("/api/bans/ban")
+@_auth_required
+@_csrf_required
+def ban_user():
+    payload = request.get_json(silent=True) or {}
+    try:
+        user_id = int(payload.get("user_id")); days = int(payload.get("days"))
+        if days < 1 or days > 3650: raise ValueError()
+    except (TypeError, ValueError): return _json_error("آیدی یا مدت بن معتبر نیست.", 400)
+    reason = str(payload.get("reason","")).strip()[:500]
+    if not reason: return _json_error("دلیل بن را وارد کن.", 400)
+    conn = _db()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE users SET ban_until=CURRENT_TIMESTAMP + (%s * INTERVAL '1 day'), ban_reason=%s WHERE user_id=%s RETURNING user_id",(days,reason,user_id))
+                row=cur.fetchone()
+        if not row: return _json_error("کاربر در دیتابیس پیدا نشد.",404)
+        return jsonify({"ok":True})
+    finally: conn.close()
+
+
+@admin_panel.post("/api/users/rename")
+@_auth_required
+@_csrf_required
+def rename_user():
+    payload=request.get_json(silent=True) or {}
+    try: user_id=int(payload.get("user_id"))
+    except (TypeError,ValueError): return _json_error("شناسه کاربر معتبر نیست.",400)
+    name=str(payload.get("display_name","")).strip()[:100]
+    if not name: return _json_error("نام نمایشی را وارد کن.",400)
+    conn=_db()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE users SET display_name=%s WHERE user_id=%s RETURNING user_id",(name,user_id))
+                row=cur.fetchone()
+        if not row: return _json_error("کاربر پیدا نشد.",404)
+        return jsonify({"ok":True})
+    finally: conn.close()
+
+
+@admin_panel.post("/api/users/message")
+@_auth_required
+@_csrf_required
+def message_user():
+    payload=request.get_json(silent=True) or {}
+    try: user_id=int(payload.get("user_id"))
+    except (TypeError,ValueError): return _json_error("شناسه کاربر معتبر نیست.",400)
+    message=str(payload.get("text","")).strip()
+    if not message or len(message)>4000: return _json_error("متن پیام خالی یا بیش از حد طولانی است.",400)
+    try: _telegram_call("sendMessage",{"chat_id":user_id,"text":"📢 پیام از طرف مدیریت گلدن چت:\n\n"+message})
+    except Exception as exc: return _json_error("ارسال نشد: "+str(exc),502)
+    return jsonify({"ok":True})
+
+
+@admin_panel.post("/api/broadcast")
+@_auth_required
+@_csrf_required
+def broadcast_users():
+    payload=request.get_json(silent=True) or {}
+    message=str(payload.get("text","")).strip()
+    if not message or len(message)>4000: return _json_error("متن پیام خالی یا بیش از حد طولانی است.",400)
+    conn=_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT user_id FROM users ORDER BY user_id")
+            ids=[r[0] for r in cur.fetchall()]
+    finally: conn.close()
+    sent=failed=0
+    for uid in ids:
+        try:
+            _telegram_call("sendMessage",{"chat_id":uid,"text":message})
+            sent+=1
+        except Exception:
+            failed+=1
+    return jsonify({"ok":True,"total":len(ids),"sent":sent,"failed":failed})
+
+
+@admin_panel.get("/api/supervisors")
+@_auth_required
+def list_supervisors():
+    conn=_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT s.user_id,u.username,u.full_name,s.added_at FROM supervisors s
+                LEFT JOIN users u ON u.user_id=s.user_id ORDER BY s.added_at ASC""")
+            rows=cur.fetchall()
+        return jsonify({"items":[{"user_id":r[0],"username":r[1],"full_name":r[2],
+            "added_at":r[3].strftime("%Y-%m-%d") if r[3] else None} for r in rows]})
+    finally: conn.close()
+
+
+def _is_primary_admin():
+    # This project defines the primary administrator in main.py.
+    return session.get("admin_authenticated") is True and session.get("web_primary_admin") is True
+
+
+@admin_panel.post("/api/supervisors/add")
+@_auth_required
+@_csrf_required
+def add_supervisor_web():
+    # Web-panel password is the primary admin credential; this operation is intentionally
+    # available only when ADMIN_PANEL_PRIMARY_ADMIN is explicitly configured.
+    if os.getenv("ADMIN_PANEL_PRIMARY_ADMIN") != "1":
+        return _json_error("برای مدیریت ناظران، ADMIN_PANEL_PRIMARY_ADMIN=1 را در Deplexo فعال کن.",403)
+    payload=request.get_json(silent=True) or {}
+    try: user_id=int(payload.get("user_id"))
+    except (TypeError,ValueError): return _json_error("شناسه ناظر معتبر نیست.",400)
+    if user_id <= 0: return _json_error("شناسه ناظر معتبر نیست.",400)
+    conn=_db()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("INSERT INTO supervisors(user_id) VALUES(%s) ON CONFLICT(user_id) DO NOTHING RETURNING user_id",(user_id,))
+                row=cur.fetchone()
+        if not row: return _json_error("این ناظر از قبل وجود دارد.",409)
+        return jsonify({"ok":True})
+    finally: conn.close()
+
+
+@admin_panel.post("/api/supervisors/remove")
+@_auth_required
+@_csrf_required
+def remove_supervisor_web():
+    if os.getenv("ADMIN_PANEL_PRIMARY_ADMIN") != "1":
+        return _json_error("برای مدیریت ناظران، ADMIN_PANEL_PRIMARY_ADMIN=1 را در Deplexo فعال کن.",403)
+    payload=request.get_json(silent=True) or {}
+    try: user_id=int(payload.get("user_id"))
+    except (TypeError,ValueError): return _json_error("شناسه ناظر معتبر نیست.",400)
+    conn=_db()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM supervisors WHERE user_id=%s RETURNING user_id",(user_id,))
+                row=cur.fetchone()
+        if not row: return _json_error("ناظر پیدا نشد.",404)
+        return jsonify({"ok":True})
+    finally: conn.close()
