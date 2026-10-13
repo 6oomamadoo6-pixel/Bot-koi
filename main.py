@@ -2390,6 +2390,25 @@ async def is_group_member(
 # KEYBOARDS
 # =========================================================
 
+def main_keyboard():
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("دریافت لینک ناشناس 🔗", callback_data="copy_link"),
+                InlineKeyboardButton("تعداد بازدید لینک 📊", callback_data="link_stats")
+            ],
+            [
+                InlineKeyboardButton("تنظیمات نام ⚙️", callback_data="name_settings"),
+                InlineKeyboardButton("تبلیغات 📢", callback_data="ads")
+            ],
+            [
+                InlineKeyboardButton("لیست مسدودی 🔴", callback_data="block_list"),
+                InlineKeyboardButton("راهنما 🤔", callback_data="help")
+            ]
+        ]
+    )
+
+
 def main_reply_keyboard():
     return ReplyKeyboardMarkup(
         [
