@@ -86,7 +86,8 @@ CHANNEL_1_URL = "https://t.me/hidemychatRobot0"
 
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+XAI_API_KEY = (os.getenv("XAI_API_KEY") or "").strip()
+XAI_MODEL = (os.getenv("XAI_MODEL") or "grok-4.7").strip()
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN environment variable is not set.")
@@ -2548,17 +2549,19 @@ def channel_links_keyboard(rows):
 
 
 async def classify_channel_profanity(text):
-    """Check Persian/Finglish profanity through OpenAI and log safe diagnostics."""
-    api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+    """Check Persian/Finglish profanity through xAI Grok and log safe diagnostics."""
+    api_key = (os.getenv("XAI_API_KEY") or "").strip()
+    model = (os.getenv("XAI_MODEL") or "grok-4.7").strip()
+
     if not api_key:
         print(
-            "[OpenAI moderation] OPENAI_API_KEY is missing or empty in the running service environment.",
+            "[xAI moderation] XAI_API_KEY is missing or empty in the running service environment.",
             flush=True,
         )
         return None
 
     payload = {
-        "model": "gpt-4o-mini",
+        "model": model,
         "temperature": 0,
         "response_format": {"type": "json_object"},
         "messages": [
@@ -2568,7 +2571,8 @@ async def classify_channel_profanity(text):
                     "You classify Persian-language anonymous channel messages. Detect swear words, "
                     "vulgar profanity, obscene insults, and abusive slurs in Persian or Finglish, "
                     "including intentionally misspelled or spaced forms. Do not flag ordinary "
-                    "criticism, disagreement, or academic discussion of profanity. Return a JSON object with a boolean field named profanity."
+                    "criticism, disagreement, or academic discussion of profanity. Return only a JSON "
+                    "object with a boolean field named profanity."
                 ),
             },
             {"role": "user", "content": text[:6000]},
@@ -2577,7 +2581,7 @@ async def classify_channel_profanity(text):
 
     def _request():
         req = urllib.request.Request(
-            "https://api.openai.com/v1/chat/completions",
+            "https://api.x.ai/v1/chat/completions",
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
             headers={
                 "Authorization": f"Bearer {api_key}",
@@ -2585,15 +2589,20 @@ async def classify_channel_profanity(text):
             },
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=20) as response:
-            return json.loads(response.read().decode("utf-8")), response.headers.get("x-request-id")
+        with urllib.request.urlopen(req, timeout=30) as response:
+            request_id = (
+                response.headers.get("x-request-id")
+                or response.headers.get("request-id")
+                or "unavailable"
+            )
+            return json.loads(response.read().decode("utf-8")), request_id
 
     try:
         result, request_id = await asyncio.to_thread(_request)
         choices = result.get("choices") or []
         if not choices:
             print(
-                f"[OpenAI moderation] API returned no choices; request_id={request_id or 'unavailable'}.",
+                f"[xAI moderation] API returned no choices; model={model}, request_id={request_id}.",
                 flush=True,
             )
             return None
@@ -2602,7 +2611,7 @@ async def classify_channel_profanity(text):
         raw_content = message.get("content")
         if not isinstance(raw_content, str) or not raw_content.strip():
             print(
-                f"[OpenAI moderation] API returned empty content; request_id={request_id or 'unavailable'}.",
+                f"[xAI moderation] API returned empty content; model={model}, request_id={request_id}.",
                 flush=True,
             )
             return None
@@ -2611,19 +2620,19 @@ async def classify_channel_profanity(text):
         verdict = parsed.get("profanity")
         if not isinstance(verdict, bool):
             print(
-                f"[OpenAI moderation] Unexpected verdict format; request_id={request_id or 'unavailable'}.",
+                f"[xAI moderation] Unexpected verdict format; model={model}, request_id={request_id}.",
                 flush=True,
             )
             return None
 
         print(
-            f"[OpenAI moderation] Check succeeded; request_id={request_id or 'unavailable'}.",
+            f"[xAI moderation] Check succeeded; model={model}, request_id={request_id}.",
             flush=True,
         )
         return verdict
 
     except urllib.error.HTTPError as e:
-        # Log the API's safe error details, never the API key or message text.
+        # Log safe API diagnostics only; never log the API key or submitted message.
         try:
             body = e.read().decode("utf-8", errors="replace")
             data = json.loads(body) if body else {}
@@ -2636,35 +2645,40 @@ async def classify_channel_profanity(text):
             error_type = "unavailable"
             error_message = "Could not parse API error response"
 
+        request_id = (
+            e.headers.get("x-request-id")
+            or e.headers.get("request-id")
+            or "unavailable"
+        )
         print(
-            "[OpenAI moderation] HTTP error "
-            f"status={e.code}, type={error_type}, code={error_code}, "
-            f"message={error_message}, request_id={e.headers.get('x-request-id', 'unavailable')}.",
+            "[xAI moderation] HTTP error "
+            f"status={e.code}, model={model}, type={error_type}, code={error_code}, "
+            f"message={error_message}, request_id={request_id}.",
             flush=True,
         )
         return None
 
     except urllib.error.URLError as e:
         print(
-            f"[OpenAI moderation] Connection error: {type(e.reason).__name__}: {e.reason}.",
+            f"[xAI moderation] Connection error: {type(e.reason).__name__}: {e.reason}.",
             flush=True,
         )
         return None
 
     except TimeoutError:
-        print("[OpenAI moderation] Request timed out after 20 seconds.", flush=True)
+        print("[xAI moderation] Request timed out after 30 seconds.", flush=True)
         return None
 
     except json.JSONDecodeError as e:
         print(
-            f"[OpenAI moderation] Invalid JSON response: {e}.",
+            f"[xAI moderation] Invalid JSON response: {e}.",
             flush=True,
         )
         return None
 
     except Exception as e:
         print(
-            f"[OpenAI moderation] Unexpected error: {type(e).__name__}: {e}.",
+            f"[xAI moderation] Unexpected error: {type(e).__name__}: {e}.",
             flush=True,
         )
         return None
