@@ -52,7 +52,9 @@ health_app.config.update(
 )
 
 from admin_panel import admin_panel
+from mini_app import mini_app
 health_app.register_blueprint(admin_panel)
+health_app.register_blueprint(mini_app)
 
 
 @health_app.route("/")
