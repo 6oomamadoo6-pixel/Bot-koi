@@ -2799,6 +2799,7 @@ async def classify_channel_profanity(text):
         result, request_id = await asyncio.to_thread(_request)
         choices = result.get("choices") or []
         if not choices:
+            AI_LAST_ERROR = "API هیچ نتیجه‌ای برنگرداند."
             print(
                 f"[OpenAI moderation] API returned no choices; request_id={request_id or 'unavailable'}.",
                 flush=True,
@@ -2808,6 +2809,7 @@ async def classify_channel_profanity(text):
         message = choices[0].get("message") or {}
         raw_content = message.get("content")
         if not isinstance(raw_content, str) or not raw_content.strip():
+            AI_LAST_ERROR = "پاسخ API خالی بود."
             print(
                 f"[OpenAI moderation] API returned empty content; request_id={request_id or 'unavailable'}.",
                 flush=True,
@@ -2817,6 +2819,7 @@ async def classify_channel_profanity(text):
         parsed = json.loads(raw_content)
         verdict = parsed.get("profanity")
         if not isinstance(verdict, bool):
+            AI_LAST_ERROR = "پاسخ API قالب مورد انتظار را نداشت."
             print(
                 f"[OpenAI moderation] Unexpected verdict format; request_id={request_id or 'unavailable'}.",
                 flush=True,
