@@ -2391,10 +2391,10 @@ def main_keyboard():
         [InlineKeyboardButton("دریافت لینک ناشناس 🔗", callback_data="copy_link", style="success")],
         [
             InlineKeyboardButton("تنظیمات نام ⚙️", callback_data="name_settings", style="primary"),
-            InlineKeyboardButton("تبلیغات 📢", callback_data="ads"),
+            InlineKeyboardButton("تبلیغات 📢", callback_data="ads", style="primary"),
         ],
         [
-            InlineKeyboardButton("کانال پشتیبانی 📣", url="https://t.me/SuppoortGoldenchat"),
+            InlineKeyboardButton("کانال پشتیبانی 📣", url="https://t.me/SuppoortGoldenchat", style="primary"),
             InlineKeyboardButton("لیست مسدودی 🚫", callback_data="block_list", style="danger"),
         ],
         [InlineKeyboardButton("راهنما 🤔", callback_data="help")],
