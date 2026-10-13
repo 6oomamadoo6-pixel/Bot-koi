@@ -2399,7 +2399,7 @@ def main_keyboard():
             InlineKeyboardButton("کانال پشتیبانی 📣", url="https://t.me/SuppoortGoldenchat", style="primary"),
             InlineKeyboardButton("لیست مسدودی 🚫", callback_data="block_list", style="danger"),
         ],
-        [InlineKeyboardButton("راهنما 🤔", callback_data="help")],
+        [InlineKeyboardButton("راهنما❔", callback_data="help")],
     ]
     return InlineKeyboardMarkup(rows)
 
@@ -5274,28 +5274,16 @@ async def media_handler(update, context):
                 else f"کاربر {anon_code}"
             )
 
-            header_kwargs = {
-                "chat_id": sender_id,
-                "text": f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
-                "parse_mode": "HTML",
-            }
-            if original[11]:
-                header_kwargs["reply_parameters"] = ReplyParameters(
-                    message_id=original[11],
-                    allow_sending_without_reply=True
-                )
-            await context.bot.send_message(**header_kwargs)
-
-            try:
-                delivered = await send_anonymous_media(
-                    context.bot, sender_id, media_type, file_id, caption, keyboard,
-                    reply_to_message_id=original[11] if original[11] else None
-                )
-            except TelegramError:
-                # اگر Reply به پیام قبلی قابل انجام نبود، خود فایل حتماً ارسال شود.
-                delivered = await send_anonymous_media(
-                    context.bot, sender_id, media_type, file_id, caption, keyboard
-                )
+            # شناسه پیام قبلی در چت گیرنده است؛ در چت فرستنده قابل Reply نیست.
+            reply_header = await context.bot.send_message(
+                chat_id=sender_id,
+                text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
+                parse_mode="HTML",
+            )
+            delivered = await send_anonymous_media(
+                context.bot, sender_id, media_type, file_id, caption, keyboard,
+                reply_to_message_id=reply_header.message_id
+            )
 
             try:
                 set_delivered_message_id(new_id, delivered.message_id)
@@ -5331,8 +5319,15 @@ async def media_handler(update, context):
         row = get_user(user.id)
         anon_code = row[4] if row else "0000000"
         try:
-            await context.bot.send_message(chat_id=target_id, text=f"<b>کاربر {anon_code} برای شما پیام ناشناسی ارسال کرد : 👇🏻</b>", parse_mode="HTML")
-            delivered = await send_anonymous_media(context.bot, target_id, media_type, file_id, caption, keyboard)
+            header = await context.bot.send_message(
+                chat_id=target_id,
+                text=f"<b>کاربر {anon_code} برای شما پیام ناشناسی ارسال کرد : 👇🏻</b>",
+                parse_mode="HTML"
+            )
+            delivered = await send_anonymous_media(
+                context.bot, target_id, media_type, file_id, caption, keyboard,
+                reply_to_message_id=header.message_id
+            )
             set_delivered_message_id(mid, delivered.message_id)
             await message.reply_text("✅ پیام ناشناس با موفقیت ارسال شد.", reply_markup=back_keyboard())
         except TelegramError:
@@ -6415,47 +6410,23 @@ async def handle_message(
                 else f"کاربر {anon_code}"
             )
 
-            # هدر جداگانه است و خودش Reply نمی‌شود.
-            header_kwargs = {
-                "chat_id": sender_id,
-                "text": f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
-                "parse_mode": "HTML",
-            }
-            if original[11]:
-                header_kwargs["reply_parameters"] = ReplyParameters(
-                    message_id=original[11],
+            # شناسه پیام قبلی در چت گیرنده است و در چت فرستنده معتبر نیست.
+            # بنابراین پاسخ به هدر پاسخ خودش Reply می‌شود تا اتصال بصری درست باشد.
+            reply_header = await context.bot.send_message(
+                chat_id=sender_id,
+                text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
+                parse_mode="HTML",
+            )
+            delivered = await context.bot.send_message(
+                chat_id=sender_id,
+                text=html.escape(text),
+                reply_markup=keyboard,
+                parse_mode="HTML",
+                reply_parameters=ReplyParameters(
+                    message_id=reply_header.message_id,
                     allow_sending_without_reply=True
                 )
-            await context.bot.send_message(**header_kwargs)
-
-            # پیام پاسخ باید به پیام ناشناس قبلی Reply شود.
-            # اگر Telegram آن پیام را پیدا نکرد، ارسال بدون Reply انجام می‌شود تا پاسخ خطا نخورد.
-            try:
-                if original[11]:
-                    delivered = await context.bot.send_message(
-                        chat_id=sender_id,
-                        text=html.escape(text),
-                        reply_markup=keyboard,
-                        parse_mode="HTML",
-                        reply_parameters=ReplyParameters(
-                            message_id=original[11],
-                            allow_sending_without_reply=True
-                        )
-                    )
-                else:
-                    delivered = await context.bot.send_message(
-                        chat_id=sender_id,
-                        text=html.escape(text),
-                        reply_markup=keyboard,
-                        parse_mode="HTML"
-                    )
-            except TelegramError:
-                delivered = await context.bot.send_message(
-                    chat_id=sender_id,
-                    text=html.escape(text),
-                    reply_markup=keyboard,
-                    parse_mode="HTML"
-                )
+            )
 
             try:
                 set_delivered_message_id(new_id, delivered.message_id)
@@ -6702,7 +6673,7 @@ async def handle_message(
         )
 
         try:
-            await context.bot.send_message(
+            header = await context.bot.send_message(
                 chat_id=target_id,
                 text=f"<b>کاربر {anon_code} برای شما پیام ناشناسی ارسال کرد : 👇🏻</b>",
                 parse_mode="HTML"
@@ -6712,7 +6683,11 @@ async def handle_message(
                 chat_id=target_id,
                 text=html.escape(text),
                 reply_markup=keyboard,
-                parse_mode="HTML"
+                parse_mode="HTML",
+                reply_parameters=ReplyParameters(
+                    message_id=header.message_id,
+                    allow_sending_without_reply=True
+                )
             )
             set_delivered_message_id(message_id, delivered.message_id)
 
