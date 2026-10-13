@@ -2391,22 +2391,136 @@ async def is_group_member(
 # =========================================================
 
 def main_keyboard():
-    return InlineKeyboardMarkup(
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("دریافت لینک ناشناس 🔗", callback_data="copy_link", style="success")],
         [
-            [
-                InlineKeyboardButton("دریافت لینک ناشناس 🔗", callback_data="copy_link"),
-                InlineKeyboardButton("تعداد بازدید لینک 📊", callback_data="link_stats")
-            ],
-            [
-                InlineKeyboardButton("تنظیمات نام ⚙️", callback_data="name_settings"),
-                InlineKeyboardButton("تبلیغات 📢", callback_data="ads")
-            ],
-            [
-                InlineKeyboardButton("لیست مسدودی 🔴", callback_data="block_list"),
-                InlineKeyboardButton("راهنما 🤔", callback_data="help")
-            ]
-        ]
+            InlineKeyboardButton("تنظیمات نام ⚙️", callback_data="name_settings"),
+            InlineKeyboardButton("تبلیغات 📢", callback_data="ads"),
+        ],
+        [
+            InlineKeyboardButton("لیست مسدودی 🔴", callback_data="block_list"),
+            InlineKeyboardButton("کانال پشتیبانی 📣", url="https://t.me/SuppoortGoldenchat"),
+        ],
+        [InlineKeyboardButton("راهنما 🤔", callback_data="help")],
+    ])
+
+
+def back_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("بازگشت 🔙", callback_data="back_main", style="danger")]
+    ])
+
+
+def cancel_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("لغو ارسال ❌", callback_data="cancel_send", style="danger")]
+    ])
+
+
+def join_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("عضویت در کانال رسمی", url=CHANNEL_1_URL)],
+        [InlineKeyboardButton("جوین شدم ✅", callback_data="check_join", style="success")],
+    ])
+
+
+def link_keyboard(share_url):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("اشتراک گذاری مستقیم 📤", url=share_url, style="success")],
+        [InlineKeyboardButton("تعداد بازدید لینک 📊", callback_data="link_stats")],
+        [InlineKeyboardButton("بازگشت 🔙", callback_data="back_main", style="danger")],
+    ])
+
+
+def name_settings_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("تغییر نام ✏️", callback_data="change_name", style="primary")],
+        [InlineKeyboardButton("بازگشت 🔙", callback_data="back_main", style="danger")],
+    ])
+
+
+def reaction_keyboard(message_id):
+    rows = []
+    for start in range(0, len(REACTIONS), 4):
+        rows.append([
+            InlineKeyboardButton(
+                reaction,
+                callback_data=f"react:{message_id}:{index}"
+            )
+            for index, reaction in enumerate(REACTIONS[start:start + 4], start=start)
+        ])
+    rows.append([
+        InlineKeyboardButton("بازگشت 🔙", callback_data=f"reaction_back:{message_id}", style="danger")
+    ])
+    return InlineKeyboardMarkup(rows)
+
+
+def anonymous_message_keyboard(message_id, sender_id, include_reaction=True, include_seen=True):
+    rows = []
+    if include_reaction:
+        rows.append([
+            InlineKeyboardButton("ری اکشن :)", callback_data=f"reaction:{message_id}", style="success")
+        ])
+    if include_seen:
+        rows.append([
+            InlineKeyboardButton("مشاهده شد 👁️", callback_data=f"seen:{message_id}")
+        ])
+    rows.append([
+        InlineKeyboardButton("پاسخ دادن 💌", callback_data=f"reply:{message_id}"),
+        InlineKeyboardButton("مسدود کردن 🔴", callback_data=f"block:{sender_id}", style="danger"),
+    ])
+    rows.append([
+        InlineKeyboardButton("گزارش تخلف 🚨", callback_data=f"report:{message_id}", style="danger")
+    ])
+    return InlineKeyboardMarkup(rows)
+
+
+def channel_message_keyboard(message_id, sender_id):
+    return anonymous_message_keyboard(
+        message_id,
+        sender_id,
+        include_reaction=True,
+        include_seen=True,
     )
+
+
+def group_view_keyboard(message_id):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("مشاهده پیام 👁️", callback_data=f"group_view:{message_id}")],
+        [InlineKeyboardButton("گزارش تخلف 🚨", callback_data=f"group_report:{message_id}", style="danger")],
+    ])
+
+
+def ban_cancel_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("لغو عملیات ❌", callback_data="ban_cancel", style="danger")]
+    ])
+
+
+def ban_duration_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("۱ روز", callback_data="ban_duration:1"),
+            InlineKeyboardButton("۳ روز", callback_data="ban_duration:3"),
+        ],
+        [
+            InlineKeyboardButton("۵ روز", callback_data="ban_duration:5"),
+            InlineKeyboardButton("۷ روز", callback_data="ban_duration:7"),
+        ],
+        [InlineKeyboardButton("لغو عملیات ❌", callback_data="ban_cancel", style="danger")],
+    ])
+
+
+def change_username_confirm_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("متوجه شدم ✅", callback_data="change_username_done", style="success")]
+    ])
+
+
+def channel_profanity_warning_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("بازگشت به پنل اصلی 🔙", callback_data="back_main", style="danger")]
+    ])
 
 
 def main_reply_keyboard():
