@@ -2451,7 +2451,7 @@ def reaction_keyboard(message_id):
     return InlineKeyboardMarkup(rows)
 
 
-def anonymous_message_keyboard(message_id, sender_id, include_reaction=True, include_seen=True):
+def anonymous_message_keyboard(message_id, sender_id, include_reaction=True, include_seen=True, include_new_message=False):
     rows = []
     if include_reaction:
         rows.append([
@@ -2459,10 +2459,14 @@ def anonymous_message_keyboard(message_id, sender_id, include_reaction=True, inc
         ])
     if include_seen:
         rows.append([
-            InlineKeyboardButton("مشاهده شد 👁️", callback_data=f"seen:{message_id}")
+            InlineKeyboardButton("مشاهده شد 👁️", callback_data=f"seen:{message_id}", style="primary")
+        ])
+    if include_new_message:
+        rows.append([
+            InlineKeyboardButton("ارسال پیام جدید 💬", callback_data=f"newmsg:{sender_id}", style="primary")
         ])
     rows.append([
-        InlineKeyboardButton("پاسخ دادن 💌", callback_data=f"reply:{message_id}"),
+        InlineKeyboardButton("پاسخ دادن 💌", callback_data=f"reply:{message_id}", style="success"),
         InlineKeyboardButton("مسدود کردن 🔴", callback_data=f"block:{sender_id}", style="danger"),
     ])
     rows.append([
@@ -2472,12 +2476,10 @@ def anonymous_message_keyboard(message_id, sender_id, include_reaction=True, inc
 
 
 def channel_message_keyboard(message_id, sender_id):
-    return anonymous_message_keyboard(
-        message_id,
-        sender_id,
-        include_reaction=True,
-        include_seen=True,
-    )
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("مسدود کردن 🔴", callback_data=f"block:{sender_id}", style="danger")],
+        [InlineKeyboardButton("گزارش تخلف 🚨", callback_data=f"report:{message_id}", style="danger")],
+    ])
 
 
 def group_view_keyboard(message_id):
@@ -4839,10 +4841,35 @@ async def button_handler(
         return
 
     # -----------------------------------------------------
+    # SEND A NEW MESSAGE TO THE PERSON WHO REPLIED
+    # -----------------------------------------------------
+
+    if data.startswith("newmsg:"):
+        try:
+            target_id = int(data.split(":", 1)[1])
+        except (ValueError, IndexError):
+            await query.answer("کاربر نامعتبر است.", show_alert=True)
+            return
+
+        if target_id == user_id or is_blocked(user_id, target_id) or is_blocked(target_id, user_id):
+            await query.answer("امکان ارسال پیام به این کاربر وجود ندارد.", show_alert=True)
+            return
+
+        await query.answer()
+        context.user_data.clear()
+        context.user_data["sending_anonymous"] = True
+        context.user_data["target_id"] = target_id
+        await query.message.reply_text(
+            "پیام جدید خود را برای همین کاربر بنویسید یا ارسال کنید: 📨",
+            reply_markup=cancel_keyboard()
+        )
+        return
+
+    # -----------------------------------------------------
     # REPLY
     # -----------------------------------------------------
 
-    if data.startswith("reply:"):
+    if data.startswith("reply:")
         try:
             message_id = int(
                 data.split(":", 1)[1]
@@ -5226,7 +5253,9 @@ async def media_handler(update, context):
             await message.reply_text(" اطلاعات پیام پیدا نشد.")
             return
         new_id = save_anonymous_message(user.id, sender_id, caption, media_type, file_id, caption, message.message_id, original[10] if original[10] else original[2])
-        keyboard = anonymous_message_keyboard(new_id, user.id, True, True)
+        keyboard = anonymous_message_keyboard(
+            new_id, user.id, True, True, include_new_message=True
+        )
         try:
             row = get_user(user.id)
             anon_code = row[4] if row else "0000000"
@@ -5237,11 +5266,17 @@ async def media_handler(update, context):
                 else f"کاربر {anon_code}"
             )
 
-            await context.bot.send_message(
-                chat_id=sender_id,
-                text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
-                parse_mode="HTML"
-            )
+            header_kwargs = {
+                "chat_id": sender_id,
+                "text": f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
+                "parse_mode": "HTML",
+            }
+            if original[11]:
+                header_kwargs["reply_parameters"] = ReplyParameters(
+                    message_id=original[11],
+                    allow_sending_without_reply=True
+                )
+            await context.bot.send_message(**header_kwargs)
 
             try:
                 delivered = await send_anonymous_media(
@@ -6345,7 +6380,8 @@ async def handle_message(
             new_id,
             user.id,
             True,
-            True
+            True,
+            include_new_message=True
         )
 
         safe_original = html.escape(
@@ -6372,11 +6408,17 @@ async def handle_message(
             )
 
             # هدر جداگانه است و خودش Reply نمی‌شود.
-            await context.bot.send_message(
-                chat_id=sender_id,
-                text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
-                parse_mode="HTML"
-            )
+            header_kwargs = {
+                "chat_id": sender_id,
+                "text": f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
+                "parse_mode": "HTML",
+            }
+            if original[11]:
+                header_kwargs["reply_parameters"] = ReplyParameters(
+                    message_id=original[11],
+                    allow_sending_without_reply=True
+                )
+            await context.bot.send_message(**header_kwargs)
 
             # پیام پاسخ باید به پیام ناشناس قبلی Reply شود.
             # اگر Telegram آن پیام را پیدا نکرد، ارسال بدون Reply انجام می‌شود تا پاسخ خطا نخورد.
