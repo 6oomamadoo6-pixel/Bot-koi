@@ -119,7 +119,7 @@ PAGE = r"""<!doctype html>
       if(reset){el("messages").replaceChildren();cache.messages=true;totalMessages=data.total||0;el("messageCount").textContent=String(totalMessages)+" پیام";}
       var old=el("loadMore");if(old)old.remove();
       if(data.items&&data.items.length){renderMessages(data.items,false);offset+=data.items.length;hasMore=!!data.has_more;}
-      else if(reset){el("messages").replaceChildren(node("div","empty","","هنوز پیامی در تاریخچه ثبت نشده است."));}
+      else if(reset){el("messages").replaceChildren(node("div","empty","هنوز پیامی در تاریخچه ثبت نشده است."));}
       if(hasMore){
         var b=button("نمایش پیام‌های قدیمی‌تر ↓",function(){loadMessages(false);},"loadmore");b.id="loadMore";
         var list=el("messageList");if(list)list.parentNode.insertBefore(b,list);else el("messages").appendChild(b);
@@ -134,13 +134,13 @@ PAGE = r"""<!doctype html>
   }
   async function loadChannels(){
     el("channels").replaceChildren(node("div","loader"));
-    try{var d=await api("channel-links");cache.channels=true;el("channels").replaceChildren();if(!d.items.length){el("channels").appendChild(node("div","empty","","هنوز لینک ناشناس کانالی برای حساب تو ثبت نشده است."));return;}
+    try{var d=await api("channel-links");cache.channels=true;el("channels").replaceChildren();if(!d.items.length){el("channels").appendChild(node("div","empty","هنوز لینک ناشناس کانالی برای حساب تو ثبت نشده است."));return;}
       d.items.forEach(function(item){var box=node("div","item");box.appendChild(node("strong","",item.title||"کانال"));var row=node("div","itemrow");row.appendChild(node("code","",item.url));row.appendChild(button("کپی",function(){copyText(item.url);},"copybtn"));box.appendChild(row);box.appendChild(node("div","hint","","شناسه کانال: "+item.channel_id));el("channels").appendChild(box);});
     }catch(e){el("channels").replaceChildren(node("div","empty error",e.message));}
   }
   async function loadBlocks(){
     el("blocks").replaceChildren(node("div","loader"));
-    try{var d=await api("blocks");cache.blocks=true;el("blockCount").textContent=String(d.items.length)+" نفر";el("blocks").replaceChildren();if(!d.items.length){el("blocks").appendChild(node("div","empty","","فهرست مسدودی‌های تو خالی است ✨"));return;}
+    try{var d=await api("blocks");cache.blocks=true;el("blockCount").textContent=String(d.items.length)+" نفر";el("blocks").replaceChildren();if(!d.items.length){el("blocks").appendChild(node("div","empty","فهرست مسدودی‌های تو خالی است ✨"));return;}
       d.items.forEach(function(item){var box=node("div","item blocked-user");var info=node("div","");info.appendChild(node("strong","",item.name||("کاربر "+item.user_id)));info.appendChild(node("div","uid","ID: "+item.user_id));box.appendChild(info);box.appendChild(node("span","tag","مسدود"));el("blocks").appendChild(box);});
     }catch(e){el("blocks").replaceChildren(node("div","empty error",e.message));}
   }
