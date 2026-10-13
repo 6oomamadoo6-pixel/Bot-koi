@@ -4,8 +4,6 @@ import string
 import asyncio
 import html
 import json
-import urllib.request
-import urllib.error
 from urllib.parse import quote
 from datetime import datetime, timedelta
 from threading import Thread
@@ -86,8 +84,6 @@ CHANNEL_1_URL = "https://t.me/hidemychatRobot0"
 
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-XAI_API_KEY = (os.getenv("XAI_API_KEY") or "").strip()
-XAI_MODEL = (os.getenv("XAI_MODEL") or "grok-4.7").strip()
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN environment variable is not set.")
@@ -2680,141 +2676,6 @@ def channel_links_keyboard(rows):
     buttons.append([InlineKeyboardButton("بازگشت به منوی اصلی ⬅️", callback_data="back_main", style="danger")])
     return InlineKeyboardMarkup(buttons)
 
-
-async def classify_channel_profanity(text):
-    """Check Persian/Finglish profanity through xAI Grok and log safe diagnostics."""
-    api_key = (os.getenv("XAI_API_KEY") or "").strip()
-    model = (os.getenv("XAI_MODEL") or "grok-4.7").strip()
-
-    if not api_key:
-        print(
-            "[xAI moderation] XAI_API_KEY is missing or empty in the running service environment.",
-            flush=True,
-        )
-        return None
-
-    payload = {
-        "model": model,
-        "temperature": 0,
-        "response_format": {"type": "json_object"},
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You classify Persian-language anonymous channel messages. Detect swear words, "
-                    "vulgar profanity, obscene insults, and abusive slurs in Persian or Finglish, "
-                    "including intentionally misspelled or spaced forms. Do not flag ordinary "
-                    "criticism, disagreement, or academic discussion of profanity. Return only a JSON "
-                    "object with a boolean field named profanity."
-                ),
-            },
-            {"role": "user", "content": text[:6000]},
-        ],
-    }
-
-    def _request():
-        req = urllib.request.Request(
-            "https://api.x.ai/v1/chat/completions",
-            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=30) as response:
-            request_id = (
-                response.headers.get("x-request-id")
-                or response.headers.get("request-id")
-                or "unavailable"
-            )
-            return json.loads(response.read().decode("utf-8")), request_id
-
-    try:
-        result, request_id = await asyncio.to_thread(_request)
-        choices = result.get("choices") or []
-        if not choices:
-            print(
-                f"[xAI moderation] API returned no choices; model={model}, request_id={request_id}.",
-                flush=True,
-            )
-            return None
-
-        message = choices[0].get("message") or {}
-        raw_content = message.get("content")
-        if not isinstance(raw_content, str) or not raw_content.strip():
-            print(
-                f"[xAI moderation] API returned empty content; model={model}, request_id={request_id}.",
-                flush=True,
-            )
-            return None
-
-        parsed = json.loads(raw_content)
-        verdict = parsed.get("profanity")
-        if not isinstance(verdict, bool):
-            print(
-                f"[xAI moderation] Unexpected verdict format; model={model}, request_id={request_id}.",
-                flush=True,
-            )
-            return None
-
-        print(
-            f"[xAI moderation] Check succeeded; model={model}, request_id={request_id}.",
-            flush=True,
-        )
-        return verdict
-
-    except urllib.error.HTTPError as e:
-        # Log safe API diagnostics only; never log the API key or submitted message.
-        try:
-            body = e.read().decode("utf-8", errors="replace")
-            data = json.loads(body) if body else {}
-            api_error = data.get("error") or {}
-            error_code = api_error.get("code") or "unavailable"
-            error_type = api_error.get("type") or "unavailable"
-            error_message = api_error.get("message") or "No error message returned"
-        except Exception:
-            error_code = "unavailable"
-            error_type = "unavailable"
-            error_message = "Could not parse API error response"
-
-        request_id = (
-            e.headers.get("x-request-id")
-            or e.headers.get("request-id")
-            or "unavailable"
-        )
-        print(
-            "[xAI moderation] HTTP error "
-            f"status={e.code}, model={model}, type={error_type}, code={error_code}, "
-            f"message={error_message}, request_id={request_id}.",
-            flush=True,
-        )
-        return None
-
-    except urllib.error.URLError as e:
-        print(
-            f"[xAI moderation] Connection error: {type(e.reason).__name__}: {e.reason}.",
-            flush=True,
-        )
-        return None
-
-    except TimeoutError:
-        print("[xAI moderation] Request timed out after 30 seconds.", flush=True)
-        return None
-
-    except json.JSONDecodeError as e:
-        print(
-            f"[xAI moderation] Invalid JSON response: {e}.",
-            flush=True,
-        )
-        return None
-
-    except Exception as e:
-        print(
-            f"[xAI moderation] Unexpected error: {type(e).__name__}: {e}.",
-            flush=True,
-        )
-        return None
 
 async def send_join_message(
     update,
@@ -6577,80 +6438,15 @@ async def handle_message(
             await message.reply_text("❌ اطلاعات چنل پیدا نشد.", reply_markup=back_keyboard())
             return
 
-        # Static status only: animation/edit loops are intentionally removed.
-        status_message = await message.reply_text(
-            "درحال بررسی پیام شما توسط هوش مصنوعی 🧠\nلطفاً کمی صبر کنید..."
-        )
-
-        try:
-            profanity = await classify_channel_profanity(text)
-        except Exception as moderation_error:
-            print(
-                f"[xAI moderation] Unhandled moderation failure: "
-                f"{type(moderation_error).__name__}: {moderation_error}",
-                flush=True,
-            )
-            profanity = None
-
-        if profanity is None:
-            await status_message.edit_text(
-                "⚠️ در حال حاضر بررسی هوشمند پیام در دسترس نیست؛ پیام شما ارسال نشد. لطفاً کمی بعد دوباره تلاش کنید.",
-                reply_markup=channel_profanity_warning_keyboard()
-            )
-            return
-
-        if profanity:
-            try:
-                violations = add_channel_profanity_violation(user.id)
-            except Exception as e:
-                print(f"Could not save profanity violation: {e}")
-                await status_message.edit_text(
-                    "⚠️ ذخیره تخلف انجام نشد و پیام ارسال نشد. لطفاً دوباره تلاش کنید.",
-                    reply_markup=channel_profanity_warning_keyboard()
-                )
-                return
-
-            if violations >= 3:
-                conn = db()
-                try:
-                    cur = conn.cursor()
-                    cur.execute(
-                        "UPDATE users SET ban_until = %s, ban_reason = %s WHERE user_id = %s",
-                        (
-                            datetime.now() + timedelta(days=36500),
-                            "ارسال سه پیام حاوی الفاظ رکیک به چنل",
-                            user.id
-                        )
-                    )
-                    conn.commit()
-                except Exception:
-                    conn.rollback()
-                    raise
-                finally:
-                    cur.close()
-                    release_db(conn)
-
-                context.user_data.clear()
-                await status_message.edit_text(
-                    "⛔ به دلیل تکرار سه‌بارهٔ ارسال پیام حاوی الفاظ رکیک، حساب کاربری شما مسدود شد.",
-                    reply_markup=channel_profanity_warning_keyboard()
-                )
-                return
-
-            context.user_data.clear()
-            await status_message.edit_text(
-                "⚠️ پیام شما حاوی الفاظ رکیک است.\n"
-                "در صورت تکرار 3 مرتبه، حساب کاربری شما مسدود خواهد شد!\n\n"
-                "پیام با نقل قول : در ارسال پیام ناشناس به چنل استفاده از الفاظ رکیک مجاز نیست.",
-                reply_markup=channel_profanity_warning_keyboard()
-            )
-            return
-
         row = get_user(user.id)
         anon_code = row[4] if row else "0000000"
-        message_id = save_anonymous_message(user.id, owner_id, text, "text", None, text, message.message_id, owner_id)
+        message_id = save_anonymous_message(
+            user.id, owner_id, text, "text", None, text, message.message_id, owner_id
+        )
         keyboard = channel_message_keyboard(message_id, user.id)
+
         try:
+            # Send the anonymous message directly, without AI moderation or a review status.
             await context.bot.send_message(
                 chat_id=channel_id,
                 text=f"<b>پیام ناشناس از طرف کاربر {anon_code}</b>\n\n{html.escape(text)}",
@@ -6658,18 +6454,23 @@ async def handle_message(
             )
             await context.bot.send_message(
                 chat_id=owner_id,
-                text=f"<b>پیام ناشناسی از طرف کاربر {anon_code} برای چنل شما ارسال شد.</b>\n\n<b>پیام :</b>\n{html.escape(text)}\n\n<b>گزارش تخلف و بلاک 👇🏻</b>",
+                text=(
+                    f"<b>پیام ناشناسی از طرف کاربر {anon_code} برای چنل شما ارسال شد.</b>\n\n"
+                    f"<b>پیام :</b>\n{html.escape(text)}\n\n"
+                    "<b>گزارش تخلف و بلاک 👇🏻</b>"
+                ),
                 parse_mode="HTML",
                 reply_markup=keyboard
             )
-            await status_message.edit_text(
+            await message.reply_text(
                 "✅ پیام ناشناس با موفقیت به چنل ارسال شد.",
                 reply_markup=back_keyboard()
             )
         except TelegramError as e:
             print(f"Anonymous channel text send error: {e}")
-            await status_message.edit_text(
-                "❌ ارسال به چنل ناموفق بود. بررسی کنید ربات هنوز ادمین چنل و دارای دسترسی ارسال پست باشد."
+            await message.reply_text(
+                "❌ ارسال به چنل ناموفق بود. بررسی کنید ربات هنوز ادمین چنل و دارای دسترسی ارسال پست باشد.",
+                reply_markup=back_keyboard()
             )
         context.user_data.clear()
         return
