@@ -93,6 +93,7 @@ OPENAI_API_BASE_URL = (
     or "https://api.openai.com/v1"
 ).strip().rstrip("/")
 OPENAI_MODEL = (os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip() or "gpt-4o-mini"
+AI_LAST_ERROR = None
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN environment variable is not set.")
@@ -2745,10 +2746,13 @@ def channel_links_keyboard(rows):
 
 async def classify_channel_profanity(text):
     """Check Persian/Finglish profanity through OpenAI and log safe diagnostics."""
+    global AI_LAST_ERROR
+    AI_LAST_ERROR = None
     api_key = (os.getenv("OPENAI_API_KEY") or os.getenv("AI_API_KEY") or "").strip()
     if not api_key:
+        AI_LAST_ERROR = "کلید API تنظیم نشده است (OPENAI_API_KEY یا AI_API_KEY)."
         print(
-            "[OpenAI moderation] OPENAI_API_KEY is missing or empty in the running service environment.",
+            "[OpenAI moderation] API key is missing or empty in the running service environment.",
             flush=True,
         )
         return None
@@ -2819,8 +2823,9 @@ async def classify_channel_profanity(text):
             )
             return None
 
+        AI_LAST_ERROR = None
         print(
-            f"[OpenAI moderation] Check succeeded; request_id={request_id or 'unavailable'}.",
+            f"[OpenAI moderation] Check succeeded; model={model}, request_id={request_id or 'unavailable'}.",
             flush=True,
         )
         return verdict
@@ -2839,6 +2844,7 @@ async def classify_channel_profanity(text):
             error_type = "unavailable"
             error_message = "Could not parse API error response"
 
+        AI_LAST_ERROR = f"HTTP {e.code} / {error_code}: {error_message}"[:280]
         print(
             "[OpenAI moderation] HTTP error "
             f"status={e.code}, type={error_type}, code={error_code}, "
@@ -2848,6 +2854,7 @@ async def classify_channel_profanity(text):
         return None
 
     except urllib.error.URLError as e:
+        AI_LAST_ERROR = f"خطای اتصال: {type(e.reason).__name__}: {e.reason}"[:280]
         print(
             f"[OpenAI moderation] Connection error: {type(e.reason).__name__}: {e.reason}.",
             flush=True,
@@ -2855,10 +2862,12 @@ async def classify_channel_profanity(text):
         return None
 
     except TimeoutError:
+        AI_LAST_ERROR = "مهلت پاسخ‌گویی API تمام شد (timeout)."
         print("[OpenAI moderation] Request timed out after 20 seconds.", flush=True)
         return None
 
     except json.JSONDecodeError as e:
+        AI_LAST_ERROR = f"پاسخ API قابل‌خواندن نبود: {e}"[:280]
         print(
             f"[OpenAI moderation] Invalid JSON response: {e}.",
             flush=True,
@@ -2866,11 +2875,32 @@ async def classify_channel_profanity(text):
         return None
 
     except Exception as e:
+        AI_LAST_ERROR = f"{type(e).__name__}: {e}"[:280]
         print(
             f"[OpenAI moderation] Unexpected error: {type(e).__name__}: {e}.",
             flush=True,
         )
         return None
+
+
+async def aitest_command(update, context):
+    """Admin-only, low-cost connectivity test for the configured AI API."""
+    user = update.effective_user
+    if not user or user.id != ADMIN_ID or update.effective_chat.type in ("group", "supergroup"):
+        return
+
+    await update.effective_message.reply_text("در حال آزمایش اتصال هوش مصنوعی... 🧠")
+    verdict = await classify_channel_profanity("سلام، این فقط یک پیام آزمایشی برای بررسی اتصال API است.")
+    if verdict is not None:
+        await update.effective_message.reply_text(
+            f"✅ اتصال API برقرار است. مدل: {OPENAI_MODEL}"
+        )
+    else:
+        reason = AI_LAST_ERROR or "علت مشخص نیست؛ لاگ سرویس را بررسی کنید."
+        await update.effective_message.reply_text(
+            "❌ اتصال API برقرار نشد.\nعلت: " + reason
+        )
+
 
 async def send_join_message(
     update,
@@ -7405,6 +7435,7 @@ async def post_init(
         await application.bot.set_my_commands([
             BotCommand("start", "شروع ربات"),
             BotCommand("cancel", "لغو عملیات"),
+            BotCommand("aitest", "آزمایش اتصال هوش مصنوعی"),
             BotCommand("linkgroup", "مدیریت گروه"),
             BotCommand("broadcast", "پیام همگانی"),
             BotCommand("userban", "لیست بن شده ها"),
@@ -7542,6 +7573,13 @@ def main():
         CommandHandler(
             "cancel",
             cancel_command
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "aitest",
+            aitest_command
         )
     )
 
