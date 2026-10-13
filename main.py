@@ -2547,8 +2547,13 @@ def channel_links_keyboard(rows):
 
 
 async def classify_channel_profanity(text):
-    """Use OpenAI to detect Persian/Finglish profanity before channel publication."""
-    if not OPENAI_API_KEY:
+    """Check Persian/Finglish profanity through OpenAI and log safe diagnostics."""
+    api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+    if not api_key:
+        print(
+            "[OpenAI moderation] OPENAI_API_KEY is missing or empty in the running service environment.",
+            flush=True,
+        )
         return None
 
     payload = {
@@ -2559,14 +2564,15 @@ async def classify_channel_profanity(text):
             {
                 "role": "system",
                 "content": (
-                    "You classify Persian-language anonymous channel messages. Detect swear words, vulgar profanity, "
-                    "obscene insults, and abusive slurs in Persian or Finglish, including intentionally misspelled "
-                    "or spaced forms. Do not flag ordinary criticism, disagreement, or academic discussion of profanity. "
-                    'Return JSON only: {"profanity": true} or {"profanity": false}.'
-                )
+                    "You classify Persian-language anonymous channel messages. Detect swear words, "
+                    "vulgar profanity, obscene insults, and abusive slurs in Persian or Finglish, "
+                    "including intentionally misspelled or spaced forms. Do not flag ordinary "
+                    "criticism, disagreement, or academic discussion of profanity. Return JSON only: "
+                    "{\\"profanity\\": true} or {\\"profanity\\": false}."
+                ),
             },
-            {"role": "user", "content": text[:6000]}
-        ]
+            {"role": "user", "content": text[:6000]},
+        ],
     }
 
     def _request():
@@ -2574,343 +2580,94 @@ async def classify_channel_profanity(text):
             "https://api.openai.com/v1/chat/completions",
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
             headers={
-                "Authorization": f"Bearer {OPENAI_API_KEY}",
+                "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=15) as response:
-            return json.loads(response.read().decode("utf-8"))
+        with urllib.request.urlopen(req, timeout=20) as response:
+            return json.loads(response.read().decode("utf-8")), response.headers.get("x-request-id")
 
     try:
-        result = await asyncio.to_thread(_request)
-        parsed = json.loads(result["choices"][0]["message"]["content"])
-        return bool(parsed.get("profanity", False))
-    except Exception as e:
-        print(f"OpenAI profanity check failed: {type(e).__name__}: {e}")
+        result, request_id = await asyncio.to_thread(_request)
+        choices = result.get("choices") or []
+        if not choices:
+            print(
+                f"[OpenAI moderation] API returned no choices; request_id={request_id or 'unavailable'}.",
+                flush=True,
+            )
+            return None
+
+        message = choices[0].get("message") or {}
+        raw_content = message.get("content")
+        if not isinstance(raw_content, str) or not raw_content.strip():
+            print(
+                f"[OpenAI moderation] API returned empty content; request_id={request_id or 'unavailable'}.",
+                flush=True,
+            )
+            return None
+
+        parsed = json.loads(raw_content)
+        verdict = parsed.get("profanity")
+        if not isinstance(verdict, bool):
+            print(
+                f"[OpenAI moderation] Unexpected verdict format; request_id={request_id or 'unavailable'}.",
+                flush=True,
+            )
+            return None
+
+        print(
+            f"[OpenAI moderation] Check succeeded; request_id={request_id or 'unavailable'}.",
+            flush=True,
+        )
+        return verdict
+
+    except urllib.error.HTTPError as e:
+        # Log the API's safe error details, never the API key or message text.
+        try:
+            body = e.read().decode("utf-8", errors="replace")
+            data = json.loads(body) if body else {}
+            api_error = data.get("error") or {}
+            error_code = api_error.get("code") or "unavailable"
+            error_type = api_error.get("type") or "unavailable"
+            error_message = api_error.get("message") or "No error message returned"
+        except Exception:
+            error_code = "unavailable"
+            error_type = "unavailable"
+            error_message = "Could not parse API error response"
+
+        print(
+            "[OpenAI moderation] HTTP error "
+            f"status={e.code}, type={error_type}, code={error_code}, "
+            f"message={error_message}, request_id={e.headers.get('x-request-id', 'unavailable')}.",
+            flush=True,
+        )
         return None
 
-
-def add_channel_profanity_violation(user_id):
-    conn = db()
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO channel_profanity_violations (user_id, violation_count, updated_at)
-            VALUES (%s, 1, CURRENT_TIMESTAMP)
-            ON CONFLICT (user_id)
-            DO UPDATE SET
-                violation_count = channel_profanity_violations.violation_count + 1,
-                updated_at = CURRENT_TIMESTAMP
-            RETURNING violation_count
-            """,
-            (user_id,)
+    except urllib.error.URLError as e:
+        print(
+            f"[OpenAI moderation] Connection error: {type(e.reason).__name__}: {e.reason}.",
+            flush=True,
         )
-        row = cur.fetchone()
-        conn.commit()
-        return int(row[0]) if row else 1
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cur.close()
-        release_db(conn)
+        return None
 
+    except TimeoutError:
+        print("[OpenAI moderation] Request timed out after 20 seconds.", flush=True)
+        return None
 
-def channel_profanity_warning_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("بازگشت 🔙", callback_data="back_main", style="danger")]
-    ])
-
-
-def channel_message_keyboard(message_id, sender_id):
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("بلاک 🛑", callback_data=f"block:{sender_id}", style="danger"),
-            InlineKeyboardButton("گزارش تخلف 🚨", callback_data=f"report:{message_id}", style="danger")
-        ]
-    ])
-
-
-def join_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "کانال رسمی گلدن چت",
-                url=CHANNEL_1_URL
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "جوین شدم ✅",
-                callback_data="check_join",
-                style="success"
-            )
-        ]
-    ])
-
-
-def back_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "بازگشت 🔙",
-                callback_data="back_main",
-                style="danger"
-            )
-        ]
-    ])
-
-
-def change_username_confirm_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "اوکی « ارسال پنل اصلی »",
-                callback_data="change_username_done",
-                style="success"
-            )
-        ]
-    ])
-
-
-def link_keyboard(share_url=None):
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "اشتراک گذاری مستقیم 📤",
-                switch_inline_query="share"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "تعداد بازدید لینک 📊",
-                callback_data="link_stats",
-                style="success"
-            ),
-            InlineKeyboardButton(
-                "بازگشت 🔙",
-                callback_data="back_main",
-                style="danger"
-            )
-        ]
-    ])
-
-
-def cancel_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "لغو ارسال پیام",
-                callback_data="cancel_send",
-                style="danger"
-            )
-        ]
-    ])
-
-
-def main_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "دریافت لینک اختصاصی 🔗",
-                callback_data="copy_link",
-                style="success"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "تنظیمات نام ⚙️",
-                callback_data="name_settings"
-            ),
-            InlineKeyboardButton(
-                "تبلیغات 📢",
-                callback_data="ads"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "لیست مسدودی 🚫",
-                callback_data="block_list",
-                style="danger"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "چنل اطلاع رسانی 📢",
-                url="https://t.me/SuppoortGoldenchat"
-            ),
-            InlineKeyboardButton(
-                "راهنما 🤔",
-                callback_data="help"
-            )
-        ]
-    ])
-
-
-def name_settings_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "تغییر نام ✏️",
-                callback_data="change_name"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "بازگشت 🔙",
-                callback_data="back_main",
-                style="danger"
-            )
-        ]
-    ])
-
-
-def anonymous_message_keyboard(
-    message_id,
-    sender_id,
-    include_reaction=True,
-    include_seen=True
-):
-    buttons = [
-        [
-            InlineKeyboardButton(
-                "پاسخ 🗨️",
-                callback_data=f"reply:{message_id}",
-                style="success"
-            ),
-            InlineKeyboardButton(
-                "بلاک 🛑",
-                callback_data=f"block:{sender_id}",
-                style="danger"
-            )
-        ]
-    ]
-
-    if include_seen:
-        buttons.append([
-            InlineKeyboardButton(
-                "مشاهده شد 👁️",
-                callback_data=f"seen:{message_id}",
-                style="success"
-            )
-        ])
-
-    buttons.append([
-        InlineKeyboardButton(
-            "گزارش تخلف کاربر 🚨",
-            callback_data=f"report:{message_id}",
-            style="danger"
+    except json.JSONDecodeError as e:
+        print(
+            f"[OpenAI moderation] Invalid JSON response: {e}.",
+            flush=True,
         )
-    ])
+        return None
 
-    if include_reaction:
-        buttons.append([
-            InlineKeyboardButton(
-                "ری اکشن :)",
-                callback_data=f"reaction:{message_id}",
-                style="success"
-            )
-        ])
-
-    return InlineKeyboardMarkup(buttons)
-
-
-def reaction_keyboard(message_id):
-    buttons = []
-    row = []
-
-    for index, reaction in enumerate(REACTIONS):
-        row.append(
-            InlineKeyboardButton(
-                reaction,
-                callback_data=f"react:{message_id}:{index}"
-            )
+    except Exception as e:
+        print(
+            f"[OpenAI moderation] Unexpected error: {type(e).__name__}: {e}.",
+            flush=True,
         )
-
-        if len(row) == 4:
-            buttons.append(row)
-            row = []
-
-    if row:
-        buttons.append(row)
-
-    buttons.append([
-        InlineKeyboardButton(
-            "بازگشت 🔙",
-            callback_data=f"reaction_back:{message_id}",
-            style="danger"
-        )
-    ])
-
-    return InlineKeyboardMarkup(buttons)
-
-
-def group_view_keyboard(message_id):
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "دیدن پیام",
-                callback_data=f"group_view:{message_id}",
-                style="success"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "گزارش تخلف 🚨",
-                callback_data=f"group_report:{message_id}",
-                style="danger"
-            )
-        ]
-    ])
-
-
-def ban_cancel_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "لغو",
-                callback_data="ban_cancel"
-            )
-        ]
-    ])
-
-
-def ban_duration_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "1 روز",
-                callback_data="ban_duration:1"
-            ),
-            InlineKeyboardButton(
-                "3 روز",
-                callback_data="ban_duration:3"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "5 روز",
-                callback_data="ban_duration:5"
-            ),
-            InlineKeyboardButton(
-                "7 روز",
-                callback_data="ban_duration:7"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "لغو",
-                callback_data="ban_cancel"
-            )
-        ]
-    ])
-
-
-# =========================================================
-# JOIN
-# =========================================================
+        return None
 
 async def send_join_message(
     update,
