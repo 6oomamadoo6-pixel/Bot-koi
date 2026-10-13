@@ -3138,13 +3138,13 @@ async def start(
 
     if first_time_user:
         welcome_text = (
-            "<b>چنل رسمی و اطلاع رسانی گلدن چت</b>\n"
-            "<b>اینجا هیچ اجباری به عضویت نیست 👨🏻‍💼</b>"
+            "<b>چنل رسمی گلدن چت و اطلاع رسانی 🤠 📢</b>\n"
+            "<b>هیچ جوین اجباری ای نیست و میتونید بدون جوین از ربات استفاده کنید 👨🏻‍💼</b>"
         )
         welcome_keyboard = InlineKeyboardMarkup([
             [
                 InlineKeyboardButton(
-                    "دیدن چنل رسمی گلدن چت",
+                    "چنل رسمی گلدن چت",
                     url="https://t.me/SuppoortGoldenchat"
                 )
             ]
