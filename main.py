@@ -23,6 +23,7 @@ from telegram import (
     ReplyKeyboardMarkup,
     KeyboardButton,
     ChatMember,
+    WebAppInfo,
 )
 from telegram.ext import (
     Application,
@@ -78,6 +79,7 @@ def start_health_server():
 # =========================================================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+MINI_APP_URL = os.getenv("MINI_APP_URL", "").strip()
 
 ADMIN_ID = 6078875175
 
@@ -2389,7 +2391,7 @@ async def is_group_member(
 # =========================================================
 
 def main_keyboard():
-    return InlineKeyboardMarkup([
+    rows = [
         [InlineKeyboardButton("دریافت لینک ناشناس 🔗", callback_data="copy_link", style="success")],
         [
             InlineKeyboardButton("تنظیمات نام ⚙️", callback_data="name_settings", style="primary"),
@@ -2400,7 +2402,15 @@ def main_keyboard():
             InlineKeyboardButton("لیست مسدودی 🚫", callback_data="block_list", style="danger"),
         ],
         [InlineKeyboardButton("راهنما 🤔", callback_data="help")],
-    ])
+    ]
+    if MINI_APP_URL.startswith("https://"):
+        rows.insert(0, [
+            InlineKeyboardButton(
+                "مینی‌اپ گلدن چت ✨",
+                web_app=WebAppInfo(url=MINI_APP_URL.rstrip("/"))
+            )
+        ])
+    return InlineKeyboardMarkup(rows)
 
 
 def back_keyboard():
