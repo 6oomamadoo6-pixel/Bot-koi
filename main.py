@@ -166,37 +166,6 @@ def save_abuse_report(report_type, reporter_id, reporter_name, reported_user_id,
         release_db(conn)
 
 
-
-def add_channel_profanity_violation(user_id):
-    """Atomically increment a user's channel-message profanity violation count."""
-    conn = db()
-    cur = None
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO channel_profanity_violations
-                (user_id, violation_count, updated_at)
-            VALUES (%s, 1, CURRENT_TIMESTAMP)
-            ON CONFLICT (user_id)
-            DO UPDATE SET
-                violation_count = channel_profanity_violations.violation_count + 1,
-                updated_at = CURRENT_TIMESTAMP
-            RETURNING violation_count
-            """,
-            (user_id,),
-        )
-        row = cur.fetchone()
-        conn.commit()
-        return row[0] if row else 1
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        if cur is not None:
-            cur.close()
-        release_db(conn)
-
 def init_db():
     conn = db()
 
@@ -2433,296 +2402,6 @@ def main_reply_keyboard():
         ],
         resize_keyboard=True
     )
-
-
-def main_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "دریافت لینک اختصاصی 🔗",
-                callback_data="copy_link",
-                style="success"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "تنظیمات نام ⚙️",
-                callback_data="name_settings"
-            ),
-            InlineKeyboardButton(
-                "تبلیغات 📢",
-                callback_data="ads"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "لیست مسدودی 🚫",
-                callback_data="block_list",
-                style="danger"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "چنل اطلاع رسانی 📢",
-                url="https://t.me/SuppoortGoldenchat"
-            ),
-            InlineKeyboardButton(
-                "راهنما 🤔",
-                callback_data="help"
-            )
-        ]
-    ])
-
-
-def back_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "بازگشت 🔙",
-                callback_data="back_main",
-                style="danger"
-            )
-        ]
-    ])
-
-
-def cancel_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "لغو ارسال پیام",
-                callback_data="cancel_send",
-                style="danger"
-            )
-        ]
-    ])
-
-
-def join_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "کانال رسمی گلدن چت",
-                url=CHANNEL_1_URL
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "جوین شدم ✅",
-                callback_data="check_join",
-                style="success"
-            )
-        ]
-    ])
-
-
-def link_keyboard(share_url=None):
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "اشتراک گذاری مستقیم 📤",
-                switch_inline_query="share"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "تعداد بازدید لینک 📊",
-                callback_data="link_stats",
-                style="success"
-            ),
-            InlineKeyboardButton(
-                "بازگشت 🔙",
-                callback_data="back_main",
-                style="danger"
-            )
-        ]
-    ])
-
-
-def name_settings_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "تغییر نام ✏️",
-                callback_data="change_name"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "بازگشت 🔙",
-                callback_data="back_main",
-                style="danger"
-            )
-        ]
-    ])
-
-
-def reaction_keyboard(message_id):
-    buttons = []
-    row = []
-
-    for index, reaction in enumerate(REACTIONS):
-        row.append(
-            InlineKeyboardButton(
-                reaction,
-                callback_data=f"react:{message_id}:{index}"
-            )
-        )
-
-        if len(row) == 4:
-            buttons.append(row)
-            row = []
-
-    if row:
-        buttons.append(row)
-
-    buttons.append([
-        InlineKeyboardButton(
-            "بازگشت 🔙",
-            callback_data=f"reaction_back:{message_id}",
-            style="danger"
-        )
-    ])
-
-    return InlineKeyboardMarkup(buttons)
-
-
-def anonymous_message_keyboard(
-    message_id,
-    sender_id,
-    include_reaction=True,
-    include_seen=True
-):
-    buttons = [
-        [
-            InlineKeyboardButton(
-                "پاسخ 🗨️",
-                callback_data=f"reply:{message_id}",
-                style="success"
-            ),
-            InlineKeyboardButton(
-                "بلاک 🛑",
-                callback_data=f"block:{sender_id}",
-                style="danger"
-            )
-        ]
-    ]
-
-    if include_seen:
-        buttons.append([
-            InlineKeyboardButton(
-                "مشاهده شد 👁️",
-                callback_data=f"seen:{message_id}",
-                style="success"
-            )
-        ])
-
-    buttons.append([
-        InlineKeyboardButton(
-            "گزارش تخلف کاربر 🚨",
-            callback_data=f"report:{message_id}",
-            style="danger"
-        )
-    ])
-
-    if include_reaction:
-        buttons.append([
-            InlineKeyboardButton(
-                "ری اکشن :)",
-                callback_data=f"reaction:{message_id}",
-                style="success"
-            )
-        ])
-
-    return InlineKeyboardMarkup(buttons)
-
-
-def channel_message_keyboard(message_id, sender_id):
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("بلاک 🛑", callback_data=f"block:{sender_id}", style="danger"),
-            InlineKeyboardButton("گزارش تخلف 🚨", callback_data=f"report:{message_id}", style="danger")
-        ]
-    ])
-
-
-def group_view_keyboard(message_id):
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "دیدن پیام",
-                callback_data=f"group_view:{message_id}",
-                style="success"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "گزارش تخلف 🚨",
-                callback_data=f"group_report:{message_id}",
-                style="danger"
-            )
-        ]
-    ])
-
-
-def ban_cancel_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "لغو",
-                callback_data="ban_cancel"
-            )
-        ]
-    ])
-
-
-def ban_duration_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "1 روز",
-                callback_data="ban_duration:1"
-            ),
-            InlineKeyboardButton(
-                "3 روز",
-                callback_data="ban_duration:3"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "5 روز",
-                callback_data="ban_duration:5"
-            ),
-            InlineKeyboardButton(
-                "7 روز",
-                callback_data="ban_duration:7"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "لغو",
-                callback_data="ban_cancel"
-            )
-        ]
-    ])
-
-
-def change_username_confirm_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "اوکی « ارسال پنل اصلی »",
-                callback_data="change_username_done",
-                style="success"
-            )
-        ]
-    ])
-
-
-def channel_profanity_warning_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("بازگشت 🔙", callback_data="back_main", style="danger")]
-    ])
 
 
 def get_channel_terms_accepted(user_id):
@@ -7404,32 +7083,37 @@ async def inline_share_handler(update, context):
     if not query or not user:
         return
 
-    # Only show the share card when the user explicitly invokes it
-    # with the "share" query. Typing/pasting @HideMyChatRobot alone
-    # must not return a share result.
-    if (query.query or "").strip().lower() != "share":
-        await query.answer([], cache_time=0, is_personal=True)
-        return
-
-    get_or_create_user(user.id, user.username, user.full_name)
     bot_info = await context.bot.get_me()
+    bot_username = f"@{bot_info.username}"
+
+    # Keep the existing personal share card available, and always show
+    # a second result that sends only the bot username.
+    get_or_create_user(user.id, user.username, user.full_name)
     own_link = f"https://t.me/{bot_info.username}?start={user.id}"
-    result = InlineQueryResultArticle(
-        id="golden-chat-share",
-        title="حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀",
-        description="G O L D E N  C H A T",
-        input_message_content=InputTextMessageContent(
-            f'<a href="{html.escape(own_link, quote=True)}"><b>حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀</b></a>\n\n'
-            f'<a href="{html.escape(own_link, quote=True)}">{html.escape(own_link)}</a>\n\n'
-            f'<b>G O L D E N  C H A T</b>',
-            parse_mode="HTML",
-            disable_web_page_preview=True
+    results = [
+        InlineQueryResultArticle(
+            id="golden-chat-share",
+            title="حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀",
+            description="G O L D E N  C H A T",
+            input_message_content=InputTextMessageContent(
+                f'<a href="{html.escape(own_link, quote=True)}"><b>حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀</b></a>\n\n'
+                f'<a href="{html.escape(own_link, quote=True)}">{html.escape(own_link)}</a>\n\n'
+                f'<b>G O L D E N  C H A T</b>',
+                parse_mode="HTML",
+                disable_web_page_preview=True
+            ),
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("حرف بزنیممم", url=own_link, style="primary")]
+            ])
         ),
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("حرف بزنیممم", url=own_link, style="primary")]
-        ])
-    )
-    await query.answer([result], cache_time=0, is_personal=True)
+        InlineQueryResultArticle(
+            id="golden-chat-bot-username",
+            title="ارسال آیدی ربات",
+            description="برای ارسال آیدی ربات کلیک کنید",
+            input_message_content=InputTextMessageContent(bot_username)
+        )
+    ]
+    await query.answer(results, cache_time=0, is_personal=True)
 
 
 # =========================================================
