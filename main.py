@@ -2716,10 +2716,11 @@ async def send_main_panel(
     show_reply_keyboard=True
 ):
     text = (
-        "<b>درود! به پنل اصلی ربات "
-        "\" گلدن چت \" خوش آمدید.⚡</b>\n\n"
-        "<b>خوشحالم که ما انتخاب شما بودیم😉</b>\n\n"
-        "<b>برای استفاده از ربات از پنل شیشه ای زیر استفاده کنید :</b>"
+        "<b>درود!\n"
+        "شما در پنل اصلی « گلدن چت » هستین.🤠\n\n"
+        "میتونید با استفاده از پنل زیر و دکمه های کیبوردی و حتی مینی اپ از قابلیت های ربات استفاده کنید؛⚡\n"
+        "ممنون از انتخاب شما 😉</b>\n\n"
+        "<blockquote>دریافت مجدد منو با › /start</blockquote>"
     )
 
     if update.message:
@@ -3984,7 +3985,7 @@ async def button_handler(
             set_unban_request_status(request_id, "rejected")
             await query.answer("درخواست رد شد ")
             await query.message.edit_text(
-                "<b>درود! به پنل اصلی ربات \" گلدن چت \" خوش آمدید.⚡</b>\n\n<b>خوشحالم که ما انتخاب شما بودیم😉</b>\n\n<b>برای استفاده از ربات از پنل شیشه ای زیر استفاده کنید :</b>",
+                "<b>درود!\nشما در پنل اصلی « گلدن چت » هستین.🤠\n\nمیتونید با استفاده از پنل زیر و دکمه های کیبوردی و حتی مینی اپ از قابلیت های ربات استفاده کنید؛⚡\nممنون از انتخاب شما 😉</b>\n\n<blockquote>دریافت مجدد منو با › /start</blockquote>",
                 reply_markup=main_keyboard(), parse_mode="HTML"
             )
             try:
@@ -4015,7 +4016,7 @@ async def button_handler(
             set_broadcast_request_status(request_id, "rejected")
             await query.answer("درخواست رد شد ")
             await query.message.edit_text(
-                "<b>درود! به پنل اصلی ربات \" گلدن چت \" خوش آمدید.⚡</b>\n\n<b>خوشحالم که ما انتخاب شما بودیم😉</b>\n\n<b>برای استفاده از ربات از پنل شیشه ای زیر استفاده کنید :</b>",
+                "<b>درود!\nشما در پنل اصلی « گلدن چت » هستین.🤠\n\nمیتونید با استفاده از پنل زیر و دکمه های کیبوردی و حتی مینی اپ از قابلیت های ربات استفاده کنید؛⚡\nممنون از انتخاب شما 😉</b>\n\n<blockquote>دریافت مجدد منو با › /start</blockquote>",
                 reply_markup=main_keyboard(), parse_mode="HTML"
             )
             try:
