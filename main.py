@@ -86,14 +86,7 @@ CHANNEL_1_URL = "https://t.me/hidemychatRobot0"
 
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or os.getenv("AI_API_KEY")
-OPENAI_API_BASE_URL = (
-    os.getenv("OPENAI_API_BASE_URL")
-    or os.getenv("OPENAI_BASE_URL")
-    or "https://api.openai.com/v1"
-).strip().rstrip("/")
-OPENAI_MODEL = (os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip() or "gpt-4o-mini"
-AI_LAST_ERROR = None
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN environment variable is not set.")
@@ -2446,40 +2439,16 @@ def main_reply_keyboard():
 # which caused NameError exceptions when /start or several flows tried to show them.
 def main_keyboard():
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton("دریافت لینک ناشناس 🔗", callback_data="copy_link", style="success")],
         [
-            InlineKeyboardButton(
-                "دریافت لینک اختصاصی 🔗",
-                callback_data="copy_link",
-                style="success"
-            )
+            InlineKeyboardButton("تنظیمات نام ⚙️", callback_data="name_settings"),
+            InlineKeyboardButton("تبلیغات 📢", callback_data="ads"),
         ],
         [
-            InlineKeyboardButton(
-                "تنظیمات نام ⚙️",
-                callback_data="name_settings"
-            ),
-            InlineKeyboardButton(
-                "تبلیغات 📢",
-                callback_data="ads"
-            )
+            InlineKeyboardButton("لیست مسدودی 🔴", callback_data="block_list"),
+            InlineKeyboardButton("کانال پشتیبانی 📣", url="https://t.me/SuppoortGoldenchat"),
         ],
-        [
-            InlineKeyboardButton(
-                "لیست مسدودی 🚫",
-                callback_data="block_list",
-                style="danger"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "چنل پشتیبانی ✅",
-                url=CHANNEL_1_URL
-            ),
-            InlineKeyboardButton(
-                "راهنما 🤔",
-                callback_data="help"
-            )
-        ]
+        [InlineKeyboardButton("راهنما 🤔", callback_data="help")],
     ])
 
 
@@ -2502,9 +2471,9 @@ def join_keyboard():
     ])
 
 
-def link_keyboard():
+def link_keyboard(share_url):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("اشتراک گذاری مستقیم 📤", switch_inline_query="share", style="success")],
+        [InlineKeyboardButton("اشتراک گذاری مستقیم 📤", url=share_url, style="success")],
         [InlineKeyboardButton("تعداد بازدید لینک 📊", callback_data="link_stats")],
         [InlineKeyboardButton("بازگشت 🔙", callback_data="back_main", style="danger")],
     ])
@@ -2746,26 +2715,16 @@ def channel_links_keyboard(rows):
 
 async def classify_channel_profanity(text):
     """Check Persian/Finglish profanity through OpenAI and log safe diagnostics."""
-    global AI_LAST_ERROR
-    AI_LAST_ERROR = None
-    api_key = (os.getenv("OPENAI_API_KEY") or os.getenv("AI_API_KEY") or "").strip()
+    api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
     if not api_key:
-        AI_LAST_ERROR = "کلید API تنظیم نشده است (OPENAI_API_KEY یا AI_API_KEY)."
         print(
-            "[OpenAI moderation] API key is missing or empty in the running service environment.",
+            "[OpenAI moderation] OPENAI_API_KEY is missing or empty in the running service environment.",
             flush=True,
         )
         return None
 
-    endpoint = (
-        OPENAI_API_BASE_URL
-        if OPENAI_API_BASE_URL.endswith("/chat/completions")
-        else f"{OPENAI_API_BASE_URL}/chat/completions"
-    )
-    model = (os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip() or "gpt-4o-mini"
-
     payload = {
-        "model": model,
+        "model": "gpt-4o-mini",
         "temperature": 0,
         "response_format": {"type": "json_object"},
         "messages": [
@@ -2784,7 +2743,7 @@ async def classify_channel_profanity(text):
 
     def _request():
         req = urllib.request.Request(
-            endpoint,
+            "https://api.openai.com/v1/chat/completions",
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
             headers={
                 "Authorization": f"Bearer {api_key}",
@@ -2799,7 +2758,6 @@ async def classify_channel_profanity(text):
         result, request_id = await asyncio.to_thread(_request)
         choices = result.get("choices") or []
         if not choices:
-            AI_LAST_ERROR = "API هیچ نتیجه‌ای برنگرداند."
             print(
                 f"[OpenAI moderation] API returned no choices; request_id={request_id or 'unavailable'}.",
                 flush=True,
@@ -2809,7 +2767,6 @@ async def classify_channel_profanity(text):
         message = choices[0].get("message") or {}
         raw_content = message.get("content")
         if not isinstance(raw_content, str) or not raw_content.strip():
-            AI_LAST_ERROR = "پاسخ API خالی بود."
             print(
                 f"[OpenAI moderation] API returned empty content; request_id={request_id or 'unavailable'}.",
                 flush=True,
@@ -2819,16 +2776,14 @@ async def classify_channel_profanity(text):
         parsed = json.loads(raw_content)
         verdict = parsed.get("profanity")
         if not isinstance(verdict, bool):
-            AI_LAST_ERROR = "پاسخ API قالب مورد انتظار را نداشت."
             print(
                 f"[OpenAI moderation] Unexpected verdict format; request_id={request_id or 'unavailable'}.",
                 flush=True,
             )
             return None
 
-        AI_LAST_ERROR = None
         print(
-            f"[OpenAI moderation] Check succeeded; model={model}, request_id={request_id or 'unavailable'}.",
+            f"[OpenAI moderation] Check succeeded; request_id={request_id or 'unavailable'}.",
             flush=True,
         )
         return verdict
@@ -2847,7 +2802,6 @@ async def classify_channel_profanity(text):
             error_type = "unavailable"
             error_message = "Could not parse API error response"
 
-        AI_LAST_ERROR = f"HTTP {e.code} / {error_code}: {error_message}"[:280]
         print(
             "[OpenAI moderation] HTTP error "
             f"status={e.code}, type={error_type}, code={error_code}, "
@@ -2857,7 +2811,6 @@ async def classify_channel_profanity(text):
         return None
 
     except urllib.error.URLError as e:
-        AI_LAST_ERROR = f"خطای اتصال: {type(e.reason).__name__}: {e.reason}"[:280]
         print(
             f"[OpenAI moderation] Connection error: {type(e.reason).__name__}: {e.reason}.",
             flush=True,
@@ -2865,12 +2818,10 @@ async def classify_channel_profanity(text):
         return None
 
     except TimeoutError:
-        AI_LAST_ERROR = "مهلت پاسخ‌گویی API تمام شد (timeout)."
         print("[OpenAI moderation] Request timed out after 20 seconds.", flush=True)
         return None
 
     except json.JSONDecodeError as e:
-        AI_LAST_ERROR = f"پاسخ API قابل‌خواندن نبود: {e}"[:280]
         print(
             f"[OpenAI moderation] Invalid JSON response: {e}.",
             flush=True,
@@ -2878,32 +2829,11 @@ async def classify_channel_profanity(text):
         return None
 
     except Exception as e:
-        AI_LAST_ERROR = f"{type(e).__name__}: {e}"[:280]
         print(
             f"[OpenAI moderation] Unexpected error: {type(e).__name__}: {e}.",
             flush=True,
         )
         return None
-
-
-async def aitest_command(update, context):
-    """Admin-only, low-cost connectivity test for the configured AI API."""
-    user = update.effective_user
-    if not user or user.id != ADMIN_ID or update.effective_chat.type in ("group", "supergroup"):
-        return
-
-    await update.effective_message.reply_text("در حال آزمایش اتصال هوش مصنوعی... 🧠")
-    verdict = await classify_channel_profanity("سلام، این فقط یک پیام آزمایشی برای بررسی اتصال API است.")
-    if verdict is not None:
-        await update.effective_message.reply_text(
-            f"✅ اتصال API برقرار است. مدل: {OPENAI_MODEL}"
-        )
-    else:
-        reason = AI_LAST_ERROR or "علت مشخص نیست؛ لاگ سرویس را بررسی کنید."
-        await update.effective_message.reply_text(
-            "❌ اتصال API برقرار نشد.\nعلت: " + reason
-        )
-
 
 async def send_join_message(
     update,
@@ -3727,7 +3657,7 @@ async def cancel_command(
     context.user_data.clear()
 
     await update.message.reply_text(
-        "❌ عملیات لغو شد."
+        "لغو شد.\nاز منوی بالا و پایین استفاده کنید.👇🏻👆🏻"
     )
 
 
@@ -3740,15 +3670,18 @@ async def help_page(
     context
 ):
     text = (
-        "<b>راهنمای گلدن چت 👻\n\n"
-        "اول از همه میگم که امنیت شما بالاست بعدشم :\n\n"
-        "دریافت لینک : شما با دریافت لینک اختصاصی خودتون و با اشتراک گذاشتنش توی بقیه گروه ها و کانال ها و حتی بایو اکانتتون پیام های ناشناس از افراد مختلف که روشون نمیشد مستقیم بهت پیام بدن دریافت میکنی .🤠\n\n"
-        "تنظیم نام : میتونی یک اسم برای حساب خودت انتخاب کنی که وقتی لینکت رو جایی به اشتراک میزاری بقیه روی لینکت کلیک میکنن نام نمایشی تو براشون نشون داده بشه 🙍🏻‍♂️\n\n"
-        "تبلیغات : با مراجعه به پیوی ادمین میتونی تو ربات رایگان کانالت رو تبلیغ کنی 😉\n\n"
-        "ری اکشن : این قابلیت متفاوته وقتی کاربری بهت پیام میده و حوصله جواب دادنش رو نداری میتونس با ری اکشن جوابش رو بدی😄\n\n"
-        "در ضمن گزارش تخلف :\n"
-        "هر کاربری در ربات گلدن چت از دختری درخواست عکسهای شخصی، درخواست دوستی\n"
-        "و بی احترامی به باقی کاربران و فحاشی و اسپم انجام داد گزارش تخلف ثبت بشه 🛑</b>"
+        "<b>راهنمای گلدن چت 👻\n"
+        "سرعت و کیفیت بالا</b>\n\n"
+        "<blockquote><b>دریافت لینک : شما با دریافت لینک اختصاصی خودتون و با اشتراک گذاشتنش توی بقیه گروه ها و کانال ها و حتی بایو اکانتتون پیام های ناشناس از افراد مختلف که روشون نمیشد مستقیم بهت پیام بدن دریافت میکنی .🤠</b></blockquote>\n"
+        "<blockquote><b>تنظیم نام : میتونی یک اسم برای حساب خودت انتخاب کنی که وقتی لینکت رو جایی به اشتراک میزاری بقیه روی لینکت کلیک میکنن نام نمایشی تو براشون نشون داده بشه 🙍🏻‍♂️</b></blockquote>\n"
+        "<blockquote><b>تبلیغات : تبلیغات غیرفعال و به زودی فعال میشه یه صورت رفرالی و پولی</b></blockquote>\n"
+        "<blockquote><b>ری اکشن : این قابلیت متفاوته وقتی کاربری بهت پیام میده و حوصله جواب دادنش رو نداری میتونس با ری اکشن جوابش رو بدی😄</b></blockquote>\n"
+        "<blockquote><b>ارسال پیام ناشناس به گروه : به راحتی بدون اینکه شناخته بشی برای گروهت ناشناش پیام بفرست و لینک ناشناس گروه رو بزار تا بقیه ناشناس برای گروهت پیام بفرستن</b></blockquote>\n"
+        "<blockquote><b>ارسال پیام ناشناش برای چنل :\n"
+        "دیگه نیازی نیست به صورت دستی پیام هارو فور بزنی به چنل\n"
+        "لینک ناشناس چنلت رو اپلود کن و مستقیم ربات اتومات برای چنل میفرسته « راستی هیچ بی احترامی نمیشه چون تشخیص فوش و بی احترامی هست و اگر به احترامی بشه پیام برای چنل ارسال نمیشه »</b></blockquote>\n"
+        "<blockquote><b>در ضمن گزارش تخلف :\n"
+        "هرگونه بی احترامی، پخش عکس شخصی، تهدید با عکسهای شخصی، تهدید با حرف، و باقی اذیت و آزار ها گزارش بشه بررسی میشه چه گزارش تخلف چه گزارش به پیوی ادمین 🥹❤️</b></blockquote>"
     )
 
     await update.callback_query.edit_message_text(
@@ -3766,10 +3699,9 @@ async def ads_page(
     update,
     context
 ):
-    await update.callback_query.edit_message_text(
-        "جهت ثبت تبلیغات رایگان و رفرال گیری جهت تبلیغات رایگان پیام دهید :\n"
-        "@TMTAHAV",
-        reply_markup=back_keyboard()
+    await update.callback_query.answer(
+        "تبلیغات غیرفعال شده است.\nبه زودی فعال میشود\nدرحال آپدیت🫟",
+        show_alert=True
     )
 
 
@@ -3796,6 +3728,17 @@ async def show_link(
         f"?start={user.id}"
     )
 
+    share_text = (
+        "حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀\n\n"
+        "G O L D E N  C H A T"
+    )
+    share_url = (
+        "https://t.me/share/url?url="
+        + quote(link, safe="")
+        + "&text="
+        + quote(share_text, safe="")
+    )
+
     await update.callback_query.edit_message_text(
         "<b>🔗 لینک اختصاصی شما :</b>\n\n"
         f'<a href="{html.escape(link, quote=True)}">{html.escape(link)}</a>\n\n'
@@ -3804,7 +3747,7 @@ async def show_link(
         "<b>میتونید با زدن روی اشتراک گذاری مستقیم متن آماده و لینک آماده برای بقیه ارسال کنید💌</b>",
         parse_mode="HTML",
         disable_web_page_preview=True,
-        reply_markup=link_keyboard()
+        reply_markup=link_keyboard(share_url)
     )
 
 
@@ -4714,8 +4657,10 @@ async def button_handler(
         return
 
     if data == "ads":
-        await query.answer()
-        await ads_page(update, context)
+        await query.answer(
+            "تبلیغات غیرفعال شده است.\nبه زودی فعال میشود\nدرحال آپدیت🫟",
+            show_alert=True
+        )
         return
 
     if data == "block_list":
@@ -7438,7 +7383,6 @@ async def post_init(
         await application.bot.set_my_commands([
             BotCommand("start", "شروع ربات"),
             BotCommand("cancel", "لغو عملیات"),
-            BotCommand("aitest", "آزمایش اتصال هوش مصنوعی"),
             BotCommand("linkgroup", "مدیریت گروه"),
             BotCommand("broadcast", "پیام همگانی"),
             BotCommand("userban", "لیست بن شده ها"),
@@ -7576,13 +7520,6 @@ def main():
         CommandHandler(
             "cancel",
             cancel_command
-        )
-    )
-
-    application.add_handler(
-        CommandHandler(
-            "aitest",
-            aitest_command
         )
     )
 
