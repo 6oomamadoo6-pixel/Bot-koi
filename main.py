@@ -6431,7 +6431,7 @@ async def handle_message(
 
         # Show an animated status while the AI moderation request is running.
         status_message = await message.reply_text(
-            "درحال بررسی پیام شما توسط هوش مصنوعی 🧠\\n\\n• . ."
+            "درحال بررسی پیام شما توسط هوش مصنوعی 🧠\n\n• . ."
         )
 
         async def animate_channel_review():
@@ -6442,7 +6442,7 @@ async def handle_message(
                 index = (index + 1) % len(frames)
                 try:
                     await status_message.edit_text(
-                        "درحال بررسی پیام شما توسط هوش مصنوعی 🧠\\n\\n" + frames[index]
+                        "درحال بررسی پیام شما توسط هوش مصنوعی 🧠\n\n" + frames[index]
                     )
                 except TelegramError as animation_error:
                     # Animation is cosmetic; never interrupt the moderation check.
@@ -6506,8 +6506,8 @@ async def handle_message(
 
             context.user_data.clear()
             await status_message.edit_text(
-                "⚠️ پیام شما حاوی الفاظ رکیک است.\\n"
-                "در صورت تکرار 3 مرتبه، حساب کاربری شما مسدود خواهد شد!\\n\\n"
+                "⚠️ پیام شما حاوی الفاظ رکیک است.\n"
+                "در صورت تکرار 3 مرتبه، حساب کاربری شما مسدود خواهد شد!\n\n"
                 "پیام با نقل قول : در ارسال پیام ناشناس به چنل استفاده از الفاظ رکیک مجاز نیست.",
                 reply_markup=channel_profanity_warning_keyboard()
             )
@@ -6520,12 +6520,12 @@ async def handle_message(
         try:
             await context.bot.send_message(
                 chat_id=channel_id,
-                text=f"<b>پیام ناشناس از طرف کاربر {anon_code}</b>\\n\\n{html.escape(text)}",
+                text=f"<b>پیام ناشناس از طرف کاربر {anon_code}</b>\n\n{html.escape(text)}",
                 parse_mode="HTML"
             )
             await context.bot.send_message(
                 chat_id=owner_id,
-                text=f"<b>پیام ناشناسی از طرف کاربر {anon_code} برای چنل شما ارسال شد.</b>\\n\\n<b>پیام :</b>\\n{html.escape(text)}\\n\\n<b>گزارش تخلف و بلاک 👇🏻</b>",
+                text=f"<b>پیام ناشناسی از طرف کاربر {anon_code} برای چنل شما ارسال شد.</b>\n\n<b>پیام :</b>\n{html.escape(text)}\n\n<b>گزارش تخلف و بلاک 👇🏻</b>",
                 parse_mode="HTML",
                 reply_markup=keyboard
             )
