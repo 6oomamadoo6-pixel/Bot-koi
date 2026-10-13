@@ -5274,24 +5274,21 @@ async def media_handler(update, context):
                 else f"کاربر {anon_code}"
             )
 
-            # پاسخ را روی پیام اصلی فرستنده در گفت‌وگوی خودش ثبت می‌کنیم.
-            # original[9] همان message_id پیامی است که او ابتدا برای گیرنده فرستاده بود.
+            # ابتدا اعلان پاسخ را روی پیام اصلی کاربر ریپلای می‌کنیم.
+            # خود پاسخ بعد از آن، به‌صورت پیام جداگانه ارسال می‌شود.
             if original[9]:
-                delivered = await send_anonymous_media(
-                    context.bot, sender_id, media_type, file_id, caption, keyboard,
-                    reply_to_message_id=original[9]
-                )
-            else:
-                # برای پیام‌های قدیمی که شناسه پیام اولیه ذخیره نشده، از هدر جایگزین استفاده می‌شود.
-                reply_header = await context.bot.send_message(
+                await context.bot.send_message(
                     chat_id=sender_id,
-                    text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
+                    text=f"<b>{display} به پیام شما پاسخ داد. 🤠</b>",
                     parse_mode="HTML",
+                    reply_parameters=ReplyParameters(
+                        message_id=original[9],
+                        allow_sending_without_reply=True
+                    )
                 )
-                delivered = await send_anonymous_media(
-                    context.bot, sender_id, media_type, file_id, caption, keyboard,
-                    reply_to_message_id=reply_header.message_id
-                )
+            delivered = await send_anonymous_media(
+                context.bot, sender_id, media_type, file_id, caption, keyboard
+            )
 
             try:
                 set_delivered_message_id(new_id, delivered.message_id)
@@ -6418,40 +6415,24 @@ async def handle_message(
                 else f"کاربر {anon_code}"
             )
 
-            # پاسخ را مستقیماً روی پیام اولیه‌ی فرستنده در چت خودش می‌فرستیم.
-            # پیام اصلیِ داخل چت گیرنده در چت فرستنده وجود ندارد و قابل Reply بین دو چت نیست.
+            # اعلان پاسخ روی پیام اصلی کاربر ریپلای می‌شود.
+            # متن پاسخ در پیام جداگانه و بدون Reply ارسال خواهد شد.
             if original[9]:
-                delivered = await context.bot.send_message(
+                await context.bot.send_message(
                     chat_id=sender_id,
-                    text=(
-                        f"<b>{display} به پیام شما پاسخ داد. 🤠</b>\n\n"
-                        f"<b>پیام شما:</b> {safe_original}\n"
-                        f"<b>پاسخ:</b> {safe_text}"
-                    ),
-                    reply_markup=keyboard,
+                    text=f"<b>{display} به پیام شما پاسخ داد. 🤠</b>",
                     parse_mode="HTML",
                     reply_parameters=ReplyParameters(
                         message_id=original[9],
                         allow_sending_without_reply=True
                     )
                 )
-            else:
-                # برای پیام‌های قدیمی بدون شناسه‌ی پیام اولیه، روش جایگزین قبلی حفظ می‌شود.
-                reply_header = await context.bot.send_message(
-                    chat_id=sender_id,
-                    text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
-                    parse_mode="HTML",
-                )
-                delivered = await context.bot.send_message(
-                    chat_id=sender_id,
-                    text=html.escape(text),
-                    reply_markup=keyboard,
-                    parse_mode="HTML",
-                    reply_parameters=ReplyParameters(
-                        message_id=reply_header.message_id,
-                        allow_sending_without_reply=True
-                    )
-                )
+            delivered = await context.bot.send_message(
+                chat_id=sender_id,
+                text=html.escape(text),
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
 
             try:
                 set_delivered_message_id(new_id, delivered.message_id)
