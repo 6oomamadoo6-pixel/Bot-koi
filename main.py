@@ -2399,7 +2399,7 @@ def main_keyboard():
             InlineKeyboardButton("کانال پشتیبانی 📣", url="https://t.me/SuppoortGoldenchat", style="primary"),
             InlineKeyboardButton("لیست مسدودی 🚫", callback_data="block_list", style="danger"),
         ],
-        [InlineKeyboardButton("راهنما❔", callback_data="help")],
+        [InlineKeyboardButton("« راهنما❔»", callback_data="help")],
     ]
     return InlineKeyboardMarkup(rows)
 
@@ -5274,16 +5274,24 @@ async def media_handler(update, context):
                 else f"کاربر {anon_code}"
             )
 
-            # شناسه پیام قبلی در چت گیرنده است؛ در چت فرستنده قابل Reply نیست.
-            reply_header = await context.bot.send_message(
-                chat_id=sender_id,
-                text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
-                parse_mode="HTML",
-            )
-            delivered = await send_anonymous_media(
-                context.bot, sender_id, media_type, file_id, caption, keyboard,
-                reply_to_message_id=reply_header.message_id
-            )
+            # پاسخ را روی پیام اصلی فرستنده در گفت‌وگوی خودش ثبت می‌کنیم.
+            # original[9] همان message_id پیامی است که او ابتدا برای گیرنده فرستاده بود.
+            if original[9]:
+                delivered = await send_anonymous_media(
+                    context.bot, sender_id, media_type, file_id, caption, keyboard,
+                    reply_to_message_id=original[9]
+                )
+            else:
+                # برای پیام‌های قدیمی که شناسه پیام اولیه ذخیره نشده، از هدر جایگزین استفاده می‌شود.
+                reply_header = await context.bot.send_message(
+                    chat_id=sender_id,
+                    text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
+                    parse_mode="HTML",
+                )
+                delivered = await send_anonymous_media(
+                    context.bot, sender_id, media_type, file_id, caption, keyboard,
+                    reply_to_message_id=reply_header.message_id
+                )
 
             try:
                 set_delivered_message_id(new_id, delivered.message_id)
@@ -6410,23 +6418,40 @@ async def handle_message(
                 else f"کاربر {anon_code}"
             )
 
-            # شناسه پیام قبلی در چت گیرنده است و در چت فرستنده معتبر نیست.
-            # بنابراین پاسخ به هدر پاسخ خودش Reply می‌شود تا اتصال بصری درست باشد.
-            reply_header = await context.bot.send_message(
-                chat_id=sender_id,
-                text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
-                parse_mode="HTML",
-            )
-            delivered = await context.bot.send_message(
-                chat_id=sender_id,
-                text=html.escape(text),
-                reply_markup=keyboard,
-                parse_mode="HTML",
-                reply_parameters=ReplyParameters(
-                    message_id=reply_header.message_id,
-                    allow_sending_without_reply=True
+            # پاسخ را مستقیماً روی پیام اولیه‌ی فرستنده در چت خودش می‌فرستیم.
+            # پیام اصلیِ داخل چت گیرنده در چت فرستنده وجود ندارد و قابل Reply بین دو چت نیست.
+            if original[9]:
+                delivered = await context.bot.send_message(
+                    chat_id=sender_id,
+                    text=(
+                        f"<b>{display} به پیام شما پاسخ داد. 🤠</b>\n\n"
+                        f"<b>پیام شما:</b> {safe_original}\n"
+                        f"<b>پاسخ:</b> {safe_text}"
+                    ),
+                    reply_markup=keyboard,
+                    parse_mode="HTML",
+                    reply_parameters=ReplyParameters(
+                        message_id=original[9],
+                        allow_sending_without_reply=True
+                    )
                 )
-            )
+            else:
+                # برای پیام‌های قدیمی بدون شناسه‌ی پیام اولیه، روش جایگزین قبلی حفظ می‌شود.
+                reply_header = await context.bot.send_message(
+                    chat_id=sender_id,
+                    text=f"<b>{display} به این پیام پاسخ داد . 👇🏻</b>",
+                    parse_mode="HTML",
+                )
+                delivered = await context.bot.send_message(
+                    chat_id=sender_id,
+                    text=html.escape(text),
+                    reply_markup=keyboard,
+                    parse_mode="HTML",
+                    reply_parameters=ReplyParameters(
+                        message_id=reply_header.message_id,
+                        allow_sending_without_reply=True
+                    )
+                )
 
             try:
                 set_delivered_message_id(new_id, delivered.message_id)
