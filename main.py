@@ -6429,9 +6429,38 @@ async def handle_message(
             await message.reply_text("❌ اطلاعات چنل پیدا نشد.", reply_markup=back_keyboard())
             return
 
-        profanity = await classify_channel_profanity(text)
+        # Show an animated status while the AI moderation request is running.
+        status_message = await message.reply_text(
+            "درحال بررسی پیام شما توسط هوش مصنوعی 🧠\\n\\n• . ."
+        )
+
+        async def animate_channel_review():
+            frames = ["• . .", ". • .", ". . •"]
+            index = 0
+            while True:
+                await asyncio.sleep(0.65)
+                index = (index + 1) % len(frames)
+                try:
+                    await status_message.edit_text(
+                        "درحال بررسی پیام شما توسط هوش مصنوعی 🧠\\n\\n" + frames[index]
+                    )
+                except TelegramError as animation_error:
+                    # Animation is cosmetic; never interrupt the moderation check.
+                    print(f"Channel review animation update failed: {type(animation_error).__name__}")
+                    await asyncio.sleep(0.8)
+
+        animation_task = asyncio.create_task(animate_channel_review())
+        try:
+            profanity = await classify_channel_profanity(text)
+        finally:
+            animation_task.cancel()
+            try:
+                await animation_task
+            except asyncio.CancelledError:
+                pass
+
         if profanity is None:
-            await message.reply_text(
+            await status_message.edit_text(
                 "⚠️ در حال حاضر بررسی هوشمند پیام در دسترس نیست؛ پیام شما ارسال نشد. لطفاً کمی بعد دوباره تلاش کنید.",
                 reply_markup=channel_profanity_warning_keyboard()
             )
@@ -6442,7 +6471,7 @@ async def handle_message(
                 violations = add_channel_profanity_violation(user.id)
             except Exception as e:
                 print(f"Could not save profanity violation: {e}")
-                await message.reply_text(
+                await status_message.edit_text(
                     "⚠️ ذخیره تخلف انجام نشد و پیام ارسال نشد. لطفاً دوباره تلاش کنید.",
                     reply_markup=channel_profanity_warning_keyboard()
                 )
@@ -6469,16 +6498,16 @@ async def handle_message(
                     release_db(conn)
 
                 context.user_data.clear()
-                await message.reply_text(
+                await status_message.edit_text(
                     "⛔ به دلیل تکرار سه‌بارهٔ ارسال پیام حاوی الفاظ رکیک، حساب کاربری شما مسدود شد.",
                     reply_markup=channel_profanity_warning_keyboard()
                 )
                 return
 
             context.user_data.clear()
-            await message.reply_text(
-                "⚠️ پیام شما حاوی الفاظ رکیک است.\n"
-                "در صورت تکرار 3 مرتبه، حساب کاربری شما مسدود خواهد شد!\n\n"
+            await status_message.edit_text(
+                "⚠️ پیام شما حاوی الفاظ رکیک است.\\n"
+                "در صورت تکرار 3 مرتبه، حساب کاربری شما مسدود خواهد شد!\\n\\n"
                 "پیام با نقل قول : در ارسال پیام ناشناس به چنل استفاده از الفاظ رکیک مجاز نیست.",
                 reply_markup=channel_profanity_warning_keyboard()
             )
@@ -6491,19 +6520,24 @@ async def handle_message(
         try:
             await context.bot.send_message(
                 chat_id=channel_id,
-                text=f"<b>پیام ناشناس از طرف کاربر {anon_code}</b>\n\n{html.escape(text)}",
+                text=f"<b>پیام ناشناس از طرف کاربر {anon_code}</b>\\n\\n{html.escape(text)}",
                 parse_mode="HTML"
             )
             await context.bot.send_message(
                 chat_id=owner_id,
-                text=f"<b>پیام ناشناسی از طرف کاربر {anon_code} برای چنل شما ارسال شد.</b>\n\n<b>پیام :</b>\n{html.escape(text)}\n\n<b>گزارش تخلف و بلاک 👇🏻</b>",
+                text=f"<b>پیام ناشناسی از طرف کاربر {anon_code} برای چنل شما ارسال شد.</b>\\n\\n<b>پیام :</b>\\n{html.escape(text)}\\n\\n<b>گزارش تخلف و بلاک 👇🏻</b>",
                 parse_mode="HTML",
                 reply_markup=keyboard
             )
-            await message.reply_text("✅ پیام ناشناس با موفقیت به چنل ارسال شد.", reply_markup=back_keyboard())
+            await status_message.edit_text(
+                "✅ پیام ناشناس با موفقیت به چنل ارسال شد.",
+                reply_markup=back_keyboard()
+            )
         except TelegramError as e:
             print(f"Anonymous channel text send error: {e}")
-            await message.reply_text("❌ ارسال به چنل ناموفق بود. بررسی کنید ربات هنوز ادمین چنل و دارای دسترسی ارسال پست باشد.")
+            await status_message.edit_text(
+                "❌ ارسال به چنل ناموفق بود. بررسی کنید ربات هنوز ادمین چنل و دارای دسترسی ارسال پست باشد."
+            )
         context.user_data.clear()
         return
 
