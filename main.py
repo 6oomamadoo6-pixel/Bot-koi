@@ -7305,8 +7305,8 @@ async def inline_share_handler(update, context):
             title="حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀",
             description="G O L D E N  C H A T",
             input_message_content=InputTextMessageContent(
-                f'<a href="{html.escape(own_link, quote=True)}"><b>حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀</b></a>\\n\\n'
-                f'<a href="{html.escape(own_link, quote=True)}">{html.escape(own_link)}</a>\\n\\n'
+                f'<a href="{html.escape(own_link, quote=True)}"><b>حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀</b></a>\n\n'
+                f'<a href="{html.escape(own_link, quote=True)}">{html.escape(own_link)}</a>\n\n'
                 f'<b>G O L D E N  C H A T</b>',
                 parse_mode="HTML",
                 disable_web_page_preview=True
