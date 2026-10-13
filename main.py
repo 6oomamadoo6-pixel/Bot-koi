@@ -2390,12 +2390,12 @@ def main_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("دریافت لینک ناشناس 🔗", callback_data="copy_link", style="success")],
         [
-            InlineKeyboardButton("تنظیمات نام ⚙️", callback_data="name_settings"),
+            InlineKeyboardButton("تنظیمات نام ⚙️", callback_data="name_settings", style="primary"),
             InlineKeyboardButton("تبلیغات 📢", callback_data="ads"),
         ],
         [
-            InlineKeyboardButton("لیست مسدودی 🔴", callback_data="block_list"),
             InlineKeyboardButton("کانال پشتیبانی 📣", url="https://t.me/SuppoortGoldenchat"),
+            InlineKeyboardButton("لیست مسدودی 🚫", callback_data="block_list", style="danger"),
         ],
         [InlineKeyboardButton("راهنما 🤔", callback_data="help")],
     ])
@@ -2409,7 +2409,7 @@ def back_keyboard():
 
 def cancel_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("لغو ارسال ❌", callback_data="cancel_send", style="danger")]
+        [InlineKeyboardButton("لغو ارسال ", callback_data="cancel_send", style="danger")]
     ])
 
 
@@ -2422,7 +2422,7 @@ def join_keyboard():
 
 def link_keyboard(share_url):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("اشتراک گذاری مستقیم 📤", url=share_url, style="success")],
+        [InlineKeyboardButton("اشتراک گذاری مستقیم 📤", switch_inline_query=" ", style="success")],
         [InlineKeyboardButton("تعداد بازدید لینک 📊", callback_data="link_stats")],
         [InlineKeyboardButton("بازگشت 🔙", callback_data="back_main", style="danger")],
     ])
@@ -2489,7 +2489,7 @@ def group_view_keyboard(message_id):
 
 def ban_cancel_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("لغو عملیات ❌", callback_data="ban_cancel", style="danger")]
+        [InlineKeyboardButton("لغو عملیات ", callback_data="ban_cancel", style="danger")]
     ])
 
 
@@ -2503,7 +2503,7 @@ def ban_duration_keyboard():
             InlineKeyboardButton("۵ روز", callback_data="ban_duration:5"),
             InlineKeyboardButton("۷ روز", callback_data="ban_duration:7"),
         ],
-        [InlineKeyboardButton("لغو عملیات ❌", callback_data="ban_cancel", style="danger")],
+        [InlineKeyboardButton("لغو عملیات ", callback_data="ban_cancel", style="danger")],
     ])
 
 
@@ -3820,7 +3820,7 @@ async def button_handler(
         bot_info = await context.bot.get_me()
         row = get_channel_by_link(code)
         if not row or row[0] != user_id:
-            await query.message.reply_text("❌ چنل پیدا نشد.")
+            await query.message.reply_text(" چنل پیدا نشد.")
             return
         await query.message.reply_text(
             f"<b>نام چنل :</b> {html.escape(row[2])}\n"
@@ -3898,7 +3898,7 @@ async def button_handler(
 
     if data == "supervisor_add":
         if user_id != ADMIN_ID:
-            await query.answer("دسترسی ندارید ❌", show_alert=True); return
+            await query.answer("دسترسی ندارید ", show_alert=True); return
         context.user_data.clear()
         context.user_data["supervisor_add_waiting_identifier"] = True
         await query.answer()
@@ -3907,12 +3907,12 @@ async def button_handler(
 
     if data.startswith("supervisor_select:"):
         if user_id != ADMIN_ID:
-            await query.answer("دسترسی ندارید ❌", show_alert=True); return
+            await query.answer("دسترسی ندارید ", show_alert=True); return
         try: target_id = int(data.split(":", 1)[1])
         except (ValueError, IndexError):
-            await query.answer("شناسه نامعتبر است ❌", show_alert=True); return
+            await query.answer("شناسه نامعتبر است ", show_alert=True); return
         if target_id == ADMIN_ID or not is_supervisor(target_id):
-            await query.answer("ناظر پیدا نشد ❌", show_alert=True); return
+            await query.answer("ناظر پیدا نشد ", show_alert=True); return
         name = html.escape(supervisor_display_name(target_id))
         await query.answer()
         await query.edit_message_text(
@@ -3923,10 +3923,10 @@ async def button_handler(
 
     if data.startswith("supervisor_delete_yes:"):
         if user_id != ADMIN_ID:
-            await query.answer("دسترسی ندارید ❌", show_alert=True); return
+            await query.answer("دسترسی ندارید ", show_alert=True); return
         try: target_id = int(data.split(":", 1)[1])
         except (ValueError, IndexError):
-            await query.answer("شناسه نامعتبر است ❌", show_alert=True); return
+            await query.answer("شناسه نامعتبر است ", show_alert=True); return
         context.user_data.clear()
         context.user_data["supervisor_remove_waiting_reason"] = True
         context.user_data["supervisor_remove_target_id"] = target_id
@@ -3936,7 +3936,7 @@ async def button_handler(
 
     if data == "supervisor_delete_no":
         if user_id != ADMIN_ID:
-            await query.answer("دسترسی ندارید ❌", show_alert=True); return
+            await query.answer("دسترسی ندارید ", show_alert=True); return
         context.user_data.clear()
         await query.answer()
         await query.edit_message_text(
@@ -3947,14 +3947,14 @@ async def button_handler(
 
     if data.startswith("manager_approve:") or data.startswith("manager_reject:"):
         if user_id != ADMIN_ID:
-            await query.answer("دسترسی ندارید ❌", show_alert=True); return
+            await query.answer("دسترسی ندارید ", show_alert=True); return
         parts = data.split(":")
         if len(parts) != 3:
-            await query.answer("درخواست نامعتبر است ❌", show_alert=True); return
+            await query.answer("درخواست نامعتبر است ", show_alert=True); return
         action, kind, request_id = parts[0], parts[1], parts[2]
         try: request_id = int(request_id)
         except ValueError:
-            await query.answer("درخواست نامعتبر است ❌", show_alert=True); return
+            await query.answer("درخواست نامعتبر است ", show_alert=True); return
         approved = action == "manager_approve"
         if kind == "unban":
             req = get_unban_request(request_id)
@@ -3977,7 +3977,7 @@ async def button_handler(
                     await query.answer("کاربر دیگر بن نیست.", show_alert=True)
                 return
             set_unban_request_status(request_id, "rejected")
-            await query.answer("درخواست رد شد ❌")
+            await query.answer("درخواست رد شد ")
             await query.message.edit_text(
                 "<b>درود! به پنل اصلی ربات \" گلدن چت \" خوش آمدید.⚡</b>\n\n<b>خوشحالم که ما انتخاب شما بودیم😉</b>\n\n<b>برای استفاده از ربات از پنل شیشه ای زیر استفاده کنید :</b>",
                 reply_markup=main_keyboard(), parse_mode="HTML"
@@ -4008,7 +4008,7 @@ async def button_handler(
                 except TelegramError: pass
                 return
             set_broadcast_request_status(request_id, "rejected")
-            await query.answer("درخواست رد شد ❌")
+            await query.answer("درخواست رد شد ")
             await query.message.edit_text(
                 "<b>درود! به پنل اصلی ربات \" گلدن چت \" خوش آمدید.⚡</b>\n\n<b>خوشحالم که ما انتخاب شما بودیم😉</b>\n\n<b>برای استفاده از ربات از پنل شیشه ای زیر استفاده کنید :</b>",
                 reply_markup=main_keyboard(), parse_mode="HTML"
@@ -4035,7 +4035,7 @@ async def button_handler(
 
     if data == "supervisor_close_panel":
         if user_id != ADMIN_ID:
-            await query.answer("دسترسی ندارید ❌", show_alert=True)
+            await query.answer("دسترسی ندارید ", show_alert=True)
             return
 
         await query.answer("پنل بسته شد ✅")
@@ -4084,7 +4084,7 @@ async def button_handler(
 
     if data == "cancel_send":
         await query.answer(
-            "لغو شد ❌"
+            "لغو شد "
         )
 
         context.user_data.clear()
@@ -4128,7 +4128,7 @@ async def button_handler(
             )
         except (ValueError, IndexError):
             await query.answer(
-                "گروه نامعتبر است ❌",
+                "گروه نامعتبر است ",
                 show_alert=True
             )
             return
@@ -4142,7 +4142,7 @@ async def button_handler(
 
         if not group:
             await query.answer(
-                "گروه پیدا نشد ❌",
+                "گروه پیدا نشد ",
                 show_alert=True
             )
             return
@@ -4153,7 +4153,7 @@ async def button_handler(
             user_id
         ):
             await query.answer(
-                "شما عضو این گروه نیستید ❌",
+                "شما عضو این گروه نیستید ",
                 show_alert=True
             )
             return
@@ -4200,7 +4200,7 @@ async def button_handler(
             )
         except (ValueError, IndexError):
             await query.answer(
-                "پیام نامعتبر است ❌",
+                "پیام نامعتبر است ",
                 show_alert=True
             )
             return
@@ -4211,7 +4211,7 @@ async def button_handler(
 
         if not group_message:
             await query.answer(
-                "این پیام دیگر موجود نیست ❌",
+                "این پیام دیگر موجود نیست ",
                 show_alert=True
             )
             return
@@ -4284,7 +4284,7 @@ async def button_handler(
             )
         except (ValueError, IndexError):
             await query.answer(
-                "گزارش نامعتبر است ❌",
+                "گزارش نامعتبر است ",
                 show_alert=True
             )
             return
@@ -4295,7 +4295,7 @@ async def button_handler(
 
         if not group_message:
             await query.answer(
-                "این پیام دیگر موجود نیست ❌",
+                "این پیام دیگر موجود نیست ",
                 show_alert=True
             )
             return
@@ -4371,7 +4371,7 @@ async def button_handler(
             )
         except Exception as report_db_error:
             print(f"Could not save group abuse report: {report_db_error}")
-            await query.answer("ثبت گزارش در دیتابیس با خطا مواجه شد ❌", show_alert=True)
+            await query.answer("ثبت گزارش در دیتابیس با خطا مواجه شد ", show_alert=True)
             return
 
         report_text = (
@@ -4412,7 +4412,7 @@ async def button_handler(
             )
 
             await query.answer(
-                "ارسال گزارش با خطا مواجه شد ❌",
+                "ارسال گزارش با خطا مواجه شد ",
                 show_alert=True
             )
 
@@ -4425,7 +4425,7 @@ async def button_handler(
     if data.startswith("userbot_page:"):
         if not is_manager_or_supervisor(user_id):
             await query.answer(
-                "دسترسی ندارید ❌",
+                "دسترسی ندارید ",
                 show_alert=True
             )
             return
@@ -4436,7 +4436,7 @@ async def button_handler(
             )
         except (ValueError, IndexError):
             await query.answer(
-                "صفحه نامعتبر است ❌",
+                "صفحه نامعتبر است ",
                 show_alert=True
             )
             return
@@ -4536,7 +4536,7 @@ async def button_handler(
             )
         except (ValueError, IndexError):
             await query.answer(
-                "پیام نامعتبر است ❌",
+                "پیام نامعتبر است ",
                 show_alert=True
             )
             return
@@ -4547,7 +4547,7 @@ async def button_handler(
 
         if not msg:
             await query.answer(
-                "این پیام دیگر موجود نیست ❌",
+                "این پیام دیگر موجود نیست ",
                 show_alert=True
             )
             return
@@ -4557,7 +4557,7 @@ async def button_handler(
 
         if receiver_id != user_id:
             await query.answer(
-                "این پیام متعلق به شما نیست ❌",
+                "این پیام متعلق به شما نیست ",
                 show_alert=True
             )
             return
@@ -4603,7 +4603,7 @@ async def button_handler(
             )
         except (ValueError, IndexError):
             await query.answer(
-                "پیام نامعتبر است ❌",
+                "پیام نامعتبر است ",
                 show_alert=True
             )
             return
@@ -4614,7 +4614,7 @@ async def button_handler(
 
         if not msg:
             await query.answer(
-                "پیام پیدا نشد ❌",
+                "پیام پیدا نشد ",
                 show_alert=True
             )
             return
@@ -4624,7 +4624,7 @@ async def button_handler(
 
         if receiver_id != user_id:
             await query.answer(
-                "این پیام متعلق به شما نیست ❌",
+                "این پیام متعلق به شما نیست ",
                 show_alert=True
             )
             return
@@ -4651,7 +4651,7 @@ async def button_handler(
 
         if len(pieces) != 3:
             await query.answer(
-                "ری‌اکشن نامعتبر است ❌",
+                "ری‌اکشن نامعتبر است ",
                 show_alert=True
             )
             return
@@ -4661,14 +4661,14 @@ async def button_handler(
             index = int(pieces[2])
         except ValueError:
             await query.answer(
-                "ری‌اکشن نامعتبر است ❌",
+                "ری‌اکشن نامعتبر است ",
                 show_alert=True
             )
             return
 
         if index < 0 or index >= len(REACTIONS):
             await query.answer(
-                "ری‌اکشن نامعتبر است ❌",
+                "ری‌اکشن نامعتبر است ",
                 show_alert=True
             )
             return
@@ -4681,7 +4681,7 @@ async def button_handler(
 
         if not msg:
             await query.answer(
-                "این پیام دیگر موجود نیست ❌",
+                "این پیام دیگر موجود نیست ",
                 show_alert=True
             )
             return
@@ -4695,7 +4695,7 @@ async def button_handler(
 
         if receiver_id != user_id:
             await query.answer(
-                "این پیام متعلق به شما نیست ❌",
+                "این پیام متعلق به شما نیست ",
                 show_alert=True
             )
             return
@@ -4778,7 +4778,7 @@ async def button_handler(
             )
         except (ValueError, IndexError):
             await query.answer(
-                "پیام نامعتبر است ❌",
+                "پیام نامعتبر است ",
                 show_alert=True
             )
             return
@@ -4789,7 +4789,7 @@ async def button_handler(
 
         if not msg:
             await query.answer(
-                "این پیام دیگر موجود نیست ❌",
+                "این پیام دیگر موجود نیست ",
                 show_alert=True
             )
             return
@@ -4799,7 +4799,7 @@ async def button_handler(
 
         if receiver_id != user_id:
             await query.answer(
-                "این پیام متعلق به شما نیست ❌",
+                "این پیام متعلق به شما نیست ",
                 show_alert=True
             )
             return
@@ -4849,7 +4849,7 @@ async def button_handler(
             )
         except (ValueError, IndexError):
             await query.answer(
-                "پیام نامعتبر است ❌",
+                "پیام نامعتبر است ",
                 show_alert=True
             )
             return
@@ -4860,7 +4860,7 @@ async def button_handler(
 
         if not msg:
             await query.answer(
-                "این پیام دیگر موجود نیست ❌",
+                "این پیام دیگر موجود نیست ",
                 show_alert=True
             )
             return
@@ -4870,7 +4870,7 @@ async def button_handler(
 
         if receiver_id != user_id:
             await query.answer(
-                "این پیام متعلق به شما نیست ❌",
+                "این پیام متعلق به شما نیست ",
                 show_alert=True
             )
             return
@@ -4919,14 +4919,14 @@ async def button_handler(
             )
         except (ValueError, IndexError):
             await query.answer(
-                "کاربر نامعتبر است ❌",
+                "کاربر نامعتبر است ",
                 show_alert=True
             )
             return
 
         if blocked_id == user_id:
             await query.answer(
-                "نمی‌توانی خودت را بلاک کنی ❌",
+                "نمی‌توانی خودت را بلاک کنی ",
                 show_alert=True
             )
             return
@@ -4965,7 +4965,7 @@ async def button_handler(
             )
         except (ValueError, IndexError):
             await query.answer(
-                "گزارش نامعتبر است ❌",
+                "گزارش نامعتبر است ",
                 show_alert=True
             )
             return
@@ -4976,7 +4976,7 @@ async def button_handler(
 
         if not msg:
             await query.answer(
-                "این پیام دیگر موجود نیست ❌",
+                "این پیام دیگر موجود نیست ",
                 show_alert=True
             )
             return
@@ -4987,7 +4987,7 @@ async def button_handler(
 
         if receiver_id != user_id:
             await query.answer(
-                "این پیام متعلق به شما نیست ❌",
+                "این پیام متعلق به شما نیست ",
                 show_alert=True
             )
             return
@@ -5025,7 +5025,7 @@ async def button_handler(
             )
         except Exception as report_db_error:
             print(f"Could not save private abuse report: {report_db_error}")
-            await query.answer("ثبت گزارش در دیتابیس با خطا مواجه شد ❌", show_alert=True)
+            await query.answer("ثبت گزارش در دیتابیس با خطا مواجه شد ", show_alert=True)
             return
 
         report_text = (
@@ -5120,7 +5120,7 @@ async def button_handler(
                 )
             else:
                 await query.answer(
-                    "ارسال گزارش با خطا مواجه شد ❌",
+                    "ارسال گزارش با خطا مواجه شد ",
                     show_alert=True
                 )
 
@@ -5130,7 +5130,7 @@ async def button_handler(
             )
 
             await query.answer(
-                "ارسال گزارش با خطا مواجه شد ❌",
+                "ارسال گزارش با خطا مواجه شد ",
                 show_alert=True
             )
 
@@ -5188,13 +5188,13 @@ async def media_handler(update, context):
 
     if context.user_data.get("sending_channel_anonymous"):
         if media_type != "voice":
-            await message.reply_text("❌ برای پیام ناشناس چنل فقط متن و ویس قابل ارسال است.")
+            await message.reply_text(" برای پیام ناشناس چنل فقط متن و ویس قابل ارسال است.")
             return
         owner_id = context.user_data.get("channel_target_owner_id")
         channel_id = context.user_data.get("channel_target_id")
         if not owner_id or not channel_id:
             context.user_data.clear()
-            await message.reply_text("❌ اطلاعات چنل پیدا نشد.", reply_markup=back_keyboard())
+            await message.reply_text(" اطلاعات چنل پیدا نشد.", reply_markup=back_keyboard())
             return
         row = get_user(user.id)
         anon_code = row[4] if row else "0000000"
@@ -5213,7 +5213,7 @@ async def media_handler(update, context):
             await message.reply_text("✅ ویس ناشناس با موفقیت به چنل ارسال شد.", reply_markup=back_keyboard())
         except TelegramError as e:
             print(f"Anonymous channel voice send error: {e}")
-            await message.reply_text("❌ ارسال ویس به چنل ناموفق بود. دسترسی ادمین ربات را بررسی کنید.")
+            await message.reply_text(" ارسال ویس به چنل ناموفق بود. دسترسی ادمین ربات را بررسی کنید.")
         context.user_data.clear()
         return
 
@@ -5223,7 +5223,7 @@ async def media_handler(update, context):
         original = get_anonymous_message(original_message_id) if original_message_id else None
         if not original or original[1] != sender_id or original[2] != user.id or is_blocked(user.id, sender_id):
             context.user_data.clear()
-            await message.reply_text("❌ اطلاعات پیام پیدا نشد.")
+            await message.reply_text(" اطلاعات پیام پیدا نشد.")
             return
         new_id = save_anonymous_message(user.id, sender_id, caption, media_type, file_id, caption, message.message_id, original[10] if original[10] else original[2])
         keyboard = anonymous_message_keyboard(new_id, user.id, True, True)
@@ -5262,7 +5262,7 @@ async def media_handler(update, context):
             await message.reply_text("✅ پاسخ شما با موفقیت ارسال شد.", reply_markup=back_keyboard())
         except TelegramError as e:
             print(f"Reply media Telegram error: {e}")
-            await message.reply_text("❌ ارسال پاسخ با خطا مواجه شد.")
+            await message.reply_text(" ارسال پاسخ با خطا مواجه شد.")
         context.user_data.clear()
         return
 
@@ -5270,7 +5270,7 @@ async def media_handler(update, context):
         target_id = context.user_data.get("target_id")
         if not target_id or target_id == user.id or is_blocked(target_id, user.id):
             context.user_data.clear()
-            await message.reply_text("❌ ارسال پیام انجام نشد.", reply_markup=back_keyboard())
+            await message.reply_text(" ارسال پیام انجام نشد.", reply_markup=back_keyboard())
             return
 
         target_ban_info = get_ban_info(target_id)
@@ -5293,11 +5293,11 @@ async def media_handler(update, context):
             set_delivered_message_id(mid, delivered.message_id)
             await message.reply_text("✅ پیام ناشناس با موفقیت ارسال شد.", reply_markup=back_keyboard())
         except TelegramError:
-            await message.reply_text("❌ خطا در ارسال پیام.")
+            await message.reply_text(" خطا در ارسال پیام.")
         context.user_data.clear()
         return
 
-    await message.reply_text("❌ این نوع فایل در این بخش قابل ارسال نیست.")
+    await message.reply_text(" این نوع فایل در این بخش قابل ارسال نیست.")
 
 
 # =========================================================
@@ -5347,7 +5347,7 @@ async def handle_message(
         reason = text.strip()
         if not target_id or not is_supervisor(target_id):
             context.user_data.clear()
-            await message.reply_text("❌ ناظر پیدا نشد.", reply_markup=back_keyboard())
+            await message.reply_text(" ناظر پیدا نشد.", reply_markup=back_keyboard())
             return
         remove_supervisor(target_id)
         context.user_data.clear()
@@ -5379,14 +5379,14 @@ async def handle_message(
             return
         target = find_user_by_identifier(text.strip())
         if not target:
-            await message.reply_text("❌ کاربر پیدا نشد. باید آیدی عددی یا username کاربری باشد که ربات قبلاً او را شناخته است.", reply_markup=back_keyboard())
+            await message.reply_text(" کاربر پیدا نشد. باید آیدی عددی یا username کاربری باشد که ربات قبلاً او را شناخته است.", reply_markup=back_keyboard())
             return
         target_id = target[0]
         if target_id == ADMIN_ID:
-            await message.reply_text("❌ مدیر اصلی نمی‌تواند ناظر شود.", reply_markup=back_keyboard())
+            await message.reply_text(" مدیر اصلی نمی‌تواند ناظر شود.", reply_markup=back_keyboard())
             return
         if is_supervisor(target_id):
-            await message.reply_text("❌ این کاربر از قبل ناظر است.", reply_markup=back_keyboard())
+            await message.reply_text(" این کاربر از قبل ناظر است.", reply_markup=back_keyboard())
             return
         add_supervisor(target_id)
         context.user_data.clear()
@@ -5435,11 +5435,11 @@ async def handle_message(
                 if by_code:
                     target = (by_code[0], by_code[3], by_code[1], by_code[2], by_code[4])
             if not target:
-                await message.reply_text("❌ شناسه کاربری پیدا نشد.\nلطفا شناسه صحیح کاربر را وارد کنید :", reply_markup=back_keyboard())
+                await message.reply_text(" شناسه کاربری پیدا نشد.\nلطفا شناسه صحیح کاربر را وارد کنید :", reply_markup=back_keyboard())
                 return
             target_id = target[0]
             if target_id == ADMIN_ID or is_supervisor(target_id):
-                await message.reply_text("❌ نمی‌توانی نام نمایشی مدیر یا ناظر را از این بخش تغییر بدهی.", reply_markup=back_keyboard())
+                await message.reply_text(" نمی‌توانی نام نمایشی مدیر یا ناظر را از این بخش تغییر بدهی.", reply_markup=back_keyboard())
                 return
             context.user_data.clear()
             context.user_data["change_username_waiting_name"] = True
@@ -5453,9 +5453,9 @@ async def handle_message(
                 context.user_data.clear(); await send_main_panel(update, context, show_reply_keyboard=False); return
             new_name = text.strip()
             if not new_name:
-                await message.reply_text("❌ نام نمایشی نمی‌تواند خالی باشد.", reply_markup=back_keyboard()); return
+                await message.reply_text(" نام نمایشی نمی‌تواند خالی باشد.", reply_markup=back_keyboard()); return
             if len(new_name) > 50:
-                await message.reply_text("❌ نام خیلی طولانی است.\nحداکثر ۵۰ کاراکتر وارد کنید.", reply_markup=back_keyboard()); return
+                await message.reply_text(" نام خیلی طولانی است.\nحداکثر ۵۰ کاراکتر وارد کنید.", reply_markup=back_keyboard()); return
             context.user_data["change_username_waiting_name"] = False
             context.user_data["change_username_waiting_reason"] = True
             context.user_data["change_username_new_name"] = new_name
@@ -5467,13 +5467,13 @@ async def handle_message(
                 context.user_data.clear(); await send_main_panel(update, context, show_reply_keyboard=False); return
             reason = text.strip()
             if not reason:
-                await message.reply_text("❌ علت تغییر نام نمی‌تواند خالی باشد.", reply_markup=back_keyboard()); return
+                await message.reply_text(" علت تغییر نام نمی‌تواند خالی باشد.", reply_markup=back_keyboard()); return
             if len(reason) > 1000:
-                await message.reply_text("❌ علت تغییر نام خیلی طولانی است.\nحداکثر ۱۰۰۰ کاراکتر وارد کنید.", reply_markup=back_keyboard()); return
+                await message.reply_text(" علت تغییر نام خیلی طولانی است.\nحداکثر ۱۰۰۰ کاراکتر وارد کنید.", reply_markup=back_keyboard()); return
             target_id = context.user_data.get("change_username_target_id")
             new_name = context.user_data.get("change_username_new_name")
             if not target_id or not new_name:
-                context.user_data.clear(); await message.reply_text("❌ اطلاعات تغییر نام پیدا نشد.", reply_markup=back_keyboard()); return
+                context.user_data.clear(); await message.reply_text(" اطلاعات تغییر نام پیدا نشد.", reply_markup=back_keyboard()); return
             old_name = get_display_name(target_id)
             set_display_name(target_id, new_name)
             try:
@@ -5524,7 +5524,7 @@ async def handle_message(
                 return
             reason = text.strip()
             if not reason:
-                await message.reply_text("❌ علت رفع بن نمی‌تواند خالی باشد.", reply_markup=back_keyboard())
+                await message.reply_text(" علت رفع بن نمی‌تواند خالی باشد.", reply_markup=back_keyboard())
                 return
             target_id = context.user_data.get("supervisor_unban_target_id")
             target_code = context.user_data.get("supervisor_unban_code")
@@ -5553,7 +5553,7 @@ async def handle_message(
                 return
             reason = text.strip()
             if len(reason) > 1000:
-                await message.reply_text("❌ علت بن خیلی طولانی است.\nحداکثر ۱۰۰۰ کاراکتر وارد کنید.")
+                await message.reply_text(" علت بن خیلی طولانی است.\nحداکثر ۱۰۰۰ کاراکتر وارد کنید.")
                 return
             context.user_data["ban_reason"] = reason
             context.user_data["waiting_ban_reason"] = False
@@ -5572,11 +5572,11 @@ async def handle_message(
             finally:
                 cur.close(); release_db(conn)
             if not row:
-                await message.reply_text("❌ کد بن پیدا نشد.")
+                await message.reply_text(" کد بن پیدا نشد.")
                 return
             target_id = row[0]
             if target_id == ADMIN_ID or is_supervisor(target_id):
-                await message.reply_text("❌ این کاربر قابل بن شدن توسط ناظر نیست.")
+                await message.reply_text(" این کاربر قابل بن شدن توسط ناظر نیست.")
                 return
             context.user_data.clear()
             context.user_data["waiting_ban_reason"] = True
@@ -5598,11 +5598,11 @@ async def handle_message(
             finally:
                 cur.close(); release_db(conn)
             if not row:
-                await message.reply_text("❌ کد رفع بن پیدا نشد.")
+                await message.reply_text(" کد رفع بن پیدا نشد.")
                 return
             target_id, full_name, display_name, username, ban_code = row
             if not get_ban_info(target_id):
-                await message.reply_text("❌ این کاربر در حال حاضر بن نیست.")
+                await message.reply_text(" این کاربر در حال حاضر بن نیست.")
                 return
             target_name = display_name or full_name or (f"@{username}" if username else "کاربر")
             context.user_data.clear()
@@ -5653,7 +5653,7 @@ async def handle_message(
 
             if not target:
                 await message.reply_text(
-                    "❌ شناسه کاربری پیدا نشد.\n\n"
+                    " شناسه کاربری پیدا نشد.\n\n"
                     "لطفا شناسه صحیح کاربر را وارد کنید :",
                     reply_markup=back_keyboard()
                 )
@@ -5661,7 +5661,7 @@ async def handle_message(
 
             if target[0] == ADMIN_ID:
                 await message.reply_text(
-                    "❌ نمی‌توانی نام نمایشی خود ادمین را از این بخش تغییر بدهی.",
+                    " نمی‌توانی نام نمایشی خود ادمین را از این بخش تغییر بدهی.",
                     reply_markup=back_keyboard()
                 )
                 return
@@ -5695,7 +5695,7 @@ async def handle_message(
 
             if not new_name:
                 await message.reply_text(
-                    "❌ نام نمایشی نمی‌تواند خالی باشد.\n\n"
+                    " نام نمایشی نمی‌تواند خالی باشد.\n\n"
                     "لطفا نام نمایشی جدید را وارد کنید :",
                     reply_markup=back_keyboard()
                 )
@@ -5703,7 +5703,7 @@ async def handle_message(
 
             if len(new_name) > 50:
                 await message.reply_text(
-                    "❌ نام خیلی طولانی است.\n"
+                    " نام خیلی طولانی است.\n"
                     "حداکثر ۵۰ کاراکتر وارد کنید.",
                     reply_markup=back_keyboard()
                 )
@@ -5737,7 +5737,7 @@ async def handle_message(
 
             if not reason:
                 await message.reply_text(
-                    "❌ علت تغییر نام نمی‌تواند خالی باشد.\n\n"
+                    " علت تغییر نام نمی‌تواند خالی باشد.\n\n"
                     "لطفا علت تغییر نام را وارد کنید :",
                     reply_markup=back_keyboard()
                 )
@@ -5745,7 +5745,7 @@ async def handle_message(
 
             if len(reason) > 1000:
                 await message.reply_text(
-                    "❌ علت تغییر نام خیلی طولانی است.\n"
+                    " علت تغییر نام خیلی طولانی است.\n"
                     "حداکثر ۱۰۰۰ کاراکتر وارد کنید.",
                     reply_markup=back_keyboard()
                 )
@@ -5761,7 +5761,7 @@ async def handle_message(
             if not target_id or not new_name:
                 context.user_data.clear()
                 await message.reply_text(
-                    "❌ اطلاعات تغییر نام پیدا نشد.",
+                    " اطلاعات تغییر نام پیدا نشد.",
                     reply_markup=back_keyboard()
                 )
                 return
@@ -5802,7 +5802,7 @@ async def handle_message(
                 context.user_data.clear()
 
                 await message.reply_text(
-                    "❌ ارسال پیام مستقیم لغو شد."
+                    " ارسال پیام مستقیم لغو شد."
                 )
                 return
 
@@ -5818,7 +5818,7 @@ async def handle_message(
                 context.user_data.clear()
 
                 await message.reply_text(
-                    "❌ اطلاعات کاربر پیدا نشد."
+                    " اطلاعات کاربر پیدا نشد."
                 )
                 return
 
@@ -5840,7 +5840,7 @@ async def handle_message(
                 context.user_data.clear()
 
                 await message.reply_text(
-                    "❌ ارسال پیام مستقیم انجام نشد.\n"
+                    " ارسال پیام مستقیم انجام نشد.\n"
                     "ممکن است کاربر ربات را بلاک کرده باشد."
                 )
 
@@ -5881,7 +5881,7 @@ async def handle_message(
 
             if not target:
                 await message.reply_text(
-                    "❌ کد کاربر پیدا نشد."
+                    " کد کاربر پیدا نشد."
                 )
                 return
 
@@ -5889,7 +5889,7 @@ async def handle_message(
 
             if target_id == ADMIN_ID:
                 await message.reply_text(
-                    "❌ نمی‌توانی برای خودت پیام مستقیم ارسال کنی."
+                    " نمی‌توانی برای خودت پیام مستقیم ارسال کنی."
                 )
                 return
 
@@ -5933,7 +5933,7 @@ async def handle_message(
                 context.user_data.clear()
 
                 await message.reply_text(
-                    "❌ عملیات بن لغو شد."
+                    " عملیات بن لغو شد."
                 )
 
                 return
@@ -5942,7 +5942,7 @@ async def handle_message(
 
             if len(reason) > 1000:
                 await message.reply_text(
-                    "❌ علت بن خیلی طولانی است.\n"
+                    " علت بن خیلی طولانی است.\n"
                     "حداکثر ۱۰۰۰ کاراکتر وارد کنید."
                 )
                 return
@@ -5993,7 +5993,7 @@ async def handle_message(
 
             if not row:
                 await message.reply_text(
-                    "❌ کد بن پیدا نشد."
+                    " کد بن پیدا نشد."
                 )
                 return
 
@@ -6001,7 +6001,7 @@ async def handle_message(
 
             if target_user_id == ADMIN_ID:
                 await message.reply_text(
-                    "❌ نمی‌توانی خودت را بن کنی."
+                    " نمی‌توانی خودت را بن کنی."
                 )
                 return
 
@@ -6037,7 +6037,7 @@ async def handle_message(
 
             if not target_id:
                 await message.reply_text(
-                    "❌ کد رفع بن پیدا نشد."
+                    " کد رفع بن پیدا نشد."
                 )
                 return
 
@@ -6107,12 +6107,12 @@ async def handle_message(
             member = await context.bot.get_chat_member(channel_chat.id, context.bot.id)
             if member.status not in (ChatMember.ADMINISTRATOR, ChatMember.OWNER):
                 await message.reply_text(
-                    "❌ ربات هنوز ادمین چنل نیست. ابتدا ربات را ادمین کنید و دوباره «اضافه شد ✅» را بزنید.",
+                    " ربات هنوز ادمین چنل نیست. ابتدا ربات را ادمین کنید و دوباره «اضافه شد ✅» را بزنید.",
                     reply_markup=back_keyboard()
                 )
                 return
             if hasattr(member, "can_post_messages") and member.can_post_messages is False:
-                await message.reply_text("❌ دسترسی ارسال پست برای ربات فعال نیست.", reply_markup=back_keyboard())
+                await message.reply_text(" دسترسی ارسال پست برای ربات فعال نیست.", reply_markup=back_keyboard())
                 return
             save_channel_link(user.id, channel_chat.id, channel_chat.title or identifier)
             bot_info = await context.bot.get_me()
@@ -6125,7 +6125,7 @@ async def handle_message(
         except TelegramError as e:
             print(f"Channel setup error: {e}")
             await message.reply_text(
-                "❌ چنل پیدا نشد یا ربات دسترسی بررسی آن را ندارد. آیدی عمومی چنل مثل @YourChannel را بفرستید و مطمئن شوید ربات ادمین با دسترسی ارسال پست است.",
+                " چنل پیدا نشد یا ربات دسترسی بررسی آن را ندارد. آیدی عمومی چنل مثل @YourChannel را بفرستید و مطمئن شوید ربات ادمین با دسترسی ارسال پست است.",
                 reply_markup=back_keyboard()
             )
         return
@@ -6217,7 +6217,7 @@ async def handle_message(
             )
         else:
             await message.reply_text(
-                "❌ کد رفع مسدودی پیدا نشد."
+                " کد رفع مسدودی پیدا نشد."
             )
 
         return
@@ -6233,13 +6233,13 @@ async def handle_message(
 
         if not new_name:
             await message.reply_text(
-                "❌ نام نمی‌تواند خالی باشد."
+                " نام نمی‌تواند خالی باشد."
             )
             return
 
         if len(new_name) > 50:
             await message.reply_text(
-                "❌ نام خیلی طولانی است.\n"
+                " نام خیلی طولانی است.\n"
                 "حداکثر ۵۰ کاراکتر وارد کنید."
             )
             return
@@ -6278,7 +6278,7 @@ async def handle_message(
             context.user_data.clear()
 
             await message.reply_text(
-                "❌ اطلاعات پیام پیدا نشد."
+                " اطلاعات پیام پیدا نشد."
             )
 
             return
@@ -6291,7 +6291,7 @@ async def handle_message(
             context.user_data.clear()
 
             await message.reply_text(
-                "❌ پیام اصلی پیدا نشد."
+                " پیام اصلی پیدا نشد."
             )
 
             return
@@ -6303,7 +6303,7 @@ async def handle_message(
             context.user_data.clear()
 
             await message.reply_text(
-                "❌ خطا در اطلاعات پیام."
+                " خطا در اطلاعات پیام."
             )
 
             return
@@ -6315,7 +6315,7 @@ async def handle_message(
             context.user_data.clear()
 
             await message.reply_text(
-                "❌ این کاربر را بلاک کرده‌اید."
+                " این کاربر را بلاک کرده‌اید."
             )
 
             return
@@ -6420,7 +6420,7 @@ async def handle_message(
         except TelegramError as e:
             print(f"Reply send Telegram error: {e}")
             await message.reply_text(
-                "❌ ارسال پاسخ با خطا مواجه شد."
+                " ارسال پاسخ با خطا مواجه شد."
             )
 
         context.user_data.clear()
@@ -6435,7 +6435,7 @@ async def handle_message(
         channel_id = context.user_data.get("channel_target_id")
         if not owner_id or not channel_id:
             context.user_data.clear()
-            await message.reply_text("❌ اطلاعات چنل پیدا نشد.", reply_markup=back_keyboard())
+            await message.reply_text(" اطلاعات چنل پیدا نشد.", reply_markup=back_keyboard())
             return
 
         row = get_user(user.id)
@@ -6469,7 +6469,7 @@ async def handle_message(
         except TelegramError as e:
             print(f"Anonymous channel text send error: {e}")
             await message.reply_text(
-                "❌ ارسال به چنل ناموفق بود. بررسی کنید ربات هنوز ادمین چنل و دارای دسترسی ارسال پست باشد.",
+                " ارسال به چنل ناموفق بود. بررسی کنید ربات هنوز ادمین چنل و دارای دسترسی ارسال پست باشد.",
                 reply_markup=back_keyboard()
             )
         context.user_data.clear()
@@ -6490,7 +6490,7 @@ async def handle_message(
             context.user_data.clear()
 
             await message.reply_text(
-                "❌ مقصد گروه پیدا نشد.",
+                " مقصد گروه پیدا نشد.",
                 reply_markup=back_keyboard()
             )
 
@@ -6504,7 +6504,7 @@ async def handle_message(
             context.user_data.clear()
 
             await message.reply_text(
-                "❌ شما دیگر عضو این گروه نیستید.",
+                " شما دیگر عضو این گروه نیستید.",
                 reply_markup=back_keyboard()
             )
 
@@ -6529,7 +6529,7 @@ async def handle_message(
             context.user_data.clear()
 
             await message.reply_text(
-                "❌ ربات دیگر در این گروه عضو نیست.",
+                " ربات دیگر در این گروه عضو نیست.",
                 reply_markup=back_keyboard()
             )
 
@@ -6561,7 +6561,7 @@ async def handle_message(
 
         except TelegramError:
             await message.reply_text(
-                "❌ خطا در ارسال پیام به گروه."
+                " خطا در ارسال پیام به گروه."
             )
 
         context.user_data.clear()
@@ -6583,7 +6583,7 @@ async def handle_message(
             context.user_data.clear()
 
             await message.reply_text(
-                "❌ مقصد پیام پیدا نشد.",
+                " مقصد پیام پیدا نشد.",
                 reply_markup=back_keyboard()
             )
 
@@ -6593,7 +6593,7 @@ async def handle_message(
             context.user_data.clear()
 
             await message.reply_text(
-                "❌ نمی‌توانی به خودت پیام بفرستی.",
+                " نمی‌توانی به خودت پیام بفرستی.",
                 reply_markup=back_keyboard()
             )
 
@@ -6617,7 +6617,7 @@ async def handle_message(
             context.user_data.clear()
 
             await message.reply_text(
-                "❌ شما توسط این کاربر بلاک شده‌اید.",
+                " شما توسط این کاربر بلاک شده‌اید.",
                 reply_markup=back_keyboard()
             )
 
@@ -6673,7 +6673,7 @@ async def handle_message(
 
         except TelegramError:
             await message.reply_text(
-                "❌ خطا در ارسال پیام."
+                " خطا در ارسال پیام."
             )
 
         context.user_data.clear()
@@ -6768,7 +6768,7 @@ async def handle_message(
 
         if not target:
             await message.reply_text(
-                "خطایی رخ داد ! به نظر میرسه کاربر عضو ربات نیست یا آیدی رو اشتباه وارد کردی ❌",
+                "خطایی رخ داد ! به نظر میرسه کاربر عضو ربات نیست یا آیدی رو اشتباه وارد کردی ",
                 reply_markup=back_keyboard()
             )
 
@@ -6848,7 +6848,7 @@ async def ban_callback(
 
     if not is_manager_or_supervisor(user.id):
         await query.answer(
-            "دسترسی ندارید ❌",
+            "دسترسی ندارید ",
             show_alert=True
         )
         return
@@ -6868,7 +6868,7 @@ async def ban_callback(
         context.user_data.clear()
 
         await query.answer(
-            "عملیات بن لغو شد ❌"
+            "عملیات بن لغو شد "
         )
 
         try:
@@ -6879,7 +6879,7 @@ async def ban_callback(
             pass
 
         await query.message.reply_text(
-            "❌ عملیات بن لغو شد."
+            " عملیات بن لغو شد."
         )
 
         return
@@ -6895,7 +6895,7 @@ async def ban_callback(
             )
         except (ValueError, IndexError):
             await query.answer(
-                "مدت نامعتبر است ❌",
+                "مدت نامعتبر است ",
                 show_alert=True
             )
             return
@@ -6907,7 +6907,7 @@ async def ban_callback(
             7
         ):
             await query.answer(
-                "مدت نامعتبر است ❌",
+                "مدت نامعتبر است ",
                 show_alert=True
             )
             return
@@ -6928,7 +6928,7 @@ async def ban_callback(
             context.user_data.clear()
 
             await query.answer(
-                "اطلاعات بن پیدا نشد ❌",
+                "اطلاعات بن پیدا نشد ",
                 show_alert=True
             )
 
@@ -6944,7 +6944,7 @@ async def ban_callback(
             context.user_data.clear()
 
             await query.answer(
-                "کد بن پیدا نشد ❌",
+                "کد بن پیدا نشد ",
                 show_alert=True
             )
 
