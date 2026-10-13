@@ -4869,7 +4869,7 @@ async def button_handler(
     # REPLY
     # -----------------------------------------------------
 
-    if data.startswith("reply:")
+    if data.startswith("reply:"):
         try:
             message_id = int(
                 data.split(":", 1)[1]
