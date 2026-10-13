@@ -2435,138 +2435,293 @@ def main_reply_keyboard():
     )
 
 
-# Keyboard helpers used throughout the bot. These were missing from main.py,
-# which caused NameError exceptions when /start or several flows tried to show them.
 def main_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("دریافت لینک ناشناس 🔗", callback_data="copy_link", style="success")],
         [
-            InlineKeyboardButton("تنظیمات نام ⚙️", callback_data="name_settings"),
-            InlineKeyboardButton("تبلیغات 📢", callback_data="ads"),
+            InlineKeyboardButton(
+                "دریافت لینک اختصاصی 🔗",
+                callback_data="copy_link",
+                style="success"
+            )
         ],
         [
-            InlineKeyboardButton("لیست مسدودی 🔴", callback_data="block_list"),
-            InlineKeyboardButton("کانال پشتیبانی 📣", url="https://t.me/SuppoortGoldenchat"),
+            InlineKeyboardButton(
+                "تنظیمات نام ⚙️",
+                callback_data="name_settings"
+            ),
+            InlineKeyboardButton(
+                "تبلیغات 📢",
+                callback_data="ads"
+            )
         ],
-        [InlineKeyboardButton("راهنما 🤔", callback_data="help")],
+        [
+            InlineKeyboardButton(
+                "لیست مسدودی 🚫",
+                callback_data="block_list",
+                style="danger"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "چنل اطلاع رسانی 📢",
+                url="https://t.me/SuppoortGoldenchat"
+            ),
+            InlineKeyboardButton(
+                "راهنما 🤔",
+                callback_data="help"
+            )
+        ]
     ])
 
 
 def back_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("بازگشت 🔙", callback_data="back_main", style="danger")]
+        [
+            InlineKeyboardButton(
+                "بازگشت 🔙",
+                callback_data="back_main",
+                style="danger"
+            )
+        ]
     ])
 
 
 def cancel_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("لغو ارسال ❌", callback_data="cancel_send", style="danger")]
+        [
+            InlineKeyboardButton(
+                "لغو ارسال پیام",
+                callback_data="cancel_send",
+                style="danger"
+            )
+        ]
     ])
 
 
 def join_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("عضویت در کانال رسمی", url=CHANNEL_1_URL)],
-        [InlineKeyboardButton("جوین شدم ✅", callback_data="check_join", style="success")],
+        [
+            InlineKeyboardButton(
+                "کانال رسمی گلدن چت",
+                url=CHANNEL_1_URL
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "جوین شدم ✅",
+                callback_data="check_join",
+                style="success"
+            )
+        ]
     ])
 
 
-def link_keyboard(share_url):
+def link_keyboard(share_url=None):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("اشتراک گذاری مستقیم 📤", url=share_url, style="success")],
-        [InlineKeyboardButton("تعداد بازدید لینک 📊", callback_data="link_stats")],
-        [InlineKeyboardButton("بازگشت 🔙", callback_data="back_main", style="danger")],
+        [
+            InlineKeyboardButton(
+                "اشتراک گذاری مستقیم 📤",
+                switch_inline_query="share"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "تعداد بازدید لینک 📊",
+                callback_data="link_stats",
+                style="success"
+            ),
+            InlineKeyboardButton(
+                "بازگشت 🔙",
+                callback_data="back_main",
+                style="danger"
+            )
+        ]
     ])
 
 
 def name_settings_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("تغییر نام ✏️", callback_data="change_name", style="primary")],
-        [InlineKeyboardButton("بازگشت 🔙", callback_data="back_main", style="danger")],
+        [
+            InlineKeyboardButton(
+                "تغییر نام ✏️",
+                callback_data="change_name"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "بازگشت 🔙",
+                callback_data="back_main",
+                style="danger"
+            )
+        ]
     ])
 
 
 def reaction_keyboard(message_id):
-    rows = []
-    for start in range(0, len(REACTIONS), 4):
-        rows.append([
+    buttons = []
+    row = []
+
+    for index, reaction in enumerate(REACTIONS):
+        row.append(
             InlineKeyboardButton(
                 reaction,
                 callback_data=f"react:{message_id}:{index}"
             )
-            for index, reaction in enumerate(REACTIONS[start:start + 4], start=start)
-        ])
-    rows.append([
-        InlineKeyboardButton("بازگشت 🔙", callback_data=f"reaction_back:{message_id}", style="danger")
+        )
+
+        if len(row) == 4:
+            buttons.append(row)
+            row = []
+
+    if row:
+        buttons.append(row)
+
+    buttons.append([
+        InlineKeyboardButton(
+            "بازگشت 🔙",
+            callback_data=f"reaction_back:{message_id}",
+            style="danger"
+        )
     ])
-    return InlineKeyboardMarkup(rows)
+
+    return InlineKeyboardMarkup(buttons)
 
 
-def anonymous_message_keyboard(message_id, sender_id, include_reaction=True, include_seen=True):
-    rows = []
-    if include_reaction:
-        rows.append([
-            InlineKeyboardButton("ری اکشن :)", callback_data=f"reaction:{message_id}", style="success")
-        ])
+def anonymous_message_keyboard(
+    message_id,
+    sender_id,
+    include_reaction=True,
+    include_seen=True
+):
+    buttons = [
+        [
+            InlineKeyboardButton(
+                "پاسخ 🗨️",
+                callback_data=f"reply:{message_id}",
+                style="success"
+            ),
+            InlineKeyboardButton(
+                "بلاک 🛑",
+                callback_data=f"block:{sender_id}",
+                style="danger"
+            )
+        ]
+    ]
+
     if include_seen:
-        rows.append([
-            InlineKeyboardButton("مشاهده شد 👁️", callback_data=f"seen:{message_id}")
+        buttons.append([
+            InlineKeyboardButton(
+                "مشاهده شد 👁️",
+                callback_data=f"seen:{message_id}",
+                style="success"
+            )
         ])
-    rows.append([
-        InlineKeyboardButton("پاسخ دادن 💌", callback_data=f"reply:{message_id}"),
-        InlineKeyboardButton("مسدود کردن 🔴", callback_data=f"block:{sender_id}", style="danger"),
+
+    buttons.append([
+        InlineKeyboardButton(
+            "گزارش تخلف کاربر 🚨",
+            callback_data=f"report:{message_id}",
+            style="danger"
+        )
     ])
-    rows.append([
-        InlineKeyboardButton("گزارش تخلف 🚨", callback_data=f"report:{message_id}", style="danger")
-    ])
-    return InlineKeyboardMarkup(rows)
+
+    if include_reaction:
+        buttons.append([
+            InlineKeyboardButton(
+                "ری اکشن :)",
+                callback_data=f"reaction:{message_id}",
+                style="success"
+            )
+        ])
+
+    return InlineKeyboardMarkup(buttons)
 
 
 def channel_message_keyboard(message_id, sender_id):
-    return anonymous_message_keyboard(
-        message_id,
-        sender_id,
-        include_reaction=True,
-        include_seen=True,
-    )
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("بلاک 🛑", callback_data=f"block:{sender_id}", style="danger"),
+            InlineKeyboardButton("گزارش تخلف 🚨", callback_data=f"report:{message_id}", style="danger")
+        ]
+    ])
 
 
 def group_view_keyboard(message_id):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("مشاهده پیام 👁️", callback_data=f"group_view:{message_id}")],
-        [InlineKeyboardButton("گزارش تخلف 🚨", callback_data=f"group_report:{message_id}", style="danger")],
+        [
+            InlineKeyboardButton(
+                "دیدن پیام",
+                callback_data=f"group_view:{message_id}",
+                style="success"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "گزارش تخلف 🚨",
+                callback_data=f"group_report:{message_id}",
+                style="danger"
+            )
+        ]
     ])
 
 
 def ban_cancel_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("لغو عملیات ❌", callback_data="ban_cancel", style="danger")]
+        [
+            InlineKeyboardButton(
+                "لغو",
+                callback_data="ban_cancel"
+            )
+        ]
     ])
 
 
 def ban_duration_keyboard():
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("۱ روز", callback_data="ban_duration:1"),
-            InlineKeyboardButton("۳ روز", callback_data="ban_duration:3"),
+            InlineKeyboardButton(
+                "1 روز",
+                callback_data="ban_duration:1"
+            ),
+            InlineKeyboardButton(
+                "3 روز",
+                callback_data="ban_duration:3"
+            )
         ],
         [
-            InlineKeyboardButton("۵ روز", callback_data="ban_duration:5"),
-            InlineKeyboardButton("۷ روز", callback_data="ban_duration:7"),
+            InlineKeyboardButton(
+                "5 روز",
+                callback_data="ban_duration:5"
+            ),
+            InlineKeyboardButton(
+                "7 روز",
+                callback_data="ban_duration:7"
+            )
         ],
-        [InlineKeyboardButton("لغو عملیات ❌", callback_data="ban_cancel", style="danger")],
+        [
+            InlineKeyboardButton(
+                "لغو",
+                callback_data="ban_cancel"
+            )
+        ]
     ])
 
 
 def change_username_confirm_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("متوجه شدم ✅", callback_data="change_username_done", style="success")]
+        [
+            InlineKeyboardButton(
+                "اوکی « ارسال پنل اصلی »",
+                callback_data="change_username_done",
+                style="success"
+            )
+        ]
     ])
 
 
 def channel_profanity_warning_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("بازگشت به پنل اصلی 🔙", callback_data="back_main", style="danger")]
+        [InlineKeyboardButton("بازگشت 🔙", callback_data="back_main", style="danger")]
     ])
 
 
@@ -7249,37 +7404,32 @@ async def inline_share_handler(update, context):
     if not query or not user:
         return
 
-    bot_info = await context.bot.get_me()
-    bot_username = f"@{bot_info.username}"
+    # Only show the share card when the user explicitly invokes it
+    # with the "share" query. Typing/pasting @HideMyChatRobot alone
+    # must not return a share result.
+    if (query.query or "").strip().lower() != "share":
+        await query.answer([], cache_time=0, is_personal=True)
+        return
 
-    # Keep the existing personal share card available, and always show
-    # a second result that sends only the bot username.
     get_or_create_user(user.id, user.username, user.full_name)
+    bot_info = await context.bot.get_me()
     own_link = f"https://t.me/{bot_info.username}?start={user.id}"
-    results = [
-        InlineQueryResultArticle(
-            id="golden-chat-share",
-            title="حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀",
-            description="G O L D E N  C H A T",
-            input_message_content=InputTextMessageContent(
-                f'<a href="{html.escape(own_link, quote=True)}"><b>حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀</b></a>\n\n'
-                f'<a href="{html.escape(own_link, quote=True)}">{html.escape(own_link)}</a>\n\n'
-                f'<b>G O L D E N  C H A T</b>',
-                parse_mode="HTML",
-                disable_web_page_preview=True
-            ),
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("حرف بزنیممم", url=own_link, style="primary")]
-            ])
+    result = InlineQueryResultArticle(
+        id="golden-chat-share",
+        title="حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀",
+        description="G O L D E N  C H A T",
+        input_message_content=InputTextMessageContent(
+            f'<a href="{html.escape(own_link, quote=True)}"><b>حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀</b></a>\n\n'
+            f'<a href="{html.escape(own_link, quote=True)}">{html.escape(own_link)}</a>\n\n'
+            f'<b>G O L D E N  C H A T</b>',
+            parse_mode="HTML",
+            disable_web_page_preview=True
         ),
-        InlineQueryResultArticle(
-            id="golden-chat-bot-username",
-            title="ارسال آیدی ربات",
-            description="برای ارسال آیدی ربات کلیک کنید",
-            input_message_content=InputTextMessageContent(bot_username)
-        )
-    ]
-    await query.answer(results, cache_time=0, is_personal=True)
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("حرف بزنیممم", url=own_link, style="primary")]
+        ])
+    )
+    await query.answer([result], cache_time=0, is_personal=True)
 
 
 # =========================================================
