@@ -6444,35 +6444,20 @@ async def handle_message(
             await message.reply_text("❌ اطلاعات چنل پیدا نشد.", reply_markup=back_keyboard())
             return
 
-        # Show an animated status while the AI moderation request is running.
+        # Static status only: animation/edit loops are intentionally removed.
         status_message = await message.reply_text(
-            "درحال بررسی پیام شما توسط هوش مصنوعی 🧠\n\n• . ."
+            "درحال بررسی پیام شما توسط هوش مصنوعی 🧠\nلطفاً کمی صبر کنید..."
         )
 
-        async def animate_channel_review():
-            frames = ["• . .", ". • .", ". . •"]
-            index = 0
-            while True:
-                await asyncio.sleep(0.65)
-                index = (index + 1) % len(frames)
-                try:
-                    await status_message.edit_text(
-                        "درحال بررسی پیام شما توسط هوش مصنوعی 🧠\n\n" + frames[index]
-                    )
-                except TelegramError as animation_error:
-                    # Animation is cosmetic; never interrupt the moderation check.
-                    print(f"Channel review animation update failed: {type(animation_error).__name__}")
-                    await asyncio.sleep(0.8)
-
-        animation_task = asyncio.create_task(animate_channel_review())
         try:
             profanity = await classify_channel_profanity(text)
-        finally:
-            animation_task.cancel()
-            try:
-                await animation_task
-            except asyncio.CancelledError:
-                pass
+        except Exception as moderation_error:
+            print(
+                f"[xAI moderation] Unhandled moderation failure: "
+                f"{type(moderation_error).__name__}: {moderation_error}",
+                flush=True,
+            )
+            profanity = None
 
         if profanity is None:
             await status_message.edit_text(
