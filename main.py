@@ -7292,32 +7292,37 @@ async def inline_share_handler(update, context):
     if not query or not user:
         return
 
-    # Only show the share card when the user explicitly invokes it
-    # with the "share" query. Typing/pasting @HideMyChatRobot alone
-    # must not return a share result.
-    if (query.query or "").strip().lower() != "share":
-        await query.answer([], cache_time=0, is_personal=True)
-        return
-
-    get_or_create_user(user.id, user.username, user.full_name)
     bot_info = await context.bot.get_me()
+    bot_username = f"@{bot_info.username}"
+
+    # Keep the existing personal share card available, and always show
+    # a second result that sends only the bot username.
+    get_or_create_user(user.id, user.username, user.full_name)
     own_link = f"https://t.me/{bot_info.username}?start={user.id}"
-    result = InlineQueryResultArticle(
-        id="golden-chat-share",
-        title="حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀",
-        description="G O L D E N  C H A T",
-        input_message_content=InputTextMessageContent(
-            f'<a href="{html.escape(own_link, quote=True)}"><b>حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀</b></a>\n\n'
-            f'<a href="{html.escape(own_link, quote=True)}">{html.escape(own_link)}</a>\n\n'
-            f'<b>G O L D E N  C H A T</b>',
-            parse_mode="HTML",
-            disable_web_page_preview=True
+    results = [
+        InlineQueryResultArticle(
+            id="golden-chat-share",
+            title="حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀",
+            description="G O L D E N  C H A T",
+            input_message_content=InputTextMessageContent(
+                f'<a href="{html.escape(own_link, quote=True)}"><b>حوووصلم سر رفته بیاین حرف بزنیم🗣️🥀</b></a>\\n\\n'
+                f'<a href="{html.escape(own_link, quote=True)}">{html.escape(own_link)}</a>\\n\\n'
+                f'<b>G O L D E N  C H A T</b>',
+                parse_mode="HTML",
+                disable_web_page_preview=True
+            ),
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("حرف بزنیممم", url=own_link, style="primary")]
+            ])
         ),
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("حرف بزنیممم", url=own_link, style="primary")]
-        ])
-    )
-    await query.answer([result], cache_time=0, is_personal=True)
+        InlineQueryResultArticle(
+            id="golden-chat-bot-username",
+            title="ارسال آیدی ربات",
+            description="برای ارسال آیدی ربات کلیک کنید",
+            input_message_content=InputTextMessageContent(bot_username)
+        )
+    ]
+    await query.answer(results, cache_time=0, is_personal=True)
 
 
 # =========================================================
