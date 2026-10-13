@@ -2567,7 +2567,7 @@ async def classify_channel_profanity(text):
                     "You classify Persian-language anonymous channel messages. Detect swear words, "
                     "vulgar profanity, obscene insults, and abusive slurs in Persian or Finglish, "
                     "including intentionally misspelled or spaced forms. Do not flag ordinary "
-                    "criticism, disagreement, or academic discussion of profanity. Return a JSON object with a boolean field named profanity.",
+                    "criticism, disagreement, or academic discussion of profanity. Return a JSON object with a boolean field named profanity."
                 ),
             },
             {"role": "user", "content": text[:6000]},
