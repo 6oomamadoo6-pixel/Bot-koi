@@ -166,6 +166,37 @@ def save_abuse_report(report_type, reporter_id, reporter_name, reported_user_id,
         release_db(conn)
 
 
+
+def add_channel_profanity_violation(user_id):
+    """Atomically increment a user's channel-message profanity violation count."""
+    conn = db()
+    cur = None
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO channel_profanity_violations
+                (user_id, violation_count, updated_at)
+            VALUES (%s, 1, CURRENT_TIMESTAMP)
+            ON CONFLICT (user_id)
+            DO UPDATE SET
+                violation_count = channel_profanity_violations.violation_count + 1,
+                updated_at = CURRENT_TIMESTAMP
+            RETURNING violation_count
+            """,
+            (user_id,),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        return row[0] if row else 1
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        if cur is not None:
+            cur.close()
+        release_db(conn)
+
 def init_db():
     conn = db()
 
