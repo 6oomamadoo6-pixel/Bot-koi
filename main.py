@@ -34,6 +34,7 @@ from telegram.ext import (
     InlineQueryHandler,
     ContextTypes,
     ChatMemberHandler,
+    TypeHandler,
     filters,
 )
 from telegram.error import TelegramError
@@ -7116,8 +7117,35 @@ async def inline_share_handler(update, context):
 
 
 # =========================================================
-# ERROR
+# UPDATE TRACE / ERROR
 # =========================================================
+
+async def update_trace_handler(update, context):
+    """Log update arrival without logging private message contents."""
+    try:
+        user = update.effective_user
+        chat = update.effective_chat
+        message = update.effective_message
+        if update.callback_query:
+            kind = "callback_query"
+        elif update.inline_query:
+            kind = "inline_query"
+        elif message and message.text and message.text.startswith("/"):
+            kind = "command"
+        elif message:
+            kind = "message"
+        else:
+            kind = "other"
+        print(
+            "[UPDATE RECEIVED] "
+            f"id={update.update_id} kind={kind} "
+            f"user_id={user.id if user else 'none'} "
+            f"chat_type={chat.type if chat else 'none'}",
+            flush=True,
+        )
+    except Exception as trace_error:
+        print(f"[UPDATE TRACE ERROR] {type(trace_error).__name__}: {trace_error}", flush=True)
+
 
 async def error_handler(
     update,
@@ -7135,7 +7163,7 @@ async def error_handler(
             mark_user_bot_blocked(user.id)
         except Exception as mark_error:
             print("Could not mark blocked user:", mark_error)
-    print("BOT ERROR:", repr(context.error))
+    print("BOT ERROR:", repr(context.error), flush=True)
 
 
 # =========================================================
@@ -7146,6 +7174,26 @@ async def post_init(
     application
 ):
     global GLOBAL_BOT
+
+    print("[BOOT] post_init entered; checking Telegram connection.", flush=True)
+    try:
+        bot_info = await application.bot.get_me()
+        webhook_info = await application.bot.get_webhook_info()
+        print(
+            f"[BOOT] Telegram authentication OK: username=@{bot_info.username}, bot_id={bot_info.id}.",
+            flush=True,
+        )
+        print(
+            "[BOOT] Webhook status: "
+            f"configured={bool(webhook_info.url)}, "
+            f"pending_updates={webhook_info.pending_update_count}.",
+            flush=True,
+        )
+    except Exception as startup_check_error:
+        print(
+            f"[BOOT CHECK FAILED] {type(startup_check_error).__name__}: {startup_check_error}",
+            flush=True,
+        )
 
     GLOBAL_BOT = application.bot
 
@@ -7222,13 +7270,18 @@ async def post_shutdown(
 # =========================================================
 
 def main():
+    print("[BOOT] main.py entered.", flush=True)
 
     # Expose HTTP health endpoints for Deplexo's web-service readiness check.
     Thread(target=start_health_server, daemon=True).start()
+    print("[BOOT] Health server thread started.", flush=True)
 
+    print("[BOOT] Creating PostgreSQL connection pool.", flush=True)
     create_db_pool()
 
+    print("[BOOT] Initializing database schema (existing data is preserved).", flush=True)
     init_db()
+    print("[BOOT] Database initialization completed.", flush=True)
 
     application = (
         Application
@@ -7355,24 +7408,42 @@ def main():
         )
     )
 
+    # This handler runs first and logs incoming update metadata without message text.
+    application.add_handler(
+        TypeHandler(Update, update_trace_handler),
+        group=-1,
+    )
+
     application.add_error_handler(
         error_handler
     )
 
-    print(
-        "Bot started successfully with PostgreSQL."
-    )
+    print("[BOOT] Handlers registered; starting Telegram polling now.", flush=True)
+    print("[BOOT] PostgreSQL service: Postgre.", flush=True)
 
-    print(
-        "PostgreSQL service: Postgre"
-    )
-
-    application.run_polling(
-        drop_pending_updates=True
-    )
+    try:
+        application.run_polling(
+            drop_pending_updates=False,
+            bootstrap_retries=-1,
+        )
+    except Exception as polling_error:
+        print(
+            f"[POLLING FATAL] {type(polling_error).__name__}: {polling_error}",
+            flush=True,
+        )
+        raise
+    finally:
+        print("[BOOT] Telegram polling loop exited.", flush=True)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as fatal_error:
+        print(
+            f"[FATAL STARTUP ERROR] {type(fatal_error).__name__}: {fatal_error}",
+            flush=True,
+        )
+        raise
 
 # Redeploy trigger: verified channel-review animation and moderation flow.
