@@ -6,6 +6,7 @@ import html
 import json
 from urllib.parse import quote
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from threading import Thread
 
 from flask import Flask
@@ -252,6 +253,28 @@ def init_db():
                 link_code TEXT UNIQUE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
+        """)
+
+        # Persistent state for one automatic promotional message per group every four hours.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS group_ad_state (
+                chat_id BIGINT PRIMARY KEY,
+                last_sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_template TEXT
+            )
+        """)
+
+        # Incoming human messages are sampled to detect quiet groups.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS group_ad_activity (
+                id BIGSERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_group_ad_activity_chat_created
+            ON group_ad_activity(chat_id, created_at)
         """)
 
         cur.execute("""
@@ -2880,6 +2903,212 @@ async def bot_group_membership_update(
             )
 
 
+
+# =========================================================
+# AUTOMATIC GROUP PROMOTIONS
+# =========================================================
+
+QUIET_GROUP_MESSAGE_THRESHOLD = 5  # Fewer than 5 human messages in the last four hours is considered quiet.
+GROUP_AD_INTERVAL_SECONDS = 4 * 60 * 60
+TEHRAN_TZ = ZoneInfo("Asia/Tehran")
+
+
+async def track_group_activity(update, context):
+    """Record human activity in groups without changing normal message handling."""
+    message = update.effective_message
+    chat = update.effective_chat
+    user = update.effective_user
+    if not message or not chat or chat.type not in ("group", "supergroup"):
+        return
+    if not user or user.is_bot:
+        return
+    if message.text and message.text.strip().startswith("/"):
+        return
+
+    conn = None
+    cur = None
+    try:
+        conn = db()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO group_ad_activity (chat_id, created_at) VALUES (%s, CURRENT_TIMESTAMP)",
+            (chat.id,)
+        )
+        conn.commit()
+    except Exception as e:
+        print(f"[GROUP ADS] Activity tracking failed for {chat.id}: {e}", flush=True)
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            release_db(conn)
+
+
+def group_ad_button_rows(bot_username, template, group_code):
+    if template == "quiet":
+        return InlineKeyboardMarkup([[
+            InlineKeyboardButton(
+                "پیام ناشناس به گروه",
+                url=f"https://t.me/{bot_username}?start=g_{group_code}"
+            )
+        ]])
+    if template in ("school", "own_link"):
+        return InlineKeyboardMarkup([[
+            InlineKeyboardButton(
+                "دریافت لینک ناشناس من",
+                url=f"https://t.me/{bot_username}?start=ad_home"
+            )
+        ]])
+    if template == "user_target":
+        return InlineKeyboardMarkup([[
+            InlineKeyboardButton(
+                "ارسال پیام به کاربر دلخواه",
+                url=f"https://t.me/{bot_username}?start=ad_home"
+            )
+        ]])
+    return None
+
+
+def school_message_is_allowed():
+    now = datetime.now(TEHRAN_TZ)
+    # Python weekday: Monday=0 ... Sunday=6. Persian Saturday through Wednesday:
+    # Saturday=5, Sunday=6, Monday=0, Tuesday=1, Wednesday=2.
+    return now.weekday() in (5, 6, 0, 1, 2) and 8 <= now.hour < 13
+
+
+async def automatic_group_ads_loop(application):
+    """Send at most one promo to each group per four-hour interval, persisting timing in PostgreSQL."""
+    bot = application.bot
+    while True:
+        try:
+            groups = get_all_groups()
+            if groups:
+                conn = db()
+                try:
+                    cur = conn.cursor()
+                    # Existing groups are initialized with the current time, preventing a burst on deploy.
+                    cur.execute("""
+                        INSERT INTO group_ad_state (chat_id, last_sent_at)
+                        SELECT chat_id, CURRENT_TIMESTAMP FROM group_chats
+                        ON CONFLICT (chat_id) DO NOTHING
+                    """)
+                    cur.execute("""
+                        SELECT g.chat_id, g.title, g.link_code
+                        FROM group_chats g
+                        JOIN group_ad_state s ON s.chat_id = g.chat_id
+                        WHERE s.last_sent_at <= CURRENT_TIMESTAMP - INTERVAL '4 hours'
+                        ORDER BY s.last_sent_at ASC
+                    """)
+                    due_groups = cur.fetchall()
+                    conn.commit()
+                finally:
+                    cur.close()
+                    release_db(conn)
+
+                for chat_id, title, group_code in due_groups:
+                    if not group_code:
+                        continue
+
+                    try:
+                        # If Telegram says the bot was removed or cannot post, skip quietly.
+                        member = await bot.get_chat_member(chat_id=chat_id, user_id=bot.id)
+                        if member.status not in (ChatMember.MEMBER, ChatMember.ADMINISTRATOR, ChatMember.OWNER):
+                            continue
+
+                        conn = db()
+                        try:
+                            cur = conn.cursor()
+                            cur.execute("""
+                                SELECT COUNT(*)
+                                FROM group_ad_activity
+                                WHERE chat_id = %s
+                                  AND created_at >= CURRENT_TIMESTAMP - INTERVAL '4 hours'
+                            """, (chat_id,))
+                            activity_count = cur.fetchone()[0]
+                        finally:
+                            cur.close()
+                            release_db(conn)
+
+                        bot_info = await bot.get_me()
+                        if activity_count < QUIET_GROUP_MESSAGE_THRESHOLD:
+                            template = "quiet"
+                            text_to_send = (
+                                "چه گروه خلوتی 😩\n"
+                                "کسی حرف سکرت مکرتی\n"
+                                "ناشناسی چیزی نداره؟😭"
+                            )
+                        else:
+                            options = [
+                                ("linkgroup",
+                                 "همین حالا لینک گروه رو بگیر پیام ناشناستو بفرست 👨🏻‍💼 /linkgroup"),
+                                ("user_target",
+                                 "میدونستین میتونین به کاربر دلخواهتون تو ربات پیام ناشناش بدین؟ 💌\n"
+                                 "فقط کافیه توی ربات عضو باشه 🤠"),
+                                ("own_link",
+                                 "لینک ناشناستو بگیر و از کیفیت و سرعت ربات لذت ببر👨🏻‍💼\n"
+                                 "ادعام میشه بهترینم💁🏻‍♂️"),
+                            ]
+                            if school_message_is_allowed():
+                                options.append((
+                                    "school",
+                                    "زیاد فعال نیستین\n"
+                                    "آها یادم نبود مدرسه میرین 😂\n"
+                                    "عیب نداره وقتی برگشتین شلوغش کنین"
+                                ))
+                            template, text_to_send = random.choice(options)
+
+                        markup = group_ad_button_rows(bot_info.username, template, group_code)
+                        await bot.send_message(
+                            chat_id=chat_id,
+                            text=text_to_send,
+                            reply_markup=markup,
+                            disable_web_page_preview=True
+                        )
+
+                        conn = db()
+                        try:
+                            cur = conn.cursor()
+                            cur.execute("""
+                                UPDATE group_ad_state
+                                SET last_sent_at = CURRENT_TIMESTAMP, last_template = %s
+                                WHERE chat_id = %s
+                            """, (template, chat_id))
+                            conn.commit()
+                        finally:
+                            cur.close()
+                            release_db(conn)
+                        print(f"[GROUP ADS] Sent template={template} group={chat_id}", flush=True)
+
+                    except TelegramError as e:
+                        # Do not mark the interval as consumed when sending failed.
+                        print(f"[GROUP ADS] Telegram send/check failed for {chat_id}: {e}", flush=True)
+                    except Exception as e:
+                        print(f"[GROUP ADS] Failed for {chat_id}: {type(e).__name__}: {e}", flush=True)
+
+            # Keep the activity table bounded.
+            try:
+                conn = db()
+                try:
+                    cur = conn.cursor()
+                    cur.execute("""
+                        DELETE FROM group_ad_activity
+                        WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '24 hours'
+                    """)
+                    conn.commit()
+                finally:
+                    cur.close()
+                    release_db(conn)
+            except Exception as cleanup_error:
+                print(f"[GROUP ADS] Activity cleanup failed: {cleanup_error}", flush=True)
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            print(f"[GROUP ADS] Scheduler loop error: {type(e).__name__}: {e}", flush=True)
+
+        await asyncio.sleep(60)
+
+
 # =========================================================
 # LINK GROUP
 # =========================================================
@@ -2977,6 +3206,16 @@ async def start(
 
     if context.args:
         payload = context.args[0].strip()
+
+        if payload == "ad_home":
+            if not await is_member(context.bot, user.id):
+                context.user_data["pending_link_payload"] = payload
+                await send_join_message(update, context)
+                return
+            get_or_create_user(user.id, user.username, user.full_name)
+            context.user_data.clear()
+            await send_main_panel(update, context, show_reply_keyboard=True)
+            return
 
         if payload.startswith("c_"):
             channel = get_channel_by_link(payload[2:])
@@ -7167,6 +7406,10 @@ async def post_init(
         expire_bans_loop()
     )
 
+    application.bot_data["automatic_group_ads_task"] = asyncio.create_task(
+        automatic_group_ads_loop(application)
+    )
+
     try:
         from telegram import BotCommand, BotCommandScopeChat
 
@@ -7213,6 +7456,14 @@ async def post_shutdown(
     task = application.bot_data.get(
         "ban_expiration_task"
     )
+
+    ads_task = application.bot_data.get("automatic_group_ads_task")
+    if ads_task:
+        ads_task.cancel()
+        try:
+            await ads_task
+        except asyncio.CancelledError:
+            pass
 
     if task:
         task.cancel()
@@ -7319,6 +7570,15 @@ def main():
             "cancel",
             cancel_command
         )
+    )
+
+    # Track group activity before other message handlers (does not consume the update).
+    application.add_handler(
+        MessageHandler(
+            filters.ChatType.GROUPS,
+            track_group_activity
+        ),
+        group=-2,
     )
 
     # BOT ADDED TO GROUP
