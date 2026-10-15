@@ -2751,6 +2751,23 @@ def main_keyboard():
     ]
     return InlineKeyboardMarkup(rows)
 
+def admin_main_keyboard():
+    """Main keyboard for the owner, with a direct entry to group message tools."""
+    rows = [
+        [InlineKeyboardButton("دریافت لینک ناشناس 🔗", callback_data="copy_link", style="success")],
+        [
+            InlineKeyboardButton("تنظیمات نام ⚙️", callback_data="name_settings", style="primary"),
+            InlineKeyboardButton("تبلیغات 📢", callback_data="ads", style="primary"),
+        ],
+        [
+            InlineKeyboardButton("کانال پشتیبانی 📣", url="https://t.me/SuppoortGoldenchat", style="primary"),
+            InlineKeyboardButton("لیست مسدودی 🚫", callback_data="block_list", style="danger"),
+        ],
+        [InlineKeyboardButton("« راهنما❔»", callback_data="help")],
+        [InlineKeyboardButton("مدیریت پیام‌های گروهی 📣", callback_data="group_admin_open", style="primary")],
+    ]
+    return InlineKeyboardMarkup(rows)
+
 
 def back_keyboard():
     return InlineKeyboardMarkup([
@@ -3071,10 +3088,13 @@ async def send_main_panel(
         "<blockquote>دریافت مجدد منو با › /start</blockquote>"
     )
 
+    user = update.effective_user
+    panel_keyboard = admin_main_keyboard() if user and user.id == ADMIN_ID else main_keyboard()
+
     if update.message:
         await update.message.reply_text(
             text,
-            reply_markup=main_keyboard(),
+            reply_markup=panel_keyboard,
             parse_mode="HTML"
         )
         if show_reply_keyboard:
@@ -3085,7 +3105,7 @@ async def send_main_panel(
     else:
         await update.callback_query.edit_message_text(
             text,
-            reply_markup=main_keyboard(),
+            reply_markup=panel_keyboard,
             parse_mode="HTML"
         )
         if show_reply_keyboard:
