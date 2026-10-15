@@ -719,14 +719,22 @@ def supervisor_label(user_id):
 
 
 def supervisor_panel_keyboard():
-    rows = [[InlineKeyboardButton("افزودن ناظر ➕", callback_data="supervisor_add", style="success")]]
-    rows.append([InlineKeyboardButton("مدیریت پیام‌های گروهی 📣", callback_data="group_admin_open", style="primary")])
+    rows = [[
+        InlineKeyboardButton("افزودن ناظر ➕", callback_data="supervisor_add", style="success"),
+        InlineKeyboardButton("مدیریت پیام‌های گروهی 📣", callback_data="group_admin_open", style="primary"),
+    ]]
+    supervisor_buttons = []
     for row in get_supervisors():
         uid = row[0]
         name = row[3] or row[2] or (f"@{row[1]}" if row[1] else str(uid))
-        rows.append([InlineKeyboardButton(f"{name} | {uid}", callback_data=f"supervisor_select:{uid}")])
+        supervisor_buttons.append(
+            InlineKeyboardButton(f"{name} | {uid}", callback_data=f"supervisor_select:{uid}")
+        )
 
-    # آخرین دکمه: بستن پنل نظارت و نمایش مستقیم پنل اصلی
+    # فهرست ناظران هم دو ستونه است تا پنل کوتاه‌تر و مرتب‌تر شود.
+    for i in range(0, len(supervisor_buttons), 2):
+        rows.append(supervisor_buttons[i:i + 2])
+
     rows.append([
         InlineKeyboardButton(
             "بستن و نمایش پنل اصلی",
@@ -2254,11 +2262,16 @@ def get_all_groups():
 # =========================================================
 
 def group_admin_menu_keyboard():
+    # گزینه‌ها دو ستونه چیده می‌شوند؛ هر دکمه صفحه/مرحله مخصوص خودش را باز می‌کند.
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("ارسال پیام به گروه انتخابی", callback_data="group_broadcast_selected", style="primary")],
-        [InlineKeyboardButton("ارسال پیام به همه گروه‌های عضو ربات", callback_data="group_broadcast_all", style="success")],
-        [InlineKeyboardButton("عضویت ربات در گروه با لینک", callback_data="group_join_links")],
-        [InlineKeyboardButton("لغو ارسال پیام", callback_data="group_broadcast_cancel", style="danger")],
+        [
+            InlineKeyboardButton("ارسال به گروه انتخابی", callback_data="group_broadcast_selected", style="primary"),
+            InlineKeyboardButton("ارسال به همه گروه‌ها", callback_data="group_broadcast_all", style="success"),
+        ],
+        [
+            InlineKeyboardButton("افزودن گروه با لینک 🔗", callback_data="group_join_links"),
+            InlineKeyboardButton("لغو عملیات ❌", callback_data="group_broadcast_cancel", style="danger"),
+        ],
     ])
 
 
@@ -2752,18 +2765,20 @@ def main_keyboard():
     return InlineKeyboardMarkup(rows)
 
 def admin_main_keyboard():
-    """Main keyboard for the owner, with a direct entry to group message tools."""
+    """پنل اصلی ادمین با دکمه‌های دو ستونه و دسترسی سریع به ابزار مدیریت گروه‌ها."""
     rows = [
-        [InlineKeyboardButton("دریافت لینک ناشناس 🔗", callback_data="copy_link", style="success")],
         [
+            InlineKeyboardButton("دریافت لینک ناشناس 🔗", callback_data="copy_link", style="success"),
             InlineKeyboardButton("تنظیمات نام ⚙️", callback_data="name_settings", style="primary"),
+        ],
+        [
             InlineKeyboardButton("تبلیغات 📢", callback_data="ads", style="primary"),
+            InlineKeyboardButton("لیست مسدودی 🚫", callback_data="block_list", style="danger"),
         ],
         [
             InlineKeyboardButton("کانال پشتیبانی 📣", url="https://t.me/SuppoortGoldenchat", style="primary"),
-            InlineKeyboardButton("لیست مسدودی 🚫", callback_data="block_list", style="danger"),
+            InlineKeyboardButton("راهنما ❔", callback_data="help"),
         ],
-        [InlineKeyboardButton("« راهنما❔»", callback_data="help")],
         [InlineKeyboardButton("مدیریت پیام‌های گروهی 📣", callback_data="group_admin_open", style="primary")],
     ]
     return InlineKeyboardMarkup(rows)
