@@ -721,7 +721,6 @@ def supervisor_label(user_id):
 def supervisor_panel_keyboard():
     rows = [[
         InlineKeyboardButton("افزودن ناظر ➕", callback_data="supervisor_add", style="success"),
-        InlineKeyboardButton("مدیریت پیام‌های گروهی 📣", callback_data="group_admin_open", style="primary"),
     ]]
     supervisor_buttons = []
     for row in get_supervisors():
@@ -2765,7 +2764,7 @@ def main_keyboard():
     return InlineKeyboardMarkup(rows)
 
 def admin_main_keyboard():
-    """پنل اصلی ادمین با دکمه‌های دو ستونه و دسترسی سریع به ابزار مدیریت گروه‌ها."""
+    """پنل اصلی ادمین؛ مدیریت پیام‌های گروهی از پنل وب انجام می‌شود."""
     rows = [
         [
             InlineKeyboardButton("دریافت لینک ناشناس 🔗", callback_data="copy_link", style="success"),
@@ -2779,7 +2778,6 @@ def admin_main_keyboard():
             InlineKeyboardButton("کانال پشتیبانی 📣", url="https://t.me/SuppoortGoldenchat", style="primary"),
             InlineKeyboardButton("راهنما ❔", callback_data="help"),
         ],
-        [InlineKeyboardButton("مدیریت پیام‌های گروهی 📣", callback_data="group_admin_open", style="primary")],
     ]
     return InlineKeyboardMarkup(rows)
 
