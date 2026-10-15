@@ -256,7 +256,7 @@ def init_db():
             )
         """)
 
-        # Persistent state for one automatic promotional message per group every four hours.
+        # Persistent state for one automatic promotional message per group every 26 hours.
         cur.execute("""
             CREATE TABLE IF NOT EXISTS group_ad_state (
                 chat_id BIGINT PRIMARY KEY,
@@ -3234,7 +3234,7 @@ async def bot_group_membership_update(
 # =========================================================
 
 QUIET_GROUP_MESSAGE_THRESHOLD = 5  # Fewer than 5 human messages in the last four hours is considered quiet.
-GROUP_AD_INTERVAL_SECONDS = 4 * 60 * 60
+GROUP_AD_INTERVAL_SECONDS = 26 * 60 * 60
 TEHRAN_TZ = ZoneInfo("Asia/Tehran")
 
 
