@@ -4295,7 +4295,15 @@ async def button_handler(
     # -----------------------------------------------------
     # ADMIN GROUP MESSAGE TOOLS
     # -----------------------------------------------------
-    if data.startswith("group_"):
+    if data in (
+        "group_admin_open",
+        "group_broadcast_cancel",
+        "group_broadcast_selected",
+        "group_broadcast_all",
+        "group_join_links",
+        "group_broadcast_add_button",
+        "group_broadcast_no_button",
+    ):
         if user_id != ADMIN_ID:
             await query.answer("⛔️ دسترسی مجاز نیست.", show_alert=True)
             return
