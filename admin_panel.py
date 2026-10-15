@@ -4,6 +4,7 @@ import secrets
 import json
 import urllib.request
 import urllib.error
+from urllib.parse import urlsplit
 from datetime import datetime
 from functools import wraps
 
@@ -41,7 +42,7 @@ button,input{font:inherit}button{cursor:pointer}.wrap{max-width:1100px;margin:au
   <header class="top"><div class="brand"><div class="logo">✦</div><div><h1>Golden Chat</h1><div class="sub">پنل مدیریت ربات</div></div></div><div style="display:flex;gap:8px;align-items:center"><span class="pill">● اتصال امن</span><button class="btn ghost" id="logoutBtn">خروج</button></div></header>
   <section id="dashboardHero" class="hero"><div class="eyebrow">GOLDEN CHAT / ADMIN</div><h2>سلام مدیر، خوش اومدی ✨</h2><p>از اینجا وضعیت ربات رو ببین، کاربران رو جست‌وجو کن و فهرست مسدودی‌ها رو مدیریت کن. اطلاعات از دیتابیس فعلی خوانده می‌شه و دیتابیس جدیدی ساخته نمی‌شه.</p></section>
   <section id="dashboardStats" class="stats"><div class="stat"><div class="label">👥 تعداد کل کاربران ربات</div><div id="usersCount" class="num">—</div></div><div class="stat"><div class="label">🔴 موارد مسدودی کاربران</div><div id="blocksCount" class="num">—</div></div><div class="stat"><div class="label">✉️ پیام‌های ناشناس</div><div id="messagesCount" class="num">—</div></div></section>
-  <section id="menuGrid" class="menu-grid" aria-label="بخش‌های مدیریت"><button class="menu-tile" data-open="users"><span class="tile-icon">👥</span><span class="tile-title">مدیریت کاربران</span><span class="tile-desc">جست‌وجو و کاربران جدید</span></button><button class="menu-tile" data-open="blocks"><span class="tile-icon">🔴</span><span class="tile-title">لیست مسدودی‌ها</span><span class="tile-desc">مشاهده و رفع مسدودی</span></button><button class="menu-tile" data-open="bans"><span class="tile-icon">⛔</span><span class="tile-title">بن کاربران</span><span class="tile-desc">بن و رفع بن حساب‌ها</span></button><button class="menu-tile" data-open="tools"><span class="tile-icon">🛠️</span><span class="tile-title">ابزارهای کاربر</span><span class="tile-desc">تغییر نام، پیام و بن مستقیم</span></button><button class="menu-tile" data-open="broadcast"><span class="tile-icon">📢</span><span class="tile-title">پیام همگانی</span><span class="tile-desc">ارسال پیام به کاربران ربات</span></button><button class="menu-tile" data-open="supervisors"><span class="tile-icon">🛡️</span><span class="tile-title">مدیریت ناظران</span><span class="tile-desc">افزودن و حذف ناظر</span></button><button class="menu-tile" data-open="requests"><span class="tile-icon">📥</span><span class="tile-title">درخواست‌های ناظران</span><span class="tile-desc">بررسی و تأیید درخواست‌ها</span></button><button class="menu-tile" data-open="reports"><span class="tile-icon">🚨 <span id="reportLight" class="reportlight hidden"></span><span id="reportCount" class="reportcount zero">۰</span></span><span class="tile-title">گزارش تخلف کاربران</span><span class="tile-desc">مشاهده گزارش‌ها و اقدام مدیریتی</span></button></section>
+  <section id="menuGrid" class="menu-grid" aria-label="بخش‌های مدیریت"><button class="menu-tile" data-open="users"><span class="tile-icon">👥</span><span class="tile-title">مدیریت کاربران</span><span class="tile-desc">جست‌وجو و کاربران جدید</span></button><button class="menu-tile" data-open="blocks"><span class="tile-icon">🔴</span><span class="tile-title">لیست مسدودی‌ها</span><span class="tile-desc">مشاهده و رفع مسدودی</span></button><button class="menu-tile" data-open="bans"><span class="tile-icon">⛔</span><span class="tile-title">بن کاربران</span><span class="tile-desc">بن و رفع بن حساب‌ها</span></button><button class="menu-tile" data-open="tools"><span class="tile-icon">🛠️</span><span class="tile-title">ابزارهای کاربر</span><span class="tile-desc">تغییر نام، پیام و بن مستقیم</span></button><button class="menu-tile" data-open="broadcast"><span class="tile-icon">📢</span><span class="tile-title">پیام همگانی</span><span class="tile-desc">ارسال پیام به کاربران ربات</span></button><button class="menu-tile" data-open="supervisors"><span class="tile-icon">🛡️</span><span class="tile-title">مدیریت ناظران</span><span class="tile-desc">افزودن و حذف ناظر</span></button><button class="menu-tile" data-open="requests"><span class="tile-icon">📥</span><span class="tile-title">درخواست‌های ناظران</span><span class="tile-desc">بررسی و تأیید درخواست‌ها</span></button><button class="menu-tile" data-open="reports"><span class="tile-icon">🚨 <span id="reportLight" class="reportlight hidden"></span><span id="reportCount" class="reportcount zero">۰</span></span><span class="tile-title">گزارش تخلف کاربران</span><span class="tile-desc">مشاهده گزارش‌ها و اقدام مدیریتی</span></button><button class="menu-tile" data-open="groups"><span class="tile-icon">📣</span><span class="tile-title">مدیریت پیام‌های گروهی</span><span class="tile-desc">ارسال به یک گروه یا همه گروه‌ها</span></button></section>
   <section id="usersPanel" class="card hidden featurePanel"><div class="backrow"><button class="btn ghost" data-back>← بازگشت به پنل</button><h3 class="page-title">مدیریت کاربران</h3></div><div class="cardhead"><h3>کاربران ربات</h3><button id="newUsersButton" class="btn" type="button">🆕 ۰ کاربر جدید</button></div><form id="userSearch" class="searchrow"><input id="userQuery" placeholder="جست‌وجو با آیدی، یوزرنیم یا نام" autocomplete="off"><button class="btn" type="submit">جست‌وجو</button></form><div id="usersTable" class="tablewrap"><div class="empty">در حال دریافت اطلاعات…</div></div><div class="pager"><button id="prevUsers" class="btn ghost">قبلی</button><span id="userPage">صفحه ۱</span><button id="nextUsers" class="btn ghost">بعدی</button></div><div id="newUsersPanel" class="notice hidden" style="margin-top:18px"><div class="cardhead"><h3>🆕 کاربران جدید</h3><button id="closeNewUsers" class="btn ghost" type="button">بستن</button></div><p>این فهرست دو ساعت بعد از اولین مشاهده پاک می‌شود؛ کاربران از فهرست جدید خارج می‌شوند اما حسابشان حذف نمی‌شود.</p><div id="newUsersTable" class="tablewrap"></div></div></section>
   <section id="blocksPanel" class="card hidden featurePanel"><div class="backrow"><button class="btn ghost" data-back>← بازگشت به پنل</button><h3 class="page-title">لیست مسدودی‌ها</h3></div><div class="cardhead"><h3>لیست مسدودی‌ها</h3><span class="pill">مسدودسازی بین کاربران</span></div><form id="blockSearch" class="searchrow"><input id="blockQuery" placeholder="جست‌وجو با آیدی یا یوزرنیم" autocomplete="off"><button class="btn" type="submit">جست‌وجو</button></form><div class="notice">رفع مسدودی، فقط رابطهٔ مسدودسازی انتخاب‌شده را حذف می‌کند؛ حساب کاربر یا کدهای ناشناس حذف نمی‌شوند.</div><div id="blocksTable" class="tablewrap"><div class="empty">در حال دریافت اطلاعات…</div></div><div class="pager"><button id="prevBlocks" class="btn ghost">قبلی</button><span id="blockPage">صفحه ۱</span><button id="nextBlocks" class="btn ghost">بعدی</button></div></section>
   
@@ -52,7 +53,7 @@ button,input{font:inherit}button{cursor:pointer}.wrap{max-width:1100px;margin:au
 <form id="banForm" class="searchrow" style="flex-wrap:wrap"><input id="banId" required placeholder="آیدی عددی کاربر"><input id="banDays" type="number" min="1" max="3650" value="1" required placeholder="مدت به روز"><input id="banReason" required placeholder="دلیل بن"><button class="btn danger" type="submit">بن کاربر</button></form></section>
 <section id="broadcastPanel" class="card hidden featurePanel"><div class="backrow"><button class="btn ghost" data-back>← بازگشت به پنل</button><h3 class="page-title">پیام همگانی</h3></div><div class="cardhead"><h3>ارسال پیام همگانی</h3><span class="pill">ارسال به کاربران ربات</span></div><div class="notice">پیام برای همه کاربران ثبت‌شده ارسال می‌شود. این عملیات قابل برگشت نیست؛ متن را پیش از ارسال بررسی کن.</div><form id="broadcastForm"><textarea id="broadcastText" required rows="5" maxlength="4000" placeholder="متن پیام همگانی…" style="width:100%;background:#0f100e;border:1px solid #414137;color:var(--text);border-radius:12px;padding:12px;resize:vertical"></textarea><button class="btn" type="submit" style="margin-top:12px">ارسال برای همه</button></form><div id="broadcastResult" class="notice hidden" style="margin-top:12px"></div></section>
 <section id="supervisorsPanel" class="card hidden featurePanel"><div class="backrow"><button class="btn ghost" data-back>← بازگشت به پنل</button><h3 class="page-title">مدیریت ناظران</h3></div><div class="cardhead"><h3>مدیریت ناظران</h3><span class="pill">فقط مدیر اصلی مجاز است</span></div><form id="addSupervisorForm" class="searchrow"><input id="supervisorId" required placeholder="آیدی عددی ناظر جدید"><button class="btn" type="submit">افزودن ناظر</button></form><div id="supervisorsTable" class="tablewrap"><div class="empty">در حال دریافت…</div></div></section>
-<section id="requestsPanel" class="card hidden featurePanel"><div class="backrow"><button class="btn ghost" data-back>← بازگشت به پنل</button><h3 class="page-title">درخواست‌های ناظران</h3></div><div class="cardhead"><h3>درخواست‌های ناظران</h3><button class="btn ghost" id="refreshRequests">به‌روزرسانی</button></div><div class="notice">درخواست‌های رفع بن و پیام همگانی که ناظران برای تأیید مدیر اصلی ثبت کرده‌اند.</div><div id="requestsTable" class="tablewrap"><div class="empty">در حال دریافت…</div></div></section><section id="reportsPanel" class="card hidden featurePanel"><div class="backrow"><button class="btn ghost" data-back>← بازگشت به پنل</button><h3 class="page-title">گزارش تخلف کاربران</h3></div><div class="cardhead"><h3>🚨 گزارش تخلف کاربران</h3><div style="display:flex;align-items:center;gap:8px"><span id="reportsUnreadPill" class="pill">خوانده‌نشده: ۰</span><button class="btn ghost" id="refreshReports">به‌روزرسانی</button></div></div><div class="notice">با باز شدن این بخش، گزارش‌های نمایش‌داده‌شده خودکار خوانده‌شده می‌شوند. از همین‌جا می‌توانی کاربر گزارش‌شده را هم بن کنی.</div><div id="reportsTable" class="tablewrap"><div class="empty">در حال دریافت گزارش‌ها…</div></div></section><div class="foot">Golden Chat • پنل خصوصی مدیریت</div>
+<section id="requestsPanel" class="card hidden featurePanel"><div class="backrow"><button class="btn ghost" data-back>← بازگشت به پنل</button><h3 class="page-title">درخواست‌های ناظران</h3></div><div class="cardhead"><h3>درخواست‌های ناظران</h3><button class="btn ghost" id="refreshRequests">به‌روزرسانی</button></div><div class="notice">درخواست‌های رفع بن و پیام همگانی که ناظران برای تأیید مدیر اصلی ثبت کرده‌اند.</div><div id="requestsTable" class="tablewrap"><div class="empty">در حال دریافت…</div></div></section><section id="groupsPanel" class="card hidden featurePanel"><div class="backrow"><button class="btn ghost" data-back>← بازگشت به پنل</button><h3 class="page-title">مدیریت پیام‌های گروهی</h3></div><div class="cardhead"><h3>ارسال پیام به گروه‌ها 📣</h3><button class="btn ghost" id="refreshGroups" type="button">به‌روزرسانی فهرست</button></div><div class="notice">این بخش پیام متنی را مستقیماً از طریق ربات ارسال می‌کند و روی زمان‌بندی تبلیغات خودکار گروه‌ها اثری ندارد. ربات باید از قبل عضو گروه باشد و اجازهٔ ارسال پیام داشته باشد.</div><div class="searchrow" style="flex-wrap:wrap"><select id="groupTarget" style="width:100%;min-width:0;background:#0f100e;border:1px solid #414137;color:var(--text);border-radius:12px;padding:12px"><option value="all">همه گروه‌های ثبت‌شده</option></select></div><div id="groupsList" class="notice">در حال دریافت فهرست گروه‌ها…</div><form id="groupBroadcastForm"><textarea id="groupBroadcastText" required rows="5" maxlength="4000" placeholder="متن پیام گروهی را بنویس…" style="width:100%;background:#0f100e;border:1px solid #414137;color:var(--text);border-radius:12px;padding:12px;resize:vertical;margin-bottom:10px"></textarea><div class="searchrow" style="flex-wrap:wrap"><input id="groupButtonText" maxlength="40" placeholder="متن دکمهٔ شیشه‌ای (اختیاری)"><input id="groupButtonUrl" type="url" placeholder="لینک دکمه (اختیاری؛ https://…)"></div><button class="btn" type="submit">ارسال پیام 📤</button></form><div id="groupBroadcastResult" class="notice hidden" style="margin-top:12px"></div></section><section id="reportsPanel" class="card hidden featurePanel"><div class="backrow"><button class="btn ghost" data-back>← بازگشت به پنل</button><h3 class="page-title">گزارش تخلف کاربران</h3></div><div class="cardhead"><h3>🚨 گزارش تخلف کاربران</h3><div style="display:flex;align-items:center;gap:8px"><span id="reportsUnreadPill" class="pill">خوانده‌نشده: ۰</span><button class="btn ghost" id="refreshReports">به‌روزرسانی</button></div></div><div class="notice">با باز شدن این بخش، گزارش‌های نمایش‌داده‌شده خودکار خوانده‌شده می‌شوند. از همین‌جا می‌توانی کاربر گزارش‌شده را هم بن کنی.</div><div id="reportsTable" class="tablewrap"><div class="empty">در حال دریافت گزارش‌ها…</div></div></section><div class="foot">Golden Chat • پنل خصوصی مدیریت</div>
 </div>
 <div id="toast" class="toast hidden"></div>
 <script>
@@ -66,7 +67,7 @@ function showApp(){el("loginView").classList.add("hidden");el("appView").classLi
 async function init(){try{var s=await fetch("/admin/api/session",{credentials:"same-origin"});var d=await s.json();csrfToken=d.csrf_token||"";if(d.authenticated){showApp();await loadAll()}else showLogin()}catch(e){showLogin()}}
 el("loginForm").addEventListener("submit",async function(e){e.preventDefault();el("loginError").textContent="";try{var d=await api("login",{method:"POST",body:JSON.stringify({password:el("password").value})});csrfToken=d.csrf_token||csrfToken;el("password").value="";showApp();await loadAll()}catch(err){el("loginError").textContent=err.message}})
 el("logoutBtn").addEventListener("click",async function(){try{await api("logout",{method:"POST",body:"{}"})}catch(e){}showLogin();toast("از پنل خارج شدی")})
-function openSection(key){activeTab=key;el("menuGrid").classList.add("hidden");el("dashboardHero").classList.add("hidden");el("dashboardStats").classList.add("hidden");["users","blocks","bans","tools","broadcast","supervisors","requests","reports"].forEach(function(k){var p=el(k+"Panel");if(p)p.classList.toggle("hidden",k!==key)});if(key==="blocks")loadBlocks();if(key==="bans")loadBans();if(key==="supervisors")loadSupervisors();if(key==="requests")loadRequests();if(key==="reports")loadReports();window.scrollTo({top:0,behavior:"smooth"})}function showMenu(){["users","blocks","bans","tools","broadcast","supervisors","requests","reports"].forEach(function(k){var p=el(k+"Panel");if(p)p.classList.add("hidden")});el("dashboardHero").classList.remove("hidden");el("dashboardStats").classList.remove("hidden");el("menuGrid").classList.remove("hidden");activeTab="";window.scrollTo({top:0,behavior:"smooth"})}document.querySelectorAll("[data-open]").forEach(function(button){button.addEventListener("click",function(){openSection(button.dataset.open)})});document.querySelectorAll("[data-back]").forEach(function(button){button.addEventListener("click",showMenu)})
+function openSection(key){activeTab=key;el("menuGrid").classList.add("hidden");el("dashboardHero").classList.add("hidden");el("dashboardStats").classList.add("hidden");["users","blocks","bans","tools","broadcast","supervisors","requests","reports","groups"].forEach(function(k){var p=el(k+"Panel");if(p)p.classList.toggle("hidden",k!==key)});if(key==="blocks")loadBlocks();if(key==="bans")loadBans();if(key==="supervisors")loadSupervisors();if(key==="requests")loadRequests();if(key==="reports")loadReports();if(key==="groups")loadGroups();window.scrollTo({top:0,behavior:"smooth"})}function showMenu(){["users","blocks","bans","tools","broadcast","supervisors","requests","reports","groups"].forEach(function(k){var p=el(k+"Panel");if(p)p.classList.add("hidden")});el("dashboardHero").classList.remove("hidden");el("dashboardStats").classList.remove("hidden");el("menuGrid").classList.remove("hidden");activeTab="";window.scrollTo({top:0,behavior:"smooth"})}document.querySelectorAll("[data-open]").forEach(function(button){button.addEventListener("click",function(){openSection(button.dataset.open)})});document.querySelectorAll("[data-back]").forEach(function(button){button.addEventListener("click",showMenu)})
 async function loadAll(){await Promise.all([loadStats(),loadUsers(),loadBlocks(),loadReportCount(),loadNewUserCount()])}
 async function loadNewUserCount(){try{var d=await api("new-users/count");el("newUsersButton").textContent="🆕 "+Number(d.count||0).toLocaleString("fa-IR")+" کاربر جدید";}catch(e){}}
 async function openNewUsers(){el("newUsersPanel").classList.remove("hidden");el("newUsersTable").innerHTML='<div class="empty">در حال دریافت کاربران جدید…</div>';try{var d=await api("new-users");el("newUsersTable").innerHTML=d.items.length?'<table><thead><tr><th>کاربر</th><th>شناسه</th><th>تاریخ ورود</th></tr></thead><tbody>'+d.items.map(function(u){return '<tr><td>'+esc(u.display_name||u.full_name||"بدون نام")+(u.username?'<small>@'+esc(u.username)+'</small>':'')+'</td><td><span class="userbadge">'+esc(u.user_id)+'</span></td><td>'+esc(u.created_at||"—")+'</td></tr>'}).join("")+'</tbody></table>':'<div class="empty">کاربر جدیدی برای نمایش نیست.</div>';await loadNewUserCount();}catch(e){el("newUsersTable").innerHTML='<div class="empty error">'+esc(e.message)+'</div>'}}
@@ -94,6 +95,10 @@ el("refreshRequests").addEventListener("click",loadRequests);
 async function loadReportCount(){try{var d=await api("reports/unread-count");var n=Number(d.unread||0);el("reportCount").textContent=n.toLocaleString("fa-IR");el("reportsUnreadPill").textContent="خوانده‌نشده: "+n.toLocaleString("fa-IR");el("reportCount").classList.toggle("zero",n===0);el("reportLight").classList.toggle("hidden",n===0)}catch(e){}}
 async function loadReports(){el("reportsTable").innerHTML='<div class="empty">در حال دریافت گزارش‌ها…</div>';try{var d=await api("reports");await loadReportCount();el("reportsTable").innerHTML=d.items.length?'<table><thead><tr><th>وضعیت</th><th>گزارش‌دهنده</th><th>کاربر گزارش‌شده</th><th>متن پیام</th><th>گروه</th><th>زمان</th><th>عملیات</th></tr></thead><tbody>'+d.items.map(function(r){return '<tr><td><span class="pill">خوانده‌شده</span></td><td>'+esc(r.reporter_name||"کاربر")+'<small>'+esc(r.reporter_id)+'</small></td><td>'+esc(r.reported_name||"کاربر")+'<small>'+esc(r.reported_username?"@"+r.reported_username:"بدون یوزرنیم")+' · '+esc(r.reported_user_id)+'</small></td><td style="white-space:pre-wrap;min-width:220px;max-width:360px">'+esc(r.message_text||"—")+'</td><td>'+esc(r.group_title||"پیام خصوصی")+(r.group_id?'<small>'+esc(r.group_id)+'</small>':'')+'</td><td>'+esc(r.created_at||"—")+'</td><td><button class="btn danger" data-reportban="'+esc(r.reported_user_id)+'" data-reportname="'+esc(r.reported_name||r.reported_username||r.reported_user_id)+'">بن کاربر</button></td></tr>'}).join("")+'</tbody></table>':'<div class="empty">هنوز گزارشی ثبت نشده است.</div>';document.querySelectorAll("[data-reportban]").forEach(function(b){b.addEventListener("click",async function(){var days=prompt("مدت بن به روز (مثلاً 1):","1");if(days===null)return;if(!/^\d+$/.test(days)||Number(days)<1||Number(days)>3650){toast("مدت باید عددی بین ۱ تا ۳۶۵۰ روز باشد");return}var reason=prompt("دلیل بن "+b.dataset.reportname+":","گزارش تخلف");if(reason===null)return;if(!reason.trim())return toast("دلیل بن را وارد کن");if(!confirm("کاربر "+b.dataset.reportname+" برای "+days+" روز بن شود؟"))return;try{await api("bans/ban",{method:"POST",body:JSON.stringify({user_id:b.dataset.reportban,days:Number(days),reason:reason.trim()})});toast("کاربر گزارش‌شده بن شد");await Promise.all([loadReports(),loadReportCount(),loadBans(),loadStats()])}catch(e){toast(e.message)}})})}catch(e){el("reportsTable").innerHTML='<div class="empty error">'+esc(e.message)+'</div>'}}
 el("refreshReports").addEventListener("click",loadReports);
+async function loadGroups(){var list=el("groupsList"),select=el("groupTarget");list.textContent="در حال دریافت فهرست گروه‌ها…";try{var d=await api("groups");var old=select.value;select.innerHTML='<option value="all">همه گروه‌های ثبت‌شده ('+Number(d.total||0).toLocaleString("fa-IR")+' گروه)</option>'+d.items.map(function(g){return '<option value="'+esc(g.chat_id)+'">'+esc(g.title||"گروه بدون نام")+' · '+esc(g.chat_id)+'</option>'}).join("");if(Array.from(select.options).some(function(o){return o.value===old}))select.value=old;list.textContent=d.items.length?"گروه‌های ثبت‌شده: "+d.items.map(function(g){return (g.title||"گروه بدون نام")+" ("+g.chat_id+")"}).join("، "):"هنوز گروهی در دیتابیس ثبت نشده است. برای ثبت گروه، ربات را به گروه اضافه کنید و مطمئن شوید پیام عضویت/فعالیت گروه توسط ربات دریافت می‌شود."}catch(e){list.textContent=e.message}}
+el("refreshGroups").addEventListener("click",loadGroups);
+el("groupBroadcastForm").addEventListener("submit",async function(e){e.preventDefault();var target=el("groupTarget").value,textValue=el("groupBroadcastText").value.trim(),buttonText=el("groupButtonText").value.trim(),buttonUrl=el("groupButtonUrl").value.trim();if(!textValue)return toast("متن پیام را وارد کن");if(Boolean(buttonText)!==Boolean(buttonUrl))return toast("برای دکمه، هم متن و هم لینک را وارد کن");if(buttonUrl&&!buttonUrl.toLowerCase().startsWith("https://"))return toast("لینک دکمه باید با https:// شروع شود");if(!confirm(target==="all"?"پیام برای همه گروه‌های ثبت‌شده ارسال شود؟":"پیام برای گروه انتخاب‌شده ارسال شود؟"))return;var out=el("groupBroadcastResult");out.classList.remove("hidden");out.textContent="در حال ارسال پیام…";try{var d=await api("groups/broadcast",{method:"POST",body:JSON.stringify({target:target,text:textValue,button_text:buttonText,button_url:buttonUrl})});out.textContent="ارسال تمام شد؛ موفق: "+Number(d.sent||0).toLocaleString("fa-IR")+"، ناموفق: "+Number(d.failed||0).toLocaleString("fa-IR")+(d.errors&&d.errors.length?"\nجزئیات: "+d.errors.join(" | "):"");toast("ارسال گروهی تمام شد")}catch(x){out.textContent=x.message;toast(x.message)}});
+
 setInterval(function(){if(!el("appView").classList.contains("hidden")){loadReportCount();loadNewUserCount();if(activeTab==="reports")loadReports()}},15000);
 
 init();
@@ -426,6 +431,82 @@ def _telegram_call(method, payload):
     if not result.get("ok"):
         raise RuntimeError(result.get("description", "خطای تلگرام"))
     return result.get("result")
+
+
+@admin_panel.get("/api/groups")
+@_auth_required
+def list_groups():
+    conn = _db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT chat_id, title, created_at FROM group_chats ORDER BY created_at ASC")
+            rows = cur.fetchall()
+        return jsonify({
+            "items": [
+                {"chat_id": row[0], "title": row[1], "created_at": row[2].strftime("%Y-%m-%d") if row[2] else None}
+                for row in rows
+            ],
+            "total": len(rows),
+        })
+    finally:
+        conn.close()
+
+
+@admin_panel.post("/api/groups/broadcast")
+@_auth_required
+@_csrf_required
+def broadcast_groups():
+    payload = request.get_json(silent=True) or {}
+    target = str(payload.get("target", "all")).strip()
+    message = str(payload.get("text", "")).strip()
+    button_text = str(payload.get("button_text", "")).strip()[:40]
+    button_url = str(payload.get("button_url", "")).strip()[:1000]
+    if not message:
+        return _json_error("متن پیام را وارد کن.", 400)
+    if len(message) > 4000:
+        return _json_error("متن پیام نباید بیشتر از ۴۰۰۰ کاراکتر باشد.", 400)
+    if bool(button_text) != bool(button_url):
+        return _json_error("برای دکمه، هم متن و هم لینک را وارد کن.", 400)
+    if button_url:
+        parsed = urlsplit(button_url)
+        if parsed.scheme != "https" or not parsed.netloc:
+            return _json_error("لینک دکمه باید یک آدرس معتبر HTTPS باشد.", 400)
+
+    conn = _db()
+    try:
+        with conn.cursor() as cur:
+            if target == "all":
+                cur.execute("SELECT chat_id, title FROM group_chats ORDER BY created_at ASC")
+                groups = cur.fetchall()
+            else:
+                try:
+                    target_id = int(target)
+                except (TypeError, ValueError):
+                    return _json_error("گروه انتخاب‌شده معتبر نیست.", 400)
+                cur.execute("SELECT chat_id, title FROM group_chats WHERE chat_id = %s", (target_id,))
+                groups = cur.fetchall()
+    finally:
+        conn.close()
+
+    if not groups:
+        return _json_error("گروهی برای ارسال پیدا نشد؛ ابتدا ربات را به گروه اضافه کن.", 404)
+
+    reply_markup = None
+    if button_text and button_url:
+        reply_markup = {"inline_keyboard": [[{"text": button_text, "url": button_url}]]}
+    sent = 0
+    errors = []
+    for chat_id, title in groups:
+        try:
+            api_payload = {"chat_id": chat_id, "text": message}
+            if reply_markup:
+                api_payload["reply_markup"] = reply_markup
+            _telegram_call("sendMessage", api_payload)
+            sent += 1
+        except Exception as exc:
+            if len(errors) < 8:
+                errors.append((title or str(chat_id)) + ": " + str(exc)[:180])
+    return jsonify({"sent": sent, "failed": len(groups) - sent, "errors": errors})
 
 
 @admin_panel.get("/api/bans")
