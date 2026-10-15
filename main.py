@@ -4,7 +4,7 @@ import string
 import asyncio
 import html
 import json
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from threading import Thread
@@ -34,6 +34,7 @@ from telegram.ext import (
     ContextTypes,
     ChatMemberHandler,
     TypeHandler,
+    ApplicationHandlerStop,
     filters,
 )
 from telegram.error import TelegramError
@@ -719,6 +720,7 @@ def supervisor_label(user_id):
 
 def supervisor_panel_keyboard():
     rows = [[InlineKeyboardButton("افزودن ناظر ➕", callback_data="supervisor_add", style="success")]]
+    rows.append([InlineKeyboardButton("مدیریت پیام‌های گروهی 📣", callback_data="group_admin_open", style="primary")])
     for row in get_supervisors():
         uid = row[0]
         name = row[3] or row[2] or (f"@{row[1]}" if row[1] else str(uid))
@@ -2245,6 +2247,329 @@ def get_all_groups():
         release_db(conn)
 
 
+
+
+# =========================================================
+# ADMIN GROUP MESSAGE TOOLS
+# =========================================================
+
+def group_admin_menu_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("ارسال پیام به گروه انتخابی", callback_data="group_broadcast_selected", style="primary")],
+        [InlineKeyboardButton("ارسال پیام به همه گروه‌های عضو ربات", callback_data="group_broadcast_all", style="success")],
+        [InlineKeyboardButton("عضویت ربات در گروه با لینک", callback_data="group_join_links")],
+        [InlineKeyboardButton("لغو ارسال پیام", callback_data="group_broadcast_cancel", style="danger")],
+    ])
+
+
+def group_broadcast_cancel_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("لغو ارسال پیام", callback_data="group_broadcast_cancel", style="danger")]
+    ])
+
+
+def group_broadcast_choice_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("دکمه شیشه‌ای می‌خوام 🔗", callback_data="group_broadcast_add_button", style="primary")],
+        [InlineKeyboardButton("نمی‌خوام", callback_data="group_broadcast_no_button", style="success")],
+        [InlineKeyboardButton("لغو ارسال پیام", callback_data="group_broadcast_cancel", style="danger")],
+    ])
+
+
+def parse_group_link(value):
+    value = (value or "").strip()
+    if not value:
+        return None, None
+
+    if value.startswith("@"):
+        return "public", value
+
+    candidate = value
+    if "://" not in candidate and candidate.startswith("t.me/"):
+        candidate = "https://" + candidate
+
+    try:
+        parsed = urlsplit(candidate)
+    except Exception:
+        return None, None
+
+    host = (parsed.netloc or "").lower()
+    if host not in ("t.me", "www.t.me", "telegram.me", "www.telegram.me"):
+        return None, None
+
+    path = (parsed.path or "").strip("/")
+    if not path:
+        return None, None
+
+    if path.startswith("+") or path.startswith("joinchat/"):
+        return "private", value
+
+    username = path.split("/", 1)[0]
+    if not username or username.startswith("+"):
+        return "private", value
+
+    return "public", "@" + username
+
+
+async def inspect_group_link(bot, raw_link):
+    """Resolve public group links and known private invite links; bots cannot join chats by invite URL."""
+    kind, value = parse_group_link(raw_link)
+    if not kind:
+        return {"status": "invalid"}
+
+    chat = None
+
+    if kind == "public":
+        try:
+            chat = await bot.get_chat(value)
+        except TelegramError:
+            return {"status": "not_found"}
+    else:
+        # A bot cannot resolve or join an arbitrary private invite link through the Bot API.
+        # We can only match an invite link against a group the bot already knows.
+        for chat_id, _title, _code in get_all_groups():
+            try:
+                candidate = await bot.get_chat(chat_id)
+                invite_link = getattr(candidate, "invite_link", None)
+                if invite_link and invite_link.rstrip("/") == raw_link.strip().rstrip("/"):
+                    chat = candidate
+                    break
+            except TelegramError:
+                continue
+        if chat is None:
+            return {"status": "private_unresolved"}
+
+    if getattr(chat, "type", None) not in ("group", "supergroup"):
+        return {"status": "not_group"}
+
+    try:
+        member = await bot.get_chat_member(chat_id=chat.id, user_id=bot.id)
+    except TelegramError:
+        return {"status": "not_member", "chat": chat}
+
+    if member.status not in (ChatMember.MEMBER, ChatMember.ADMINISTRATOR, ChatMember.OWNER):
+        return {"status": "not_member", "chat": chat}
+
+    code = save_group_chat(chat.id, chat.title or "گروه")
+    return {"status": "ok", "chat_id": chat.id, "title": chat.title or "گروه", "link_code": code}
+
+
+async def group_admin_command(update, context):
+    user = update.effective_user
+    if not user or user.id != ADMIN_ID or not update.effective_message:
+        return
+    if update.effective_chat and update.effective_chat.type in ("group", "supergroup"):
+        return
+    context.user_data.clear()
+    await update.effective_message.reply_text(
+        "🎛 پنل مدیریت پیام‌های گروهی گلدن چت\n\nیکی از گزینه‌ها رو انتخاب کن:",
+        reply_markup=group_admin_menu_keyboard()
+    )
+
+
+async def finish_group_broadcast(update, context, button_url=None):
+    state = context.user_data
+    source_chat_id = state.get("group_broadcast_source_chat_id")
+    source_message_id = state.get("group_broadcast_source_message_id")
+    mode = state.get("group_broadcast_mode")
+
+    if not source_chat_id or not source_message_id or mode not in ("selected", "all"):
+        context.user_data.clear()
+        target = update.effective_message
+        if target:
+            await target.reply_text("درخواست ارسال پیدا نشد؛ از پنل دوباره شروع کن.")
+        return
+
+    if mode == "selected":
+        selected_id = state.get("group_broadcast_target_chat_id")
+        targets = [row for row in get_all_groups() if row[0] == selected_id]
+        if not targets and selected_id:
+            try:
+                chat = await context.bot.get_chat(selected_id)
+                targets = [(chat.id, chat.title or "گروه", None)]
+            except TelegramError:
+                targets = []
+    else:
+        targets = get_all_groups()
+
+    markup = None
+    if button_url:
+        markup = InlineKeyboardMarkup([[
+            InlineKeyboardButton("باز کردن لینک 🔗", url=button_url)
+        ]])
+
+    sent = 0
+    failed = 0
+    not_member = 0
+
+    for chat_id, title, _link_code in targets:
+        try:
+            member = await context.bot.get_chat_member(chat_id=chat_id, user_id=context.bot.id)
+            if member.status not in (ChatMember.MEMBER, ChatMember.ADMINISTRATOR, ChatMember.OWNER):
+                not_member += 1
+                continue
+
+            await context.bot.copy_message(
+                chat_id=chat_id,
+                from_chat_id=source_chat_id,
+                message_id=source_message_id,
+                reply_markup=markup,
+            )
+            sent += 1
+        except TelegramError as exc:
+            failed += 1
+            print(f"[GROUP BROADCAST] Failed chat={chat_id}: {exc}", flush=True)
+        except Exception as exc:
+            failed += 1
+            print(f"[GROUP BROADCAST] Unexpected chat={chat_id}: {type(exc).__name__}: {exc}", flush=True)
+
+    context.user_data.clear()
+    summary = (
+        "✅ فرایند ارسال تمام شد.\n\n"
+        f"ارسال موفق: {sent}\n"
+        f"ناموفق: {failed}\n"
+        f"ربات عضو نبود: {not_member}"
+    )
+    target_message = update.effective_message
+    if target_message:
+        await target_message.reply_text(summary, reply_markup=group_admin_menu_keyboard())
+    elif update.callback_query and update.callback_query.message:
+        await update.callback_query.message.reply_text(summary, reply_markup=group_admin_menu_keyboard())
+
+
+async def group_admin_input_handler(update, context):
+    """Capture all admin message types while a group-admin flow is waiting for input."""
+    user = update.effective_user
+    message = update.effective_message
+
+    if not user or user.id != ADMIN_ID or not message:
+        return
+    if not update.effective_chat or update.effective_chat.type != "private":
+        return
+
+    state = context.user_data
+    waiting_keys = (
+        "group_broadcast_waiting_group_link",
+        "group_broadcast_waiting_message",
+        "group_broadcast_waiting_button_url",
+        "group_join_waiting_links",
+    )
+    if not any(state.get(key) for key in waiting_keys):
+        return
+
+    text = (message.text or "").strip()
+    if text.lower() == "/cancel" or text == "لغو ارسال پیام":
+        context.user_data.clear()
+        await message.reply_text(
+            "❌ فرایند لغو شد.",
+            reply_markup=group_admin_menu_keyboard()
+        )
+        raise ApplicationHandlerStop
+
+    if state.get("group_broadcast_waiting_group_link"):
+        if not text:
+            await message.reply_text(
+                "لطفاً لینک عمومی یا خصوصی گروه را به‌صورت متن بفرست.\n"
+                "اگر لینک خصوصی قابل شناسایی نباشد، باید گروه قبلاً توسط ربات ثبت شده باشد.",
+                reply_markup=group_broadcast_cancel_keyboard()
+            )
+            raise ApplicationHandlerStop
+
+        result = await inspect_group_link(context.bot, text)
+        if result["status"] == "ok":
+            state["group_broadcast_waiting_group_link"] = False
+            state["group_broadcast_target_chat_id"] = result["chat_id"]
+            state["group_broadcast_waiting_message"] = True
+            await message.reply_text(
+                f"✅ گروه «{result['title']}» شناسایی شد و ربات عضو آن است.\n\n"
+                "حالا پیام موردنظرت رو بفرست؛ متن، عکس، ویدئو، فایل و انواع پیام‌های قابل کپی تلگرام پذیرفته می‌شن.",
+                reply_markup=group_broadcast_cancel_keyboard()
+            )
+        elif result["status"] == "not_member":
+            chat = result.get("chat")
+            title = getattr(chat, "title", None) or "این گروه"
+            bot_info = await context.bot.get_me()
+            await message.reply_text(
+                f"⚠️ ربات عضو «{title}» نیست و نمی‌تونه بهش پیام بفرسته.\n"
+                "ربات نمی‌تونه خودش با لینک وارد گروه بشه؛ مدیر گروه باید آن را اضافه کند.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("افزودن ربات به یک گروه", url=f"https://t.me/{bot_info.username}?startgroup=true")],
+                    [InlineKeyboardButton("لغو ارسال پیام", callback_data="group_broadcast_cancel", style="danger")]
+                ])
+            )
+        elif result["status"] == "private_unresolved":
+            await message.reply_text(
+                "⚠️ از روی لینک دعوت خصوصی به‌تنهایی نمی‌شه گروه رو از طریق Bot API شناسایی کرد.\n"
+                "اول ربات رو به گروه اضافه کن و داخل همان گروه دستور /linkgroup رو بزن؛ سپس دوباره لینک رو بفرست.",
+                reply_markup=group_broadcast_cancel_keyboard()
+            )
+        elif result["status"] == "not_group":
+            await message.reply_text("این لینک به گروه یا سوپرگروه اشاره نمی‌کنه. لینک گروه رو بفرست.", reply_markup=group_broadcast_cancel_keyboard())
+        else:
+            await message.reply_text("❌ لینک نامعتبره یا گروه پیدا نشد. لینک دیگری بفرست.", reply_markup=group_broadcast_cancel_keyboard())
+        raise ApplicationHandlerStop
+
+    if state.get("group_join_waiting_links"):
+        if not text:
+            await message.reply_text("لطفاً لینک‌ها رو به‌صورت متن بفرست؛ هر لینک در یک خط.", reply_markup=group_broadcast_cancel_keyboard())
+            raise ApplicationHandlerStop
+
+        links = [line.strip() for line in text.splitlines() if line.strip()]
+        results = []
+        needs_add = False
+        for link in links[:50]:
+            result = await inspect_group_link(context.bot, link)
+            if result["status"] == "ok":
+                results.append(f"✅ {result['title']}: ربات از قبل عضو بود و گروه ثبت شد.")
+            elif result["status"] == "not_member":
+                chat = result.get("chat")
+                results.append(f"⚠️ {getattr(chat, 'title', None) or link}: ربات عضو نیست؛ باید مدیر گروه آن را اضافه کند.")
+                needs_add = True
+            elif result["status"] == "private_unresolved":
+                results.append(f"🔒 {link}: لینک خصوصی با Bot API قابل شناسایی یا پیوستن خودکار نیست.")
+                needs_add = True
+            elif result["status"] == "not_group":
+                results.append(f"⚠️ {link}: این لینک گروه نیست.")
+            else:
+                results.append(f"❌ {link}: لینک نامعتبر یا گروه پیدا نشد.")
+
+        context.user_data.pop("group_join_waiting_links", None)
+        report = "نتیجه بررسی لینک‌ها:\n\n" + "\n".join(results)
+        if len(links) > 50:
+            report += "\n\nبرای جلوگیری از محدودیت تلگرام، در هر نوبت حداکثر ۵۰ لینک بررسی شد."
+        keyboard = group_admin_menu_keyboard()
+        if needs_add:
+            bot_info = await context.bot.get_me()
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("افزودن ربات به گروه", url=f"https://t.me/{bot_info.username}?startgroup=true")],
+                [InlineKeyboardButton("بازگشت به مدیریت گروه‌ها", callback_data="group_admin_open")]
+            ])
+        await message.reply_text(report[:4000], reply_markup=keyboard)
+        raise ApplicationHandlerStop
+
+    if state.get("group_broadcast_waiting_message"):
+        state["group_broadcast_waiting_message"] = False
+        state["group_broadcast_source_chat_id"] = message.chat_id
+        state["group_broadcast_source_message_id"] = message.message_id
+        state["group_broadcast_waiting_button_choice"] = True
+        await message.reply_text(
+            "پیام دریافت شد. دکمه شیشه‌ای داشته باشه؟",
+            reply_markup=group_broadcast_choice_keyboard()
+        )
+        raise ApplicationHandlerStop
+
+    if state.get("group_broadcast_waiting_button_url"):
+        parsed = urlsplit(text)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            await message.reply_text(
+                "لینک معتبر بفرست؛ باید با https:// یا http:// شروع بشه.",
+                reply_markup=group_broadcast_cancel_keyboard()
+            )
+            raise ApplicationHandlerStop
+
+        await finish_group_broadcast(update, context, button_url=text)
+        raise ApplicationHandlerStop
+
 def save_group_message(
     group_id,
     sender_id,
@@ -2977,7 +3302,7 @@ def school_message_is_allowed():
 
 
 async def automatic_group_ads_loop(application):
-    """Send at most one promo to each group per four-hour interval, persisting timing in PostgreSQL."""
+    """Send at most one promo to each group per 26-hour interval, persisting timing in PostgreSQL."""
     bot = application.bot
     while True:
         try:
@@ -2996,7 +3321,7 @@ async def automatic_group_ads_loop(application):
                         SELECT g.chat_id, g.title, g.link_code
                         FROM group_chats g
                         JOIN group_ad_state s ON s.chat_id = g.chat_id
-                        WHERE s.last_sent_at <= CURRENT_TIMESTAMP - INTERVAL '4 hours'
+                        WHERE s.last_sent_at <= CURRENT_TIMESTAMP - INTERVAL '26 hours'
                         ORDER BY s.last_sent_at ASC
                     """)
                     due_groups = cur.fetchall()
@@ -3964,6 +4289,92 @@ async def button_handler(
             or data.startswith("group_report:")
         ):
             await query.answer()
+            return
+
+
+    # -----------------------------------------------------
+    # ADMIN GROUP MESSAGE TOOLS
+    # -----------------------------------------------------
+    if data.startswith("group_"):
+        if user_id != ADMIN_ID:
+            await query.answer("⛔️ دسترسی مجاز نیست.", show_alert=True)
+            return
+
+        if data == "group_admin_open":
+            await query.answer()
+            context.user_data.clear()
+            await query.edit_message_text(
+                "🎛 پنل مدیریت پیام‌های گروهی گلدن چت\n\nیکی از گزینه‌ها رو انتخاب کن:",
+                reply_markup=group_admin_menu_keyboard()
+            )
+            return
+
+        if data == "group_broadcast_cancel":
+            await query.answer("فرایند لغو شد.")
+            context.user_data.clear()
+            await query.edit_message_text(
+                "❌ فرایند لغو شد.\n\nاز پنل زیر می‌تونی دوباره شروع کنی:",
+                reply_markup=group_admin_menu_keyboard()
+            )
+            return
+
+        if data == "group_broadcast_selected":
+            await query.answer()
+            context.user_data.clear()
+            context.user_data["group_broadcast_mode"] = "selected"
+            context.user_data["group_broadcast_waiting_group_link"] = True
+            await query.edit_message_text(
+                "🔗 اول لینک گروه رو بفرست.\n"
+                "ربات عضویت خودش رو بررسی می‌کنه و فقط اگر عضو گروه باشه، مرحله دریافت پیام شروع می‌شه.\n\n"
+                "لینک عمومی قابل شناسایی است؛ لینک خصوصی باید با گروه ثبت‌شده تطبیق داشته باشد.",
+                reply_markup=group_broadcast_cancel_keyboard()
+            )
+            return
+
+        if data == "group_broadcast_all":
+            await query.answer()
+            context.user_data.clear()
+            context.user_data["group_broadcast_mode"] = "all"
+            context.user_data["group_broadcast_waiting_message"] = True
+            await query.edit_message_text(
+                "📨 پیام موردنظرت رو بفرست.\n"
+                "متن، قالب‌بندی، لینک، عکس، ویدئو و فایل‌های قابل کپی پذیرفته می‌شن.\n\n"
+                "بعدش انتخاب می‌کنی دکمه شیشه‌ای داشته باشه یا نه.",
+                reply_markup=group_broadcast_cancel_keyboard()
+            )
+            return
+
+        if data == "group_join_links":
+            await query.answer()
+            context.user_data.clear()
+            context.user_data["group_join_waiting_links"] = True
+            await query.edit_message_text(
+                "🔗 لینک یک گروه یا فهرستی از لینک‌ها رو بفرست؛ هر لینک در یک خط.\n\n"
+                "نکته: تلگرام اجازه نمی‌ده ربات با لینک دعوت خودش وارد گروه بشه. این بخش لینک‌ها رو بررسی می‌کنه و گروه‌هایی رو که ربات از قبل عضو آن‌هاست ثبت می‌کنه؛ برای بقیه باید مدیر ربات رو اضافه کنه.",
+                reply_markup=group_broadcast_cancel_keyboard()
+            )
+            return
+
+        if data == "group_broadcast_add_button":
+            await query.answer()
+            if not context.user_data.get("group_broadcast_waiting_button_choice"):
+                await query.message.reply_text("درخواست فعالی وجود نداره؛ از پنل دوباره شروع کن.")
+                return
+            context.user_data["group_broadcast_waiting_button_choice"] = False
+            context.user_data["group_broadcast_waiting_button_url"] = True
+            await query.edit_message_text(
+                "لینک مقصد دکمه شیشه‌ای رو بفرست (با https:// یا http:// شروع بشه).",
+                reply_markup=group_broadcast_cancel_keyboard()
+            )
+            return
+
+        if data == "group_broadcast_no_button":
+            await query.answer("پیام بدون دکمه ارسال می‌شود.")
+            if not context.user_data.get("group_broadcast_waiting_button_choice"):
+                await query.message.reply_text("درخواست فعالی وجود نداره؛ از پنل دوباره شروع کن.")
+                return
+            context.user_data["group_broadcast_waiting_button_choice"] = False
+            await finish_group_broadcast(update, context)
             return
 
     # -----------------------------------------------------
@@ -7430,6 +7841,7 @@ async def post_init(
             BotCommand("userbot", "لیست کاربران"),
             BotCommand("changeusername", "تغییر نام کاربر"),
             BotCommand("addadmin", "مدیریت ناظران"),
+            BotCommand("groupadmin", "مدیریت پیام‌های گروهی"),
         ], scope=BotCommandScopeChat(ADMIN_ID))
 
         # منوی اختصاصی هر ناظر
@@ -7567,9 +7979,22 @@ def main():
 
     application.add_handler(
         CommandHandler(
+            "groupadmin",
+            group_admin_command
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
             "cancel",
             cancel_command
         )
+    )
+
+    # Capture arbitrary message types for the admin group-broadcast flow before normal handlers.
+    application.add_handler(
+        MessageHandler(filters.ALL, group_admin_input_handler),
+        group=-3,
     )
 
     # Track group activity before other message handlers (does not consume the update).
