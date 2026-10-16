@@ -275,6 +275,14 @@ def init_db():
             )
         """)
 
+        # One-time marker used to stagger promotion schedules when a group is first initialized.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS group_ad_schedule_meta (
+                chat_id BIGINT PRIMARY KEY,
+                initialized_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         # Incoming human messages are sampled to detect quiet groups.
         cur.execute("""
             CREATE TABLE IF NOT EXISTS group_ad_activity (
@@ -3386,6 +3394,28 @@ async def automatic_group_ads_loop(application):
                         ) AS t(template)
                         LEFT JOIN group_ad_state s ON s.chat_id = g.chat_id
                         ON CONFLICT (chat_id, template) DO NOTHING
+                    """)
+
+                    # Spread overdue regular promotions across the next 4 hours once per group.
+                    # Each template still gets its own 4-hour cooldown after a successful send.
+                    cur.execute("""
+                        WITH new_groups AS (
+                            INSERT INTO group_ad_schedule_meta (chat_id)
+                            SELECT chat_id FROM group_chats
+                            ON CONFLICT (chat_id) DO NOTHING
+                            RETURNING chat_id
+                        )
+                        UPDATE group_ad_template_state AS state
+                        SET last_sent_at = CASE state.template
+                            WHEN 'linkgroup' THEN CURRENT_TIMESTAMP - INTERVAL '4 hours'
+                            WHEN 'user_target' THEN CURRENT_TIMESTAMP - INTERVAL '3 hours'
+                            WHEN 'own_link' THEN CURRENT_TIMESTAMP - INTERVAL '2 hours'
+                            WHEN 'school' THEN CURRENT_TIMESTAMP - INTERVAL '1 hour'
+                        END
+                        FROM new_groups
+                        WHERE state.chat_id = new_groups.chat_id
+                          AND state.template IN ('linkgroup', 'user_target', 'own_link', 'school')
+                          AND state.last_sent_at <= CURRENT_TIMESTAMP - INTERVAL '4 hours'
                     """)
                     conn.commit()
                 finally:
