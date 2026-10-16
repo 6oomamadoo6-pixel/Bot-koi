@@ -3347,8 +3347,6 @@ def school_message_is_allowed():
 async def automatic_group_ads_loop(application):
     """Send regular group promotions independently every 4 hours and the quiet-group message every 26 hours."""
     bot = application.bot
-    regular_templates = ("linkgroup", "user_target", "own_link", "school")
-
     while True:
         try:
             groups = get_all_groups()
@@ -3458,7 +3456,7 @@ async def automatic_group_ads_loop(application):
                                 text_to_send = "همین حالا لینک گروه رو بگیر پیام ناشناستو بفرست 👨🏻‍💼 /linkgroup"
                             else:
                                 text_to_send = (
-                                    "میدونستین میتونین به کاربر دلخواهتون تو ربات پیام ناشناش بدین؟ 💌\\n"
+                                    "میدونستین میتونین به کاربر دلخواهتون تو ربات پیام ناشناش بدین؟ 💌\n"
                                     "فقط کافیه توی ربات عضو باشه 🤠"
                                 )
                         else:
@@ -3483,8 +3481,8 @@ async def automatic_group_ads_loop(application):
                                 if activity_count < QUIET_GROUP_MESSAGE_THRESHOLD:
                                     template = "quiet"
                                     text_to_send = (
-                                        "چه گروه خلوتی 😩\\n"
-                                        "کسی حرف سکرت مکرتی\\n"
+                                        "چه گروه خلوتی 😩\n"
+                                        "کسی حرف سکرت مکرتی\n"
                                         "ناشناسی چیزی نداره؟😭"
                                     )
 
@@ -3498,13 +3496,13 @@ async def automatic_group_ads_loop(application):
                                     template = candidate
                                     if candidate == "own_link":
                                         text_to_send = (
-                                            "لینک ناشناستو بگیر و از کیفیت و سرعت ربات لذت ببر👨🏻‍💼\\n"
+                                            "لینک ناشناستو بگیر و از کیفیت و سرعت ربات لذت ببر👨🏻‍💼\n"
                                             "ادعام میشه بهترینم💁🏻‍♂️"
                                         )
                                     else:
                                         text_to_send = (
-                                            "زیاد فعال نیستین\\n"
-                                            "آها یادم نبود مدرسه میرین 😂\\n"
+                                            "زیاد فعال نیستین\n"
+                                            "آها یادم نبود مدرسه میرین 😂\n"
                                             "عیب نداره وقتی برگشتین شلوغش کنین"
                                         )
                                     break
