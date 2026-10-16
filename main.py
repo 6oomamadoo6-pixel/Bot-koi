@@ -2768,22 +2768,8 @@ def main_keyboard():
     return InlineKeyboardMarkup(rows)
 
 def admin_main_keyboard():
-    """پنل اصلی ادمین؛ مدیریت پیام‌های گروهی از پنل وب انجام می‌شود."""
-    rows = [
-        [
-            InlineKeyboardButton("دریافت لینک ناشناس 🔗", callback_data="copy_link", style="success"),
-            InlineKeyboardButton("تنظیمات نام ⚙️", callback_data="name_settings", style="primary"),
-        ],
-        [
-            InlineKeyboardButton("تبلیغات 📢", callback_data="ads", style="primary"),
-            InlineKeyboardButton("لیست مسدودی 🚫", callback_data="block_list", style="danger"),
-        ],
-        [
-            InlineKeyboardButton("کانال پشتیبانی 📣", url="https://t.me/SuppoortGoldenchat", style="primary"),
-            InlineKeyboardButton("راهنما ❔", callback_data="help"),
-        ],
-    ]
-    return InlineKeyboardMarkup(rows)
+    """Keep the admin's user-facing main menu identical to the regular user's menu."""
+    return main_keyboard()
 
 
 def back_keyboard():
