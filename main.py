@@ -3408,6 +3408,19 @@ async def automatic_group_ads_loop(application):
                         cur = None
                         try:
                             cur = conn.cursor()
+
+                            # Hard per-group cooldown: never send two different promotions
+                            # to the same group less than one hour apart, even if several
+                            # template timers became overdue together.
+                            cur.execute("""
+                                SELECT last_sent_at > CURRENT_TIMESTAMP - INTERVAL '1 hour'
+                                FROM group_ad_state
+                                WHERE chat_id = %s
+                            """, (chat_id,))
+                            recent_group_ad = cur.fetchone()
+                            if recent_group_ad and recent_group_ad[0]:
+                                continue
+
                             cur.execute("""
                                 SELECT
                                     template,
@@ -3544,6 +3557,11 @@ async def automatic_group_ads_loop(application):
                             release_db(conn)
 
                         print(f"[GROUP ADS] Sent template={template} group={chat_id}", flush=True)
+
+                        # Send at most one promotion globally per scheduler pass.
+                        # The loop sleeps 60 seconds, so promotions across different
+                        # groups are spread out instead of being blasted together.
+                        break
 
                     except TelegramError as e:
                         # Failed sends never advance cooldowns; required messages will retry.
