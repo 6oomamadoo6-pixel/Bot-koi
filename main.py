@@ -116,10 +116,17 @@ def create_db_pool():
     global DB_POOL
 
     if DB_POOL is None:
-        DB_POOL = psycopg2.pool.SimpleConnectionPool(
+        # Thread-safe because the Flask admin panel and bot handlers can access
+        # PostgreSQL from different threads.
+        DB_POOL = psycopg2.pool.ThreadedConnectionPool(
             1,
             10,
-            dsn=DATABASE_URL
+            dsn=DATABASE_URL,
+            connect_timeout=8,
+            keepalives=1,
+            keepalives_idle=30,
+            keepalives_interval=10,
+            keepalives_count=3,
         )
 
 
@@ -452,8 +459,33 @@ def init_db():
         """)
 
         cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_messages_receiver_created
+            ON anonymous_messages(receiver_id, created_at DESC)
+        """)
+
+        cur.execute("""
             CREATE INDEX IF NOT EXISTS idx_messages_sender
             ON anonymous_messages(sender_id)
+        """)
+
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_messages_conversation_owner
+            ON anonymous_messages(conversation_owner_id, created_at DESC)
+        """)
+
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_blocks_blocked
+            ON blocks(blocked_id)
+        """)
+
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_channel_links_owner
+            ON channel_links(owner_id)
+        """)
+
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_group_messages_group_created
+            ON group_messages(group_id, created_at DESC)
         """)
 
         cur.execute("""
@@ -1059,101 +1091,55 @@ def get_or_create_user(
     username,
     full_name
 ):
+    """Fetch or refresh a user in one PostgreSQL round trip, preserving existing codes."""
     conn = db()
+    cur = None
 
     try:
         cur = conn.cursor()
-
-        cur.execute(
-            """
-            SELECT link_code, anon_code, ban_code
-            FROM users
-            WHERE user_id = %s
-            """,
-            (user_id,)
-        )
-
-        row = cur.fetchone()
-
-        if row:
-            link_code = row[0]
-            anon_code = row[1]
-            ban_code = row[2]
-
-            if not ban_code:
-                ban_code = generate_ban_code()
-
-            cur.execute(
-                """
-                UPDATE users
-                SET username = %s,
-                    full_name = %s,
-                    ban_code = %s,
-                    bot_blocked_at = NULL
-                WHERE user_id = %s
-                """,
-                (
-                    username,
-                    full_name,
-                    ban_code,
-                    user_id
-                )
-            )
-
-            conn.commit()
-
-            return link_code, anon_code
-
-        link_code = str(user_id)
-        anon_code = generate_anon_code()
-        ban_code = generate_ban_code()
-
         cur.execute(
             """
             INSERT INTO users (
-                user_id,
-                username,
-                full_name,
-                link_code,
-                anon_code,
-                display_name,
-                created_at,
-                ban_code,
-                ban_until,
-                ban_reason
+                user_id, username, full_name, link_code, anon_code,
+                display_name, created_at, ban_code, ban_until, ban_reason
             )
-            VALUES (
-                %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s
-            )
+            VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, %s, NULL, NULL)
+            ON CONFLICT (user_id) DO UPDATE
+            SET username = EXCLUDED.username,
+                full_name = EXCLUDED.full_name,
+                ban_code = COALESCE(users.ban_code, EXCLUDED.ban_code),
+                bot_blocked_at = NULL
+            RETURNING link_code, anon_code, (xmax = 0) AS is_new
             """,
             (
                 user_id,
                 username,
                 full_name,
-                link_code,
-                anon_code,
+                str(user_id),
+                generate_anon_code(),
                 full_name or "کاربر",
-                datetime.now(),
-                ban_code,
-                None,
-                None
+                generate_ban_code(),
             )
         )
+        row = cur.fetchone()
+        link_code, anon_code, is_new = row
 
-        cur.execute("""
-            INSERT INTO new_user_queue (user_id, created_at, viewed_at)
-            VALUES (%s, CURRENT_TIMESTAMP, NULL)
-            ON CONFLICT (user_id)
-            DO UPDATE SET created_at = CURRENT_TIMESTAMP, viewed_at = NULL
-        """, (user_id,))
+        if is_new:
+            cur.execute(
+                """
+                INSERT INTO new_user_queue (user_id, created_at, viewed_at)
+                VALUES (%s, CURRENT_TIMESTAMP, NULL)
+                ON CONFLICT (user_id) DO NOTHING
+                """,
+                (user_id,)
+            )
 
         conn.commit()
-
         return link_code, anon_code
 
     finally:
-        cur.close()
+        if cur is not None:
+            cur.close()
         release_db(conn)
 
 
