@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import time
 from urllib.parse import parse_qsl
 
@@ -272,8 +273,10 @@ def submit_advertisement_request():
     payload = request.get_json(silent=True) or {}
     subject = str(payload.get("subject", "")).strip()
     link = str(payload.get("link", "")).strip()
-    if not subject or len(subject) > 160 or len(subject.split()) < 3:
-        return jsonify({"error": "موضوع را در قالب یک جمله بنویس؛ موضوع خیلی کوتاه پذیرفته نمی‌شود."}), 400
+    sentence_parts = [part for part in re.split(r"[.!?؟]+", subject) if part.strip()]
+    if (not subject or len(subject) > 160 or len(subject.split()) < 3
+            or "\n" in subject or len(sentence_parts) > 1):
+        return jsonify({"error": "موضوع را فقط در قالب یک جمله کامل بنویس؛ موضوع خیلی کوتاه یا چندجمله‌ای پذیرفته نمی‌شود."}), 400
     if not link or len(link) > 1000:
         return jsonify({"error": "لینک تبلیغ را وارد کن."}), 400
     from urllib.parse import urlsplit
