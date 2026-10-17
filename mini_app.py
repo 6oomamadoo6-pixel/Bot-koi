@@ -41,11 +41,31 @@ PAGE = r"""<!doctype html>
 <button class="navbtn" data-view="personal"><span class="navicon">🔗</span><strong>لینک ناشناس من</strong><small>لینک اختصاصی دریافت پیام</small></button>
 <button class="navbtn" data-view="channels"><span class="navicon">📣</span><strong>لینک‌های ناشناس چنل من</strong><small>لینک‌های کانال‌های متصل</small></button>
 <button class="navbtn" data-view="blocks"><span class="navicon">🚫</span><strong>کاربران مسدود</strong><small>فهرست مسدودی‌های تو</small></button>
+<button class="navbtn" data-view="adrequests"><span class="navicon">📢</span><strong>تبلیغات</strong><small>ثبت درخواست تبلیغات</small></button>
+<button class="navbtn" data-view="sendtarget"><span class="navicon">💌</span><strong>پیام ناشناس به کاربر دلخواه</strong><small>ارسال پیام ناشناس مستقیم</small></button>
 </nav>
 <section id="messagesPanel" class="panel"><div class="panelhead"><h3>💬 تاریخچه پیام‌ها</h3><span id="messageCount" class="counter">— پیام</span></div><div id="messages"><div class="loader"></div></div></section>
 <section id="personalPanel" class="panel hidden"><div class="panelhead"><h3>🔗 لینک ناشناس من</h3></div><div id="personal"><div class="loader"></div></div></section>
 <section id="channelsPanel" class="panel hidden"><div class="panelhead"><h3>📣 لینک‌های ناشناس چنل من</h3></div><div id="channels"><div class="loader"></div></div></section>
 <section id="blocksPanel" class="panel hidden"><div class="panelhead"><h3>🚫 کاربران مسدود</h3><span id="blockCount" class="counter">— نفر</span></div><div id="blocks"><div class="loader"></div></div></section>
+<section id="adrequestsPanel" class="panel hidden"><div class="panelhead"><h3>📢 درخواست تبلیغات</h3></div>
+<form id="adRequestForm">
+<label for="adSubject" class="muted">موضوع تبلیغات</label>
+<input id="adSubject" name="subject" required maxlength="160" placeholder="موضوع | لطفا یک جمله در غیر اینصورت پذیرفته نمیشود." style="display:block;width:100%;margin:8px 0 14px;background:#0f100e;border:1px solid #51401d;color:#f8f3e4;border-radius:12px;padding:13px;font:inherit">
+<label for="adLink" class="muted">لینک تبلیغ</label>
+<input id="adLink" name="link" type="url" required maxlength="1000" placeholder="لینک تبلیغ | لینک چنل، لینک سایت، لینک برنامه" style="display:block;width:100%;margin:8px 0 14px;background:#0f100e;border:1px solid #51401d;color:#f8f3e4;border-radius:12px;padding:13px;font:inherit;direction:ltr;text-align:left">
+<button id="submitAdRequest" type="submit" class="loadmore">ثبت درخواست</button>
+</form>
+<p class="muted" style="color:#77766e;font-size:10px;margin-top:14px">تبلیغات گلدن چت به صورت رایگان با شرایط مخصوص و به صورت پولی با مبلغ کم است.<br>بعد ثبت درخواست تبلیغ ادمین به پیوی شما مراجعه میکند.</p>
+<div id="adRequestStatus" class="muted" aria-live="polite"></div></section>
+<section id="sendtargetPanel" class="panel hidden"><div class="panelhead"><h3>💌 پیام ناشناس به کاربر دلخواه</h3></div>
+<form id="targetMessageForm">
+<label for="targetIdentifier" class="muted">آیدی عددی یا یوزرنیم کاربر</label>
+<input id="targetIdentifier" required maxlength="100" placeholder="مثلاً 123456789 یا @username" style="display:block;width:100%;margin:8px 0 14px;background:#0f100e;border:1px solid #51401d;color:#f8f3e4;border-radius:12px;padding:13px;font:inherit">
+<label for="targetMessageText" class="muted">متن پیام ناشناس</label>
+<textarea id="targetMessageText" required maxlength="3000" rows="5" placeholder="پیامت رو بنویس…" style="display:block;width:100%;margin:8px 0 14px;background:#0f100e;border:1px solid #51401d;color:#f8f3e4;border-radius:12px;padding:13px;font:inherit;resize:vertical"></textarea>
+<button id="sendTargetMessage" type="submit" class="loadmore">ارسال پیام ناشناس 💌</button>
+</form><div class="muted">گیرنده باید قبلاً ربات را شروع کرده باشد. پیام با نام ناشناس شما ارسال می‌شود.</div><div id="targetMessageStatus" class="muted" aria-live="polite"></div></section>
 <div class="foot">GOLDEN CHAT · GOLDEN THEME ✦</div>
 </main>
 <div id="toast" class="toast hidden"></div>
@@ -82,7 +102,7 @@ PAGE = r"""<!doctype html>
   }
   function setView(view){
     currentView=view;
-    ["messages","personal","channels","blocks"].forEach(function(v){
+    ["messages","personal","channels","blocks","adrequests","sendtarget"].forEach(function(v){
       el(v+"Panel").classList.toggle("hidden",v!==view);
     });
     document.querySelectorAll(".navbtn").forEach(function(b){b.classList.toggle("active",b.dataset.view===view);});
@@ -92,6 +112,33 @@ PAGE = r"""<!doctype html>
     if(view==="blocks" && !cache.blocks)loadBlocks();
   }
   document.querySelectorAll(".navbtn").forEach(function(b){b.addEventListener("click",function(){setView(b.dataset.view);});});
+  async function postApi(path, payload){
+    var res=await fetch("/miniapp/api/"+path,{method:"POST",headers:{"Content-Type":"application/json","X-Telegram-Init-Data":initData},credentials:"same-origin",body:JSON.stringify(payload)});
+    var data=await res.json().catch(function(){return {};});
+    if(!res.ok)throw new Error(data.error||"ثبت اطلاعات ناموفق بود.");
+    return data;
+  }
+  el("adRequestForm").addEventListener("submit",async function(e){
+    e.preventDefault();
+    var buttonEl=el("submitAdRequest"), statusEl=el("adRequestStatus");
+    buttonEl.disabled=true;buttonEl.textContent="در حال ثبت…";statusEl.textContent="";
+    try{
+      await postApi("advertisement-requests",{subject:el("adSubject").value,link:el("adLink").value});
+      statusEl.textContent="درخواست تبلیغاتت ثبت شد ✅ ادمین به پیوی شما مراجعه می‌کند.";
+      el("adRequestForm").reset();toast("درخواست تبلیغات ثبت شد ✅");
+    }catch(err){statusEl.textContent=err.message;statusEl.className="muted error";}
+    finally{buttonEl.disabled=false;buttonEl.textContent="ثبت درخواست";}
+  });
+  el("targetMessageForm").addEventListener("submit",async function(e){
+    e.preventDefault();
+    var buttonEl=el("sendTargetMessage"), statusEl=el("targetMessageStatus");
+    buttonEl.disabled=true;buttonEl.textContent="در حال ارسال…";statusEl.textContent="";statusEl.className="muted";
+    try{
+      await postApi("send-to-user",{identifier:el("targetIdentifier").value,message:el("targetMessageText").value});
+      statusEl.textContent="پیام ناشناس با موفقیت ارسال شد ✅";el("targetMessageForm").reset();toast("پیام ناشناس ارسال شد");
+    }catch(err){statusEl.textContent=err.message;statusEl.className="muted error";}
+    finally{buttonEl.disabled=false;buttonEl.textContent="ارسال پیام ناشناس 💌";}
+  });
   function renderMessages(items, prepend){
     var container=el("messageList");
     if(!container){container=node("div","message-list");container.id="messageList";el("messages").replaceChildren(container);}
@@ -215,6 +262,147 @@ def mini_app_page():
     response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
     return response
+
+
+@mini_app.post("/api/advertisement-requests")
+def submit_advertisement_request():
+    user_id = _current_user_id()
+    if not user_id:
+        return _auth_error()
+    payload = request.get_json(silent=True) or {}
+    subject = str(payload.get("subject", "")).strip()
+    link = str(payload.get("link", "")).strip()
+    if not subject or len(subject) > 160 or len(subject.split()) < 3:
+        return jsonify({"error": "موضوع را در قالب یک جمله بنویس؛ موضوع خیلی کوتاه پذیرفته نمی‌شود."}), 400
+    if not link or len(link) > 1000:
+        return jsonify({"error": "لینک تبلیغ را وارد کن."}), 400
+    from urllib.parse import urlsplit
+    parsed = urlsplit(link)
+    if parsed.scheme not in ("https", "http") or not parsed.netloc:
+        return jsonify({"error": "لینک باید با https:// یا http:// شروع شود."}), 400
+    conn = _db_connect()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT user_id, username, full_name FROM users WHERE user_id=%s", (user_id,))
+                user = cur.fetchone()
+                if not user:
+                    return jsonify({"error": "ابتدا ربات را با دستور /start فعال کن."}), 404
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS advertisement_requests (
+                        id BIGSERIAL PRIMARY KEY,
+                        user_id BIGINT NOT NULL,
+                        username TEXT,
+                        full_name TEXT,
+                        subject TEXT NOT NULL,
+                        ad_link TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        reviewed_at TIMESTAMP
+                    )
+                """)
+                cur.execute("""
+                    INSERT INTO advertisement_requests (user_id, username, full_name, subject, ad_link)
+                    VALUES (%s, %s, %s, %s, %s)
+                    RETURNING id
+                """, (user_id, user[1], user[2], subject, link))
+                request_id = cur.fetchone()[0]
+        return jsonify({"ok": True, "id": request_id})
+    finally:
+        conn.close()
+
+
+@mini_app.post("/api/send-to-user")
+def mini_app_send_to_user():
+    user_id = _current_user_id()
+    if not user_id:
+        return _auth_error()
+    payload = request.get_json(silent=True) or {}
+    identifier = str(payload.get("identifier", "")).strip()
+    message_text = str(payload.get("message", "")).strip()
+    if not identifier or not message_text or len(message_text) > 3000:
+        return jsonify({"error": "آیدی گیرنده و متن پیام را وارد کن (حداکثر ۳۰۰۰ کاراکتر)."}), 400
+    conn = _db_connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT user_id, username, display_name, full_name, anon_code, ban_until, ban_reason
+                FROM users
+                WHERE user_id::text = %s OR lower(username) = lower(%s)
+                LIMIT 1
+            """, (identifier.lstrip("@"), identifier.lstrip("@")))
+            target = cur.fetchone()
+            cur.execute("""
+                SELECT ban_until, ban_reason FROM users WHERE user_id=%s
+            """, (user_id,))
+            sender = cur.fetchone()
+            if not sender:
+                return jsonify({"error": "ابتدا دستور /start را در ربات بزن."}), 404
+            now = __import__("datetime").datetime.now()
+            if sender[1] and (sender[0] is None or sender[0] > now):
+                return jsonify({"error": "حساب شما مسدود است و فعلاً نمی‌توانی پیام بفرستی."}), 403
+            if not target:
+                return jsonify({"error": "کاربر پیدا نشد؛ باید قبلاً ربات را شروع کرده باشد."}), 404
+            target_id = int(target[0])
+            if target_id == user_id:
+                return jsonify({"error": "نمی‌توانی به خودت پیام ناشناس بفرستی."}), 400
+            if target[6] and (target[5] is None or target[5] > now):
+                return jsonify({"error": "حساب کاربر مقصد مسدود است."}), 403
+            cur.execute("SELECT 1 FROM blocks WHERE blocker_id=%s AND blocked_id=%s", (target_id, user_id))
+            if cur.fetchone():
+                return jsonify({"error": "این کاربر شما را مسدود کرده و نمی‌توانی به او پیام بدهی."}), 403
+            cur.execute("SELECT anon_code FROM users WHERE user_id=%s", (user_id,))
+            anon_row = cur.fetchone()
+            anon_code = anon_row[0] if anon_row and anon_row[0] else "0000000"
+            cur.execute("""
+                INSERT INTO anonymous_messages
+                    (sender_id, receiver_id, message_text, created_at, seen_at, media_type, media_caption, conversation_owner_id)
+                VALUES (%s, %s, %s, CURRENT_TIMESTAMP, NULL, 'text', %s, %s)
+                RETURNING id
+            """, (user_id, target_id, message_text, message_text, target_id))
+            message_id = cur.fetchone()[0]
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    import urllib.request
+    bot_token = os.getenv("BOT_TOKEN")
+    if not bot_token:
+        return jsonify({"error": "ارسال پیام در حال حاضر در دسترس نیست."}), 503
+    import urllib.error
+    def telegram_send(text, reply_to=None):
+        body = {"chat_id": target_id, "text": text, "parse_mode": "HTML"}
+        if reply_to:
+            body["reply_parameters"] = {"message_id": reply_to, "allow_sending_without_reply": True}
+        req = urllib.request.Request(
+            "https://api.telegram.org/bot" + bot_token + "/sendMessage",
+            data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="POST"
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as response:
+                result = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            try: reason = json.loads(exc.read().decode("utf-8")).get("description", "خطای تلگرام")
+            except Exception: reason = "خطای تلگرام"
+            raise RuntimeError(reason)
+        if not result.get("ok"):
+            raise RuntimeError(result.get("description", "خطای تلگرام"))
+        return result.get("result") or {}
+    try:
+        header = telegram_send(f"<b>کاربر {anon_code} برای شما پیام ناشناسی ارسال کرد : 👇🏻</b>")
+        delivered = telegram_send(__import__("html").escape(message_text), header.get("message_id"))
+        with _db_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE anonymous_messages SET delivered_message_id=%s WHERE id=%s",
+                            (delivered.get("message_id"), message_id))
+            conn.commit()
+    except Exception as exc:
+        return jsonify({"error": "پیام ثبت شد اما ارسال تلگرام ناموفق بود: " + str(exc)[:180]}), 502
+    return jsonify({"ok": True, "message_id": message_id})
 
 
 @mini_app.get("/api/me")
