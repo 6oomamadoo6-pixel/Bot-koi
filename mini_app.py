@@ -322,6 +322,9 @@ def mini_app_send_to_user():
     message_text = str(payload.get("message", "")).strip()
     if not identifier or not message_text or len(message_text) > 3000:
         return jsonify({"error": "آیدی گیرنده و متن پیام را وارد کن (حداکثر ۳۰۰۰ کاراکتر)."}), 400
+    bot_token = os.getenv("BOT_TOKEN")
+    if not bot_token:
+        return jsonify({"error": "ارسال پیام در حال حاضر در دسترس نیست."}), 503
     conn = _db_connect()
     try:
         with conn.cursor() as cur:
@@ -369,14 +372,13 @@ def mini_app_send_to_user():
         conn.close()
 
     import urllib.request
-    bot_token = os.getenv("BOT_TOKEN")
-    if not bot_token:
-        return jsonify({"error": "ارسال پیام در حال حاضر در دسترس نیست."}), 503
     import urllib.error
-    def telegram_send(text, reply_to=None):
+    def telegram_send(text, reply_to=None, reply_markup=None):
         body = {"chat_id": target_id, "text": text, "parse_mode": "HTML"}
         if reply_to:
             body["reply_parameters"] = {"message_id": reply_to, "allow_sending_without_reply": True}
+        if reply_markup:
+            body["reply_markup"] = reply_markup
         req = urllib.request.Request(
             "https://api.telegram.org/bot" + bot_token + "/sendMessage",
             data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
@@ -394,14 +396,31 @@ def mini_app_send_to_user():
         return result.get("result") or {}
     try:
         header = telegram_send(f"<b>کاربر {anon_code} برای شما پیام ناشناسی ارسال کرد : 👇🏻</b>")
-        delivered = telegram_send(__import__("html").escape(message_text), header.get("message_id"))
+        keyboard = {"inline_keyboard": [
+            [{"text": "ری اکشن :)", "callback_data": f"reaction:{message_id}"}],
+            [{"text": "مشاهده شد 👁️", "callback_data": f"seen:{message_id}"}],
+            [{"text": "ارسال پیام جدید 💬", "callback_data": f"newmsg:{user_id}"}],
+            [
+                {"text": "پاسخ دادن 💌", "callback_data": f"reply:{message_id}"},
+                {"text": "مسدود کردن 🔴", "callback_data": f"block:{user_id}"}
+            ],
+            [{"text": "گزارش تخلف 🚨", "callback_data": f"report:{message_id}"}]
+        ]}
+        delivered = telegram_send(__import__("html").escape(message_text), header.get("message_id"), keyboard)
         with _db_connect() as conn:
             with conn.cursor() as cur:
                 cur.execute("UPDATE anonymous_messages SET delivered_message_id=%s WHERE id=%s",
                             (delivered.get("message_id"), message_id))
             conn.commit()
     except Exception as exc:
-        return jsonify({"error": "پیام ثبت شد اما ارسال تلگرام ناموفق بود: " + str(exc)[:180]}), 502
+        try:
+            with _db_connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM anonymous_messages WHERE id=%s AND sender_id=%s", (message_id, user_id))
+                conn.commit()
+        except Exception:
+            pass
+        return jsonify({"error": "ارسال پیام ناموفق بود: " + str(exc)[:180]}), 502
     return jsonify({"ok": True, "message_id": message_id})
 
 
