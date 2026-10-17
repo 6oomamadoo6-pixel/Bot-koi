@@ -744,9 +744,10 @@ def remove_supervisor_web():
 def list_advertisement_requests():
     conn = _db()
     try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS advertisement_requests (
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS advertisement_requests (
                     id BIGSERIAL PRIMARY KEY,
                     user_id BIGINT NOT NULL,
                     username TEXT,
@@ -756,15 +757,15 @@ def list_advertisement_requests():
                     status TEXT NOT NULL DEFAULT 'pending',
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     reviewed_at TIMESTAMP
-                )
-            """)
-            cur.execute("""
-                SELECT id, user_id, username, full_name, subject, ad_link, status, created_at
-                FROM advertisement_requests
-                ORDER BY CASE WHEN status='pending' THEN 0 ELSE 1 END, created_at DESC
-                LIMIT 500
-            """)
-            rows = cur.fetchall()
+                    )
+                """)
+                cur.execute("""
+                    SELECT id, user_id, username, full_name, subject, ad_link, status, created_at
+                    FROM advertisement_requests
+                    ORDER BY CASE WHEN status='pending' THEN 0 ELSE 1 END, created_at DESC
+                    LIMIT 500
+                """)
+                rows = cur.fetchall()
         return jsonify({"items": [{
             "id": row[0], "user_id": row[1], "username": row[2], "full_name": row[3],
             "subject": row[4], "ad_link": row[5], "status": row[6],
