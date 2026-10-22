@@ -76,7 +76,7 @@ async function openNewUsers(){el("newUsersPanel").classList.remove("hidden");el(
 el("newUsersButton").addEventListener("click",openNewUsers);
 el("closeNewUsers").addEventListener("click",function(){el("newUsersPanel").classList.add("hidden")});
 async function loadStats(){try{var d=await api("stats");el("usersCount").textContent=Number(d.users||0).toLocaleString("fa-IR");el("blocksCount").textContent=Number(d.blocks||0).toLocaleString("fa-IR");el("messagesCount").textContent=Number(d.messages||0).toLocaleString("fa-IR")}catch(e){toast(e.message)}}
-async function loadUsers(){el("usersTable").innerHTML='<div class="empty">در حال دریافت اطلاعات…</div>';try{var d=await api("users?page="+userPage+"&q="+encodeURIComponent(userQuery));el("usersTable").innerHTML= d.items.length?'<table><thead><tr><th>کاربر</th><th>شناسه</th><th>عضویت</th></tr></thead><tbody>'+d.items.map(function(u){return '<tr><td>'+esc(u.display_name||u.full_name||"بدون نام")+(u.username?'<small>@'+esc(u.username)+'</small>':'')+'</td><td><span class="userbadge">'+esc(u.user_id)+'</span></td><td>'+esc(u.created_at||"—")+'</td></tr>'}).join("")+'</tbody></table>':'<div class="empty">کاربری پیدا نشد.</div>';el("userPage").textContent="صفحه "+userPage+" از "+Math.max(1,d.pages);el("prevUsers").disabled=userPage<=1;el("nextUsers").disabled=userPage>=d.pages}catch(e){el("usersTable").innerHTML='<div class="empty error">'+esc(e.message)+'</div>'}}
+async function loadUsers(){el("usersTable").innerHTML='<div class="empty">در حال دریافت اطلاعات…</div>';try{var d=await api("users?page="+userPage+"&q="+encodeURIComponent(userQuery));el("usersTable").innerHTML= d.items.length?'<table><thead><tr><th>کاربر</th><th>شناسه</th><th>عضویت</th><th>عملیات</th></tr></thead><tbody>'+d.items.map(function(u){return '<tr><td>'+esc(u.display_name||u.full_name||"بدون نام")+(u.username?'<small>@'+esc(u.username)+'</small>':'')+'</td><td><span class="userbadge">'+esc(u.user_id)+'</span></td><td>'+esc(u.created_at||"—")+'</td><td><button class="btn danger" type="button" data-delete-user="'+esc(u.user_id)+'">🗑️ حذف کاربر</button></td></tr>'}).join("")+'</tbody></table>':'<div class="empty">کاربری پیدا نشد.</div>';el("userPage").textContent="صفحه "+userPage+" از "+Math.max(1,d.pages);el("prevUsers").disabled=userPage<=1;el("nextUsers").disabled=userPage>=d.pages;document.querySelectorAll("[data-delete-user]").forEach(function(btn){btn.addEventListener("click",async function(){var id=btn.dataset.deleteUser;if(!confirm("کاربر با شناسه "+id+" از فهرست کاربران ربات حذف شود؟ رکورد حساب حذف می‌شود؛ پیام‌های ناشناس و روابط مسدودی نگه داشته می‌شوند. اگر کاربر دوباره با ربات تعامل کند ممکن است دوباره ثبت شود."))return;btn.disabled=true;try{await api("users/delete",{method:"POST",body:JSON.stringify({user_id:id})});toast("کاربر از فهرست حذف شد");await Promise.all([loadUsers(),loadStats(),loadNewUserCount()])}catch(e){toast(e.message);btn.disabled=false}})})}catch(e){el("usersTable").innerHTML='<div class="empty error">'+esc(e.message)+'</div>'}}
 async function loadBlocks(){el("blocksTable").innerHTML='<div class="empty">در حال دریافت اطلاعات…</div>';try{var d=await api("blocks?page="+blockPage+"&q="+encodeURIComponent(blockQuery));el("blocksTable").innerHTML=d.items.length?'<table><thead><tr><th>مسدودکننده</th><th>کاربر مسدودشده</th><th>تاریخ</th><th>عملیات</th></tr></thead><tbody>'+d.items.map(function(b){return '<tr><td>'+esc(b.blocker_name||"بدون نام")+'<small>'+esc(b.blocker_id)+'</small></td><td>'+esc(b.blocked_name||"بدون نام")+'<small>'+esc(b.blocked_id)+'</small></td><td>'+esc(b.created_at||"—")+'</td><td><button class="btn danger" data-unblock="'+esc(b.blocker_id)+'" data-blocked="'+esc(b.blocked_id)+'">رفع مسدودی</button></td></tr>'}).join("")+'</tbody></table>':'<div class="empty">موردی پیدا نشد.</div>';el("blockPage").textContent="صفحه "+blockPage+" از "+Math.max(1,d.pages);el("prevBlocks").disabled=blockPage<=1;el("nextBlocks").disabled=blockPage>=d.pages;document.querySelectorAll("[data-unblock]").forEach(function(btn){btn.addEventListener("click",async function(){if(!confirm("فقط این رابطهٔ مسدودی حذف شود؟"))return;try{await api("blocks/unblock",{method:"POST",body:JSON.stringify({blocker_id:btn.dataset.unblock,blocked_id:btn.dataset.blocked})});toast("مسدودی رفع شد");await Promise.all([loadBlocks(),loadStats()])}catch(e){toast(e.message)}})})}catch(e){el("blocksTable").innerHTML='<div class="empty error">'+esc(e.message)+'</div>'}}
 el("userSearch").addEventListener("submit",function(e){e.preventDefault();userQuery=el("userQuery").value.trim();userPage=1;loadUsers()});el("blockSearch").addEventListener("submit",function(e){e.preventDefault();blockQuery=el("blockQuery").value.trim();blockPage=1;loadBlocks()});el("prevUsers").addEventListener("click",function(){if(userPage>1){userPage--;loadUsers()}});el("nextUsers").addEventListener("click",function(){userPage++;loadUsers()});el("prevBlocks").addEventListener("click",function(){if(blockPage>1){blockPage--;loadBlocks()}});el("nextBlocks").addEventListener("click",function(){blockPage++;loadBlocks()});
 
@@ -627,6 +627,32 @@ def ban_user():
                             "ban_until": jalali_until})
         return jsonify({"ok": True, "notification_sent": True,
                         "ban_until": jalali_until})
+    finally:
+        conn.close()
+
+
+@admin_panel.post("/api/users/delete")
+@_auth_required
+@_csrf_required
+def delete_user():
+    payload = request.get_json(silent=True) or {}
+    try:
+        user_id = int(payload.get("user_id"))
+    except (TypeError, ValueError):
+        return _json_error("شناسه کاربر معتبر نیست.", 400)
+
+    conn = _db()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM users WHERE user_id = %s RETURNING user_id", (user_id,))
+                deleted = cur.fetchone()
+                if not deleted:
+                    return _json_error("کاربر پیدا نشد.", 404)
+                # Remove only the pending-new-user queue entry. Preserve anonymous
+                # messages and block relationships so this action does not erase history.
+                cur.execute("DELETE FROM new_user_queue WHERE user_id = %s", (user_id,))
+        return jsonify({"ok": True, "user_id": user_id})
     finally:
         conn.close()
 
