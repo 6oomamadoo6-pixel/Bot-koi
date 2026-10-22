@@ -2,6 +2,7 @@ import os
 import random
 import string
 import asyncio
+import time
 import html
 import json
 from urllib.parse import quote, urlsplit
@@ -108,6 +109,31 @@ if not DATABASE_URL:
 
 DB_POOL = None
 GLOBAL_BOT = None
+
+# Process-local flood control for inbound private-chat updates.
+_INBOUND_RATE_BUCKETS = {}
+_INBOUND_RATE_LIMIT = 30
+_INBOUND_RATE_WINDOW = 60
+
+
+def user_is_rate_limited(user_id):
+    if not user_id:
+        return False
+    now = time.monotonic()
+    key = str(user_id)
+    recent = [stamp for stamp in _INBOUND_RATE_BUCKETS.get(key, [])
+              if now - stamp < _INBOUND_RATE_WINDOW]
+    if len(recent) >= _INBOUND_RATE_LIMIT:
+        _INBOUND_RATE_BUCKETS[key] = recent
+        return True
+    recent.append(now)
+    _INBOUND_RATE_BUCKETS[key] = recent
+    if len(_INBOUND_RATE_BUCKETS) > 10000:
+        for bucket_key in list(_INBOUND_RATE_BUCKETS):
+            if not any(now - stamp < _INBOUND_RATE_WINDOW
+                       for stamp in _INBOUND_RATE_BUCKETS[bucket_key]):
+                _INBOUND_RATE_BUCKETS.pop(bucket_key, None)
+    return False
 
 SUPERVISOR_COMMANDS_TEXT = """/userbot  با ارسال این دستور میتونی کاربرای ربات رو ببینی و بهشون دسترسی داشته باشی
 /userban با این ارسال این دستور میتونی لیست کاربرای بن شده ربات رو ببینی
@@ -3695,6 +3721,8 @@ async def start(
 
     if not user or not update.message:
         return
+    if user_is_rate_limited(user.id):
+        return
 
     # =====================================================
     # IMPORTANT:
@@ -6060,6 +6088,8 @@ async def media_handler(update, context):
     message = update.message
     if not user or not message or message.chat.type in ("group", "supergroup"):
         return
+    if user_is_rate_limited(user.id):
+        return
     media_type, file_id, caption = get_message_payload(message)
     if not media_type or media_type == "text":
         return
@@ -6203,6 +6233,8 @@ async def handle_message(
     message = update.message
 
     if not user or not message:
+        return
+    if user_is_rate_limited(user.id):
         return
 
     # =====================================================
