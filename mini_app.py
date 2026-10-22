@@ -29,7 +29,7 @@ def _rate_limit(key, limit, window_seconds):
     _RATE_BUCKETS[key] = recent
     if len(_RATE_BUCKETS) > 5000:
         for bucket_key in list(_RATE_BUCKETS):
-            if not _RATE_BUCKETS[bucket_key]:
+            if not any(now - stamp < 3600 for stamp in _RATE_BUCKETS[bucket_key]):
                 _RATE_BUCKETS.pop(bucket_key, None)
     return True
 
