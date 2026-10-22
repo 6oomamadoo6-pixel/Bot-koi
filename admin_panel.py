@@ -26,7 +26,7 @@ def _login_is_limited(ip_address):
     _LOGIN_ATTEMPTS[ip_address] = attempts
     if len(_LOGIN_ATTEMPTS) > 2000:
         for key in list(_LOGIN_ATTEMPTS):
-            if not _LOGIN_ATTEMPTS[key]:
+            if not any(now - stamp < _LOGIN_WINDOW_SECONDS for stamp in _LOGIN_ATTEMPTS[key]):
                 _LOGIN_ATTEMPTS.pop(key, None)
     return len(attempts) >= _LOGIN_MAX_FAILURES
 
