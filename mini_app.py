@@ -15,6 +15,25 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "HideMyChatRobot").lstrip("@")
 
+_RATE_BUCKETS = {}
+
+
+def _rate_limit(key, limit, window_seconds):
+    now = time.monotonic()
+    recent = [stamp for stamp in _RATE_BUCKETS.get(key, [])
+              if now - stamp < window_seconds]
+    if len(recent) >= limit:
+        _RATE_BUCKETS[key] = recent
+        return False
+    recent.append(now)
+    _RATE_BUCKETS[key] = recent
+    if len(_RATE_BUCKETS) > 5000:
+        for bucket_key in list(_RATE_BUCKETS):
+            if not any(now - stamp < 3600 for stamp in _RATE_BUCKETS[bucket_key]):
+                _RATE_BUCKETS.pop(bucket_key, None)
+    return True
+
+
 PAGE = r"""<!doctype html>
 <html lang="fa" dir="rtl">
 <head>
@@ -247,6 +266,16 @@ def _current_user_id():
     return user_id
 
 
+@mini_app.before_request
+def _limit_authenticated_api_requests():
+    if not request.path.startswith("/miniapp/api/"):
+        return None
+    user_id = _current_user_id()
+    if user_id and not _rate_limit("api:" + str(user_id), 120, 60):
+        return jsonify({"error": "تعداد درخواست‌ها زیاد است؛ کمی بعد دوباره امتحان کن."}), 429
+    return None
+
+
 def _db_connect():
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL is not configured")
@@ -270,6 +299,8 @@ def submit_advertisement_request():
     user_id = _current_user_id()
     if not user_id:
         return _auth_error()
+    if not _rate_limit("ads:" + str(user_id), 3, 3600):
+        return jsonify({"error": "درخواست تبلیغات زیادی ثبت کردی؛ یک ساعت بعد دوباره امتحان کن."}), 429
     payload = request.get_json(silent=True) or {}
     subject = str(payload.get("subject", "")).strip()
     link = str(payload.get("link", "")).strip()
@@ -320,6 +351,8 @@ def mini_app_send_to_user():
     user_id = _current_user_id()
     if not user_id:
         return _auth_error()
+    if not _rate_limit("send:" + str(user_id), 8, 60):
+        return jsonify({"error": "برای جلوگیری از اسپم، حداکثر ۸ پیام در دقیقه مجاز است."}), 429
     payload = request.get_json(silent=True) or {}
     identifier = str(payload.get("identifier", "")).strip()
     message_text = str(payload.get("message", "")).strip()

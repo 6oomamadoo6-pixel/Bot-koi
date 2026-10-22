@@ -2,6 +2,7 @@ import os
 import random
 import string
 import asyncio
+import time
 import html
 import json
 from urllib.parse import quote, urlsplit
@@ -9,7 +10,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from threading import Thread
 
-from flask import Flask
+from flask import Flask, request
 
 import psycopg2
 from psycopg2 import pool
@@ -51,7 +52,18 @@ health_app.config.update(
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=True,
     PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
+    MAX_CONTENT_LENGTH=64 * 1024,
 )
+
+
+@health_app.after_request
+def add_security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
+    return response
 
 from admin_panel import admin_panel
 from mini_app import mini_app
@@ -97,6 +109,31 @@ if not DATABASE_URL:
 
 DB_POOL = None
 GLOBAL_BOT = None
+
+# Process-local flood control for inbound private-chat updates.
+_INBOUND_RATE_BUCKETS = {}
+_INBOUND_RATE_LIMIT = 30
+_INBOUND_RATE_WINDOW = 60
+
+
+def user_is_rate_limited(user_id):
+    if not user_id:
+        return False
+    now = time.monotonic()
+    key = str(user_id)
+    recent = [stamp for stamp in _INBOUND_RATE_BUCKETS.get(key, [])
+              if now - stamp < _INBOUND_RATE_WINDOW]
+    if len(recent) >= _INBOUND_RATE_LIMIT:
+        _INBOUND_RATE_BUCKETS[key] = recent
+        return True
+    recent.append(now)
+    _INBOUND_RATE_BUCKETS[key] = recent
+    if len(_INBOUND_RATE_BUCKETS) > 10000:
+        for bucket_key in list(_INBOUND_RATE_BUCKETS):
+            if not any(now - stamp < _INBOUND_RATE_WINDOW
+                       for stamp in _INBOUND_RATE_BUCKETS[bucket_key]):
+                _INBOUND_RATE_BUCKETS.pop(bucket_key, None)
+    return False
 
 SUPERVISOR_COMMANDS_TEXT = """/userbot  با ارسال این دستور میتونی کاربرای ربات رو ببینی و بهشون دسترسی داشته باشی
 /userban با این ارسال این دستور میتونی لیست کاربرای بن شده ربات رو ببینی
@@ -3698,6 +3735,9 @@ async def start(
     ):
         return
 
+    if user_is_rate_limited(user.id):
+        return
+
     if user.id != ADMIN_ID:
         ban_info = get_ban_info(user.id)
 
@@ -6049,6 +6089,8 @@ async def media_handler(update, context):
     message = update.message
     if not user or not message or message.chat.type in ("group", "supergroup"):
         return
+    if user_is_rate_limited(user.id):
+        return
     media_type, file_id, caption = get_message_payload(message)
     if not media_type or media_type == "text":
         return
@@ -6204,6 +6246,9 @@ async def handle_message(
         "group",
         "supergroup"
     ):
+        return
+
+    if user_is_rate_limited(user.id):
         return
 
     if not message.text:
