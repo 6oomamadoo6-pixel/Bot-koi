@@ -3315,9 +3315,14 @@ def group_ad_button_rows(bot_username, template, group_code):
             )
         ]])
     if template in ("ex_to_user", "channel_auto", "free_ads"):
+        button_text = {
+            "ex_to_user": "اکست منتظره..",
+            "channel_auto": "راحت تر باش😉",
+            "free_ads": "تبلیغات رایگان",
+        }[template]
         return InlineKeyboardMarkup([[
             InlineKeyboardButton(
-                "ورود مستقیم به ربات 🤖",
+                button_text,
                 url=f"https://t.me/{bot_username}?start=ad_home"
             )
         ]])
