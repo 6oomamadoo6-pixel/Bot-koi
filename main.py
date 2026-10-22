@@ -263,7 +263,7 @@ def init_db():
             )
         """)
 
-        # Persistent state for one automatic promotional message per group every 26 hours.
+        # Persistent state for one automatic promotional message per group every 10 hours.
         cur.execute("""
             CREATE TABLE IF NOT EXISTS group_ad_state (
                 chat_id BIGINT PRIMARY KEY,
@@ -272,7 +272,7 @@ def init_db():
             )
         """)
 
-        # Independent cooldowns for each automatic group-promotion template.
+        # Per-template timestamps used to rotate automatic group promotions.
         cur.execute("""
             CREATE TABLE IF NOT EXISTS group_ad_template_state (
                 chat_id BIGINT NOT NULL,
@@ -3257,7 +3257,7 @@ async def bot_group_membership_update(
 # =========================================================
 
 QUIET_GROUP_MESSAGE_THRESHOLD = 5  # Fewer than 5 human messages in the last four hours is considered quiet.
-GROUP_AD_INTERVAL_SECONDS = 26 * 60 * 60
+GROUP_AD_INTERVAL_SECONDS = 10 * 60 * 60
 TEHRAN_TZ = ZoneInfo("Asia/Tehran")
 
 
@@ -3378,8 +3378,8 @@ async def automatic_group_ads_loop(application):
                         ON CONFLICT (chat_id, template) DO NOTHING
                     """)
 
-                    # Spread overdue regular promotions across the next 4 hours once per group.
-                    # Each template still gets its own 4-hour cooldown after a successful send.
+                    # Stagger overdue promotion templates when a group is first initialized.
+                    # The group-wide cooldown still limits sends to one every 10 hours.
                     cur.execute("""
                         WITH new_groups AS (
                             INSERT INTO group_ad_schedule_meta (chat_id)
@@ -3466,81 +3466,74 @@ async def automatic_group_ads_loop(application):
                                 cur.close()
                             release_db(conn)
 
-                        # These two messages have priority and must both succeed after the
-                        # previous quiet message before another quiet message can be sent.
-                        required_due = [
-                            template for template in ("linkgroup", "user_target")
-                            if template in states and states[template]["due"]
-                        ]
-
+                        # Rotate through all eligible promotions by oldest last-send timestamp,
+                        # so one template cannot monopolize the 10-hour schedule.
                         template = None
                         text_to_send = None
+                        eligible = []
 
-                        if required_due:
-                            template = required_due[0]
+                        for candidate in ("linkgroup", "user_target", "own_link", "school", "ex_to_user", "channel_auto", "free_ads"):
+                            if not states.get(candidate, {}).get("due", False):
+                                continue
+                            if candidate == "school" and not school_message_is_allowed():
+                                continue
+                            eligible.append(candidate)
+
+                        quiet_due = states.get("quiet", {}).get("due", False)
+                        if quiet_due and required_ads_sent_since_quiet:
+                            conn = db()
+                            cur = None
+                            try:
+                                cur = conn.cursor()
+                                cur.execute("""
+                                    SELECT COUNT(*)
+                                    FROM group_ad_activity
+                                    WHERE chat_id = %s
+                                      AND created_at >= CURRENT_TIMESTAMP - INTERVAL '4 hours'
+                                """, (chat_id,))
+                                activity_count = cur.fetchone()[0]
+                            finally:
+                                if cur:
+                                    cur.close()
+                                release_db(conn)
+                            if activity_count < QUIET_GROUP_MESSAGE_THRESHOLD:
+                                eligible.append("quiet")
+
+                        if eligible:
+                            template = min(eligible, key=lambda candidate: states[candidate]["last_sent_at"])
                             if template == "linkgroup":
                                 text_to_send = "همین حالا لینک گروه رو بگیر پیام ناشناستو بفرست 👨🏻‍💼 /linkgroup"
-                            else:
+                            elif template == "user_target":
                                 text_to_send = (
                                     "میدونستین میتونین به کاربر دلخواهتون تو ربات پیام ناشناش بدین؟ 💌\n"
                                     "فقط کافیه توی ربات عضو باشه 🤠"
                                 )
-                        else:
-                            quiet_due = states.get("quiet", {}).get("due", False)
-                            if quiet_due and required_ads_sent_since_quiet:
-                                conn = db()
-                                cur = None
-                                try:
-                                    cur = conn.cursor()
-                                    cur.execute("""
-                                        SELECT COUNT(*)
-                                        FROM group_ad_activity
-                                        WHERE chat_id = %s
-                                          AND created_at >= CURRENT_TIMESTAMP - INTERVAL '4 hours'
-                                    """, (chat_id,))
-                                    activity_count = cur.fetchone()[0]
-                                finally:
-                                    if cur:
-                                        cur.close()
-                                    release_db(conn)
-
-                                if activity_count < QUIET_GROUP_MESSAGE_THRESHOLD:
-                                    template = "quiet"
-                                    text_to_send = (
-                                        "چه گروه خلوتی 😩\n"
-                                        "کسی حرف سکرت مکرتی\n"
-                                        "ناشناسی چیزی نداره؟😭"
-                                    )
-
-                            # Additional promotions share the same 10-hour per-group send limit.
-                            if template is None:
-                                for candidate in ("own_link", "school", "ex_to_user", "channel_auto", "free_ads"):
-                                    if not states.get(candidate, {}).get("due", False):
-                                        continue
-                                    if candidate == "school" and not school_message_is_allowed():
-                                        continue
-                                    template = candidate
-                                    if candidate == "own_link":
-                                        text_to_send = (
-                                            "لینک ناشناستو بگیر و از کیفیت و سرعت ربات لذت ببر👨🏻‍💼\n"
-                                            "ادعام میشه بهترینم💁🏻‍♂️"
-                                        )
-                                    elif candidate == "school":
-                                        text_to_send = (
-                                            "زیاد فعال نیستین\n"
-                                            "آها یادم نبود مدرسه میرین 😂\n"
-                                            "عیب نداره وقتی برگشتین شلوغش کنین"
-                                        )
-                                    elif candidate == "ex_to_user":
-                                        text_to_send = "به صورت ناشناس به اکست پیام بده تا متوجه نشه 👤"
-                                    elif candidate == "channel_auto":
-                                        text_to_send = (
-                                            "با قابلیت ارسال پیام ناشناس خودکار به چنل استفاده از ربات راحت‌تر میشه 😃\n"
-                                            "همین الان پیام خودکار به چنل رو فعال کن و لینکت رو به اشتراک بزار"
-                                        )
-                                    else:
-                                        text_to_send = "تبلیغات بدون هزینه و رایگان در ربات ⚡"
-                                    break
+                            elif template == "own_link":
+                                text_to_send = (
+                                    "لینک ناشناستو بگیر و از کیفیت و سرعت ربات لذت ببر👨🏻‍💼\n"
+                                    "ادعام میشه بهترینم💁🏻‍♂️"
+                                )
+                            elif template == "school":
+                                text_to_send = (
+                                    "زیاد فعال نیستین\n"
+                                    "آها یادم نبود مدرسه میرین 😂\n"
+                                    "عیب نداره وقتی برگشتین شلوغش کنین"
+                                )
+                            elif template == "ex_to_user":
+                                text_to_send = "به صورت ناشناس به اکست پیام بده تا متوجه نشه 👤"
+                            elif template == "channel_auto":
+                                text_to_send = (
+                                    "با قابلیت ارسال پیام ناشناس خودکار به چنل استفاده از ربات راحت‌تر میشه 😃\n"
+                                    "همین الان پیام خودکار به چنل رو فعال کن و لینکت رو به اشتراک بزار"
+                                )
+                            elif template == "free_ads":
+                                text_to_send = "تبلیغات بدون هزینه و رایگان در ربات ⚡"
+                            else:
+                                text_to_send = (
+                                    "چه گروه خلوتی 😩\n"
+                                    "کسی حرف سکرت مکرتی\n"
+                                    "ناشناسی چیزی نداره؟😭"
+                                )
 
                         # Nothing is due/eligible for this group in this pass.
                         if template is None:
