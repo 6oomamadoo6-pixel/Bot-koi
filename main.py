@@ -8097,10 +8097,23 @@ def main():
     init_db()
     print("[BOOT] Database initialization completed.", flush=True)
 
+    # Tune Telegram HTTP connection pools so bursts of sends/edits do not
+    # queue behind a tiny default pool. Keep update processing sequential:
+    # many Golden Chat flows rely on context.user_data and must stay ordered.
     application = (
         Application
         .builder()
         .token(BOT_TOKEN)
+        .connection_pool_size(32)
+        .pool_timeout(10)
+        .connect_timeout(10)
+        .read_timeout(20)
+        .write_timeout(20)
+        .get_updates_connection_pool_size(4)
+        .get_updates_pool_timeout(10)
+        .get_updates_connect_timeout(10)
+        .get_updates_read_timeout(30)
+        .get_updates_write_timeout(10)
         .post_init(post_init)
         .post_shutdown(post_shutdown)
         .build()
