@@ -1,6 +1,7 @@
 import os
 import hmac
 import secrets
+import time
 import json
 import urllib.request
 import urllib.error
@@ -13,6 +14,29 @@ from flask import Blueprint, current_app, jsonify, request, render_template_stri
 
 admin_panel = Blueprint("admin_panel", __name__, url_prefix="/admin")
 PAGE_SIZE = 10
+_LOGIN_ATTEMPTS = {}
+_LOGIN_WINDOW_SECONDS = 900
+_LOGIN_MAX_FAILURES = 10
+
+
+def _login_is_limited(ip_address):
+    now = time.monotonic()
+    attempts = [stamp for stamp in _LOGIN_ATTEMPTS.get(ip_address, [])
+                if now - stamp < _LOGIN_WINDOW_SECONDS]
+    _LOGIN_ATTEMPTS[ip_address] = attempts
+    if len(_LOGIN_ATTEMPTS) > 2000:
+        for key in list(_LOGIN_ATTEMPTS):
+            if not _LOGIN_ATTEMPTS[key]:
+                _LOGIN_ATTEMPTS.pop(key, None)
+    return len(attempts) >= _LOGIN_MAX_FAILURES
+
+
+def _record_login_failure(ip_address):
+    now = time.monotonic()
+    attempts = [stamp for stamp in _LOGIN_ATTEMPTS.get(ip_address, [])
+                if now - stamp < _LOGIN_WINDOW_SECONDS]
+    attempts.append(now)
+    _LOGIN_ATTEMPTS[ip_address] = attempts
 
 HTML = r"""<!doctype html>
 <html lang="fa" dir="rtl">
@@ -191,11 +215,16 @@ def session_status():
 def login():
     if not _configured():
         return _json_error("مدیر باید ADMIN_PANEL_PASSWORD و ADMIN_PANEL_SECRET_KEY را در تنظیمات Deplexo ثبت کند.", 503)
+    ip_address = request.remote_addr or "unknown"
+    if _login_is_limited(ip_address):
+        return _json_error("تلاش‌های ورود بیش از حد بوده؛ ۱۵ دقیقه بعد دوباره امتحان کن.", 429)
     payload = request.get_json(silent=True) or {}
     supplied = str(payload.get("password", ""))
     expected = os.getenv("ADMIN_PANEL_PASSWORD", "")
     if not supplied or not hmac.compare_digest(supplied, expected):
+        _record_login_failure(ip_address)
         return _json_error("رمز عبور اشتباه است.", 401)
+    _LOGIN_ATTEMPTS.pop(ip_address, None)
     session.clear()
     session["admin_authenticated"] = True
     session["csrf_token"] = secrets.token_urlsafe(32)
