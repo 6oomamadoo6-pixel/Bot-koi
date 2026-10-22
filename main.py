@@ -3721,8 +3721,6 @@ async def start(
 
     if not user or not update.message:
         return
-    if user_is_rate_limited(user.id):
-        return
 
     # =====================================================
     # IMPORTANT:
@@ -3735,6 +3733,9 @@ async def start(
         "group",
         "supergroup"
     ):
+        return
+
+    if user_is_rate_limited(user.id):
         return
 
     if user.id != ADMIN_ID:
@@ -6234,8 +6235,6 @@ async def handle_message(
 
     if not user or not message:
         return
-    if user_is_rate_limited(user.id):
-        return
 
     # =====================================================
     # GROUP SAFETY
@@ -6247,6 +6246,9 @@ async def handle_message(
         "group",
         "supergroup"
     ):
+        return
+
+    if user_is_rate_limited(user.id):
         return
 
     if not message.text:
