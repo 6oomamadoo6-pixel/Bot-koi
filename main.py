@@ -3314,6 +3314,13 @@ def group_ad_button_rows(bot_username, template, group_code):
                 url=f"https://t.me/{bot_username}?start=ad_home"
             )
         ]])
+    if template in ("ex_to_user", "channel_auto", "free_ads"):
+        return InlineKeyboardMarkup([[
+            InlineKeyboardButton(
+                "ورود مستقیم به ربات 🤖",
+                url=f"https://t.me/{bot_username}?start=ad_home"
+            )
+        ]])
     return None
 
 
@@ -3325,7 +3332,7 @@ def school_message_is_allowed():
 
 
 async def automatic_group_ads_loop(application):
-    """Send regular group promotions independently every 4 hours and the quiet-group message every 26 hours."""
+    """Send at most one automatic promotion to each group every 10 hours."""
     bot = application.bot
     while True:
         try:
@@ -3354,7 +3361,7 @@ async def automatic_group_ads_loop(application):
                             CASE
                                 WHEN s.last_template = t.template THEN s.last_sent_at
                                 WHEN t.template = 'quiet' THEN CURRENT_TIMESTAMP
-                                ELSE CURRENT_TIMESTAMP - INTERVAL '4 hours'
+                                ELSE CURRENT_TIMESTAMP - INTERVAL '10 hours'
                             END
                         FROM group_chats g
                         CROSS JOIN (VALUES
@@ -3362,6 +3369,9 @@ async def automatic_group_ads_loop(application):
                             ('user_target'),
                             ('own_link'),
                             ('school'),
+                            ('ex_to_user'),
+                            ('channel_auto'),
+                            ('free_ads'),
                             ('quiet')
                         ) AS t(template)
                         LEFT JOIN group_ad_state s ON s.chat_id = g.chat_id
@@ -3379,15 +3389,18 @@ async def automatic_group_ads_loop(application):
                         )
                         UPDATE group_ad_template_state AS state
                         SET last_sent_at = CASE state.template
-                            WHEN 'linkgroup' THEN CURRENT_TIMESTAMP - INTERVAL '4 hours'
-                            WHEN 'user_target' THEN CURRENT_TIMESTAMP - INTERVAL '3 hours'
-                            WHEN 'own_link' THEN CURRENT_TIMESTAMP - INTERVAL '2 hours'
-                            WHEN 'school' THEN CURRENT_TIMESTAMP - INTERVAL '1 hour'
+                            WHEN 'linkgroup' THEN CURRENT_TIMESTAMP - INTERVAL '10 hours'
+                            WHEN 'user_target' THEN CURRENT_TIMESTAMP - INTERVAL '9 hours'
+                            WHEN 'own_link' THEN CURRENT_TIMESTAMP - INTERVAL '8 hours'
+                            WHEN 'school' THEN CURRENT_TIMESTAMP - INTERVAL '7 hours'
+                            WHEN 'ex_to_user' THEN CURRENT_TIMESTAMP - INTERVAL '6 hours'
+                            WHEN 'channel_auto' THEN CURRENT_TIMESTAMP - INTERVAL '5 hours'
+                            WHEN 'free_ads' THEN CURRENT_TIMESTAMP - INTERVAL '4 hours'
                         END
                         FROM new_groups
                         WHERE state.chat_id = new_groups.chat_id
-                          AND state.template IN ('linkgroup', 'user_target', 'own_link', 'school')
-                          AND state.last_sent_at <= CURRENT_TIMESTAMP - INTERVAL '4 hours'
+                          AND state.template IN ('linkgroup', 'user_target', 'own_link', 'school', 'ex_to_user', 'channel_auto', 'free_ads')
+                          AND state.last_sent_at <= CURRENT_TIMESTAMP - INTERVAL '10 hours'
                     """)
                     conn.commit()
                 finally:
@@ -3409,11 +3422,9 @@ async def automatic_group_ads_loop(application):
                         try:
                             cur = conn.cursor()
 
-                            # Hard per-group cooldown: never send two different promotions
-                            # to the same group less than one hour apart, even if several
-                            # template timers became overdue together.
+                            # Hard per-group cooldown: one automatic promotion every 10 hours.
                             cur.execute("""
-                                SELECT last_sent_at > CURRENT_TIMESTAMP - INTERVAL '1 hour'
+                                SELECT last_sent_at > CURRENT_TIMESTAMP - INTERVAL '10 hours'
                                 FROM group_ad_state
                                 WHERE chat_id = %s
                             """, (chat_id,))
@@ -3428,7 +3439,7 @@ async def automatic_group_ads_loop(application):
                                     CASE
                                         WHEN template = 'quiet'
                                             THEN last_sent_at <= CURRENT_TIMESTAMP - INTERVAL '26 hours'
-                                        ELSE last_sent_at <= CURRENT_TIMESTAMP - INTERVAL '4 hours'
+                                        ELSE last_sent_at <= CURRENT_TIMESTAMP - INTERVAL '10 hours'
                                     END AS is_due
                                 FROM group_ad_template_state
                                 WHERE chat_id = %s
@@ -3501,9 +3512,9 @@ async def automatic_group_ads_loop(application):
                                         "ناشناسی چیزی نداره؟😭"
                                     )
 
-                            # Other promotions keep their own independent 4-hour timers.
+                            # Additional promotions share the same 10-hour per-group send limit.
                             if template is None:
-                                for candidate in ("own_link", "school"):
+                                for candidate in ("own_link", "school", "ex_to_user", "channel_auto", "free_ads"):
                                     if not states.get(candidate, {}).get("due", False):
                                         continue
                                     if candidate == "school" and not school_message_is_allowed():
@@ -3514,12 +3525,21 @@ async def automatic_group_ads_loop(application):
                                             "لینک ناشناستو بگیر و از کیفیت و سرعت ربات لذت ببر👨🏻‍💼\n"
                                             "ادعام میشه بهترینم💁🏻‍♂️"
                                         )
-                                    else:
+                                    elif candidate == "school":
                                         text_to_send = (
                                             "زیاد فعال نیستین\n"
                                             "آها یادم نبود مدرسه میرین 😂\n"
                                             "عیب نداره وقتی برگشتین شلوغش کنین"
                                         )
+                                    elif candidate == "ex_to_user":
+                                        text_to_send = "به صورت ناشناس به اکست پیام بده تا متوجه نشه 👤"
+                                    elif candidate == "channel_auto":
+                                        text_to_send = (
+                                            "با قابلیت ارسال پیام ناشناس خودکار به چنل استفاده از ربات راحت‌تر میشه 😃\n"
+                                            "همین الان پیام خودکار به چنل رو فعال کن و لینکت رو به اشتراک بزار"
+                                        )
+                                    else:
+                                        text_to_send = "تبلیغات بدون هزینه و رایگان در ربات ⚡"
                                     break
 
                         # Nothing is due/eligible for this group in this pass.
@@ -3530,7 +3550,8 @@ async def automatic_group_ads_loop(application):
                         markup = group_ad_button_rows(bot_info.username, template, group_code)
                         await bot.send_message(
                             chat_id=chat_id,
-                            text=text_to_send,
+                            text=f"<b>{text_to_send}</b>",
+                            parse_mode="HTML",
                             reply_markup=markup,
                             disable_web_page_preview=True
                         )
