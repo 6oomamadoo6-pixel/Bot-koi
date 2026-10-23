@@ -1,0 +1,19 @@
+name: Python syntax check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - perf/golden-chat-latency
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile Python files
+        run: python -m py_compile main.py admin_panel.py mini_app.py
