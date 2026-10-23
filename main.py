@@ -200,6 +200,16 @@ def release_db(conn):
             pass
 
 
+async def get_cached_bot_username(context):
+    """Return the bot username without a Telegram API round trip on each handler."""
+    username = context.application.bot_data.get("bot_username") or context.bot.username
+    if not username:
+        bot_info = await context.bot.get_me()
+        username = bot_info.username
+        context.application.bot_data["bot_username"] = username
+    return username
+
+
 def save_abuse_report(report_type, reporter_id, reporter_name, reported_user_id,
                       reported_username, reported_name, message_id, message_text,
                       group_id=None, group_title=None):
@@ -2565,12 +2575,12 @@ async def group_admin_input_handler(update, context):
         elif result["status"] == "not_member":
             chat = result.get("chat")
             title = getattr(chat, "title", None) or "این گروه"
-            bot_info = await context.bot.get_me()
+            bot_username = await get_cached_bot_username(context)
             await message.reply_text(
                 f"⚠️ ربات عضو «{title}» نیست و نمی‌تونه بهش پیام بفرسته.\n"
                 "ربات نمی‌تونه خودش با لینک وارد گروه بشه؛ مدیر گروه باید آن را اضافه کند.",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("افزودن ربات به یک گروه", url=f"https://t.me/{bot_info.username}?startgroup=true")],
+                    [InlineKeyboardButton("افزودن ربات به یک گروه", url=f"https://t.me/{bot_username}?startgroup=true")],
                     [InlineKeyboardButton("لغو ارسال پیام", callback_data="group_broadcast_cancel", style="danger")]
                 ])
             )
@@ -2616,9 +2626,9 @@ async def group_admin_input_handler(update, context):
             report += "\n\nبرای جلوگیری از محدودیت تلگرام، در هر نوبت حداکثر ۵۰ لینک بررسی شد."
         keyboard = group_admin_menu_keyboard()
         if needs_add:
-            bot_info = await context.bot.get_me()
+            bot_username = await get_cached_bot_username(context)
             keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("افزودن ربات به گروه", url=f"https://t.me/{bot_info.username}?startgroup=true")],
+                [InlineKeyboardButton("افزودن ربات به گروه", url=f"https://t.me/{bot_username}?startgroup=true")],
                 [InlineKeyboardButton("بازگشت به مدیریت گروه‌ها", callback_data="group_admin_open")]
             ])
         await message.reply_text(report[:4000], reply_markup=keyboard)
@@ -3209,12 +3219,12 @@ async def show_group_list(
                 f"Group list error: {e}"
             )
 
-    bot_info = await context.bot.get_me()
+    bot_username = await get_cached_bot_username(context)
 
     buttons.append([
         InlineKeyboardButton(
             "افزودن ربات به گروه",
-            url=f"https://t.me/{bot_info.username}?startgroup=true"
+            url=f"https://t.me/{bot_username}?startgroup=true"
         )
     ])
 
@@ -3726,10 +3736,10 @@ async def linkgroup_command(
         chat.title or "گروه"
     )
 
-    bot_info = await context.bot.get_me()
+    bot_username = await get_cached_bot_username(context)
 
     link = (
-        f"https://t.me/{bot_info.username}"
+        f"https://t.me/{bot_username}"
         f"?start=g_{code}"
     )
 
@@ -3887,10 +3897,10 @@ async def start(
         target_id = target[0]
 
         if target_id == user.id:
-            bot = await context.bot.get_me()
+            bot_username = await get_cached_bot_username(context)
 
             own_link = (
-                f"https://t.me/{bot.username}"
+                f"https://t.me/{bot_username}"
                 f"?start={user.id}"
             )
 
@@ -4379,10 +4389,10 @@ async def show_link(
         user.full_name
     )
 
-    bot = await context.bot.get_me()
+    bot_username = await get_cached_bot_username(context)
 
     link = (
-        f"https://t.me/{bot.username}"
+        f"https://t.me/{bot_username}"
         f"?start={user.id}"
     )
 
@@ -4638,11 +4648,11 @@ async def button_handler(
         await query.answer()
         context.user_data.clear()
         rows = get_owner_channel_links(user_id)
-        bot_info = await context.bot.get_me()
+        bot_username = await get_cached_bot_username(context)
         parts = ["<b>چنل‌های متصل شما و لینک اختصاصی پیام ناشناس:</b>"]
         if rows:
             for _, title, code in rows:
-                parts.append(f"\n<b>نام چنل :</b> {html.escape(title)}\n<b>لینک اختصاصی پیام ناشناس چنل :</b> https://t.me/{bot_info.username}?start=c_{code}")
+                parts.append(f"\n<b>نام چنل :</b> {html.escape(title)}\n<b>لینک اختصاصی پیام ناشناس چنل :</b> https://t.me/{bot_username}?start=c_{code}")
         else:
             parts.append("\nهنوز چنلی اضافه نکردی؛ برای شروع روی «اضافه کردن چنل جدید ➕» بزن.")
         await query.edit_message_text("\n".join(parts), parse_mode="HTML", reply_markup=channel_links_keyboard(rows), disable_web_page_preview=True)
@@ -4657,26 +4667,26 @@ async def button_handler(
     if data == "channel_terms_accept":
         await query.answer("موافقت شما ثبت شد ✅")
         set_channel_terms_accepted(user_id)
-        bot_info = await context.bot.get_me()
+        bot_username = await get_cached_bot_username(context)
         context.user_data.clear()
         await query.edit_message_text(
             "<b>برای دریافت لینک ناشناس چنل، ابتدا ربات را با دکمه شیشه‌ای زیر به چنل اضافه و ادمین کن 🤠</b>\n\n"
             "بعد از ادمین کردن، روی «اضافه شد ✅» بزن و سپس آیدی عمومی چنل مثل @YourChannel را ارسال کن.",
             parse_mode="HTML",
-            reply_markup=channel_add_prompt_keyboard(bot_info.username)
+            reply_markup=channel_add_prompt_keyboard(bot_username)
         )
         return
 
     if data == "channel_add_new":
         await query.answer()
         context.user_data.clear()
-        bot_info = await context.bot.get_me()
+        bot_username = await get_cached_bot_username(context)
         await query.edit_message_text(
             "<b>برای دریافت لینک ناشناس چنل، ابتدا ربات را با دکمه شیشه‌ای زیر به چنل اضافه و ادمین کن 🤠</b>\n\n"
             "بعد از ادمین کردن، روی «اضافه شد ✅» بزن.",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("افزودن ربات به چنل", url=f"https://t.me/{bot_info.username}?startchannel&admin=post_messages")],
+                [InlineKeyboardButton("افزودن ربات به چنل", url=f"https://t.me/{bot_username}?startchannel&admin=post_messages")],
                 [InlineKeyboardButton("اضافه شد ✅", callback_data="channel_added", style="success")],
                 [InlineKeyboardButton("بازگشت به منوی قبلی", callback_data="channel_add_new_back", style="danger")]
             ])
@@ -4705,11 +4715,11 @@ async def button_handler(
                 continue
 
         if connected:
-            bot_info = await context.bot.get_me()
+            bot_username = await get_cached_bot_username(context)
             rows = get_owner_channel_links(user_id)
             parts = ["<b>چنل‌های متصل شما و لینک اختصاصی پیام ناشناس:</b>"]
             for _, title, code in rows:
-                parts.append(f"\n<b>نام چنل :</b> {html.escape(title)}\n<b>لینک اختصاصی پیام ناشناس چنل :</b> https://t.me/{bot_info.username}?start=c_{code}")
+                parts.append(f"\n<b>نام چنل :</b> {html.escape(title)}\n<b>لینک اختصاصی پیام ناشناس چنل :</b> https://t.me/{bot_username}?start=c_{code}")
             await query.edit_message_text("\n".join(parts), parse_mode="HTML", reply_markup=channel_links_keyboard(rows), disable_web_page_preview=True)
             return
 
@@ -4727,14 +4737,14 @@ async def button_handler(
     if data.startswith("channel_show:"):
         await query.answer()
         code = data.split(":", 1)[1]
-        bot_info = await context.bot.get_me()
+        bot_username = await get_cached_bot_username(context)
         row = get_channel_by_link(code)
         if not row or row[0] != user_id:
             await query.message.reply_text(" چنل پیدا نشد.")
             return
         await query.message.reply_text(
             f"<b>نام چنل :</b> {html.escape(row[2])}\n"
-            f"<b>لینک اختصاصی پیام ناشناس چنل :</b> https://t.me/{bot_info.username}?start=c_{row[3]}",
+            f"<b>لینک اختصاصی پیام ناشناس چنل :</b> https://t.me/{bot_username}?start=c_{row[3]}",
             parse_mode="HTML",
             disable_web_page_preview=True,
             reply_markup=InlineKeyboardMarkup([
@@ -7062,11 +7072,11 @@ async def handle_message(
                 await message.reply_text(" دسترسی ارسال پست برای ربات فعال نیست.", reply_markup=back_keyboard())
                 return
             save_channel_link(user.id, channel_chat.id, channel_chat.title or identifier)
-            bot_info = await context.bot.get_me()
+            bot_username = await get_cached_bot_username(context)
             rows = get_owner_channel_links(user.id)
             parts = ["<b>چنل‌های متصل شما و لینک اختصاصی پیام ناشناس:</b>"]
             for _, title, code in rows:
-                parts.append(f"\n<b>نام چنل :</b> {html.escape(title)}\n<b>لینک اختصاصی پیام ناشناس چنل :</b> https://t.me/{bot_info.username}?start=c_{code}")
+                parts.append(f"\n<b>نام چنل :</b> {html.escape(title)}\n<b>لینک اختصاصی پیام ناشناس چنل :</b> https://t.me/{bot_username}?start=c_{code}")
             context.user_data.clear()
             await message.reply_text("\n".join(parts), parse_mode="HTML", reply_markup=channel_links_keyboard(rows), disable_web_page_preview=True)
         except TelegramError as e:
@@ -7623,19 +7633,19 @@ async def handle_message(
         if get_channel_terms_accepted(user.id):
             rows = get_owner_channel_links(user.id)
             if rows:
-                bot_info = await context.bot.get_me()
+                bot_username = await get_cached_bot_username(context)
                 parts = ["<b>چنل‌های متصل شما و لینک اختصاصی پیام ناشناس:</b>"]
                 for _, title, code in rows:
-                    parts.append(f"\n<b>نام چنل :</b> {html.escape(title)}\n<b>لینک اختصاصی پیام ناشناس چنل :</b> https://t.me/{bot_info.username}?start=c_{code}")
+                    parts.append(f"\n<b>نام چنل :</b> {html.escape(title)}\n<b>لینک اختصاصی پیام ناشناس چنل :</b> https://t.me/{bot_username}?start=c_{code}")
                 await message.reply_text("\n".join(parts), parse_mode="HTML", reply_markup=channel_links_keyboard(rows), disable_web_page_preview=True)
             else:
-                bot_info = await context.bot.get_me()
+                bot_username = await get_cached_bot_username(context)
                 context.user_data["waiting_channel_identifier"] = True
                 await message.reply_text(
                     "<b>برای دریافت لینک ناشناس چنل، ابتدا ربات را با دکمه زیر به چنل اضافه و ادمین کنید 🤠</b>\n\n"
                     "بعد از ادمین کردن، روی «اضافه شد ✅» بزنید؛ سپس آیدی عمومی چنل مثل @YourChannel را ارسال کنید.",
                     parse_mode="HTML",
-                    reply_markup=channel_add_prompt_keyboard(bot_info.username)
+                    reply_markup=channel_add_prompt_keyboard(bot_username)
                 )
         else:
             terms = (
@@ -7712,10 +7722,10 @@ async def handle_message(
         target_id = target[0]
 
         if target_id == user.id:
-            bot = await context.bot.get_me()
+            bot_username = await get_cached_bot_username(context)
 
             own_link = (
-                f"https://t.me/{bot.username}"
+                f"https://t.me/{bot_username}"
                 f"?start={user.id}"
             )
 
@@ -7955,14 +7965,14 @@ async def inline_share_handler(update, context):
     # API request for every inline query.
     cached_username = context.application.bot_data.get("bot_username") or context.bot.username
     if not cached_username:
-        bot_info = await context.bot.get_me()
-        cached_username = bot_info.username
+        bot_username = await get_cached_bot_username(context)
+        cached_username = bot_username
     bot_username = f"@{cached_username}"
 
     # Keep the existing personal share card available, and always show
     # a second result that sends only the bot username.
     get_or_create_user(user.id, user.username, user.full_name)
-    own_link = f"https://t.me/{bot_info.username}?start={user.id}"
+    own_link = f"https://t.me/{bot_username}?start={user.id}"
     results = [
         InlineQueryResultArticle(
             id="golden-chat-share",
