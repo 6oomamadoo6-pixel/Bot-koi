@@ -1707,47 +1707,52 @@ def get_active_banned_users():
         release_db(conn)
 
 
+def clear_expired_bans():
+    """Clear expired bans in a worker thread and return the affected user IDs."""
+    conn = db()
+    cur = None
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT user_id
+            FROM users
+            WHERE ban_until IS NOT NULL
+              AND ban_until <= CURRENT_TIMESTAMP
+        """)
+        expired = [row[0] for row in cur.fetchall()]
+
+        if expired:
+            cur.execute("""
+                UPDATE users
+                SET ban_until = NULL,
+                    ban_reason = NULL
+                WHERE ban_until IS NOT NULL
+                  AND ban_until <= CURRENT_TIMESTAMP
+            """)
+
+        conn.commit()
+        return expired
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        if cur is not None:
+            cur.close()
+        release_db(conn)
+
+
 async def expire_bans_loop():
     while True:
         try:
             try:
-                deleted_blocked = cleanup_blocked_users()
+                deleted_blocked = await asyncio.to_thread(cleanup_blocked_users)
                 if deleted_blocked:
                     print(f"Removed {deleted_blocked} users who had blocked the bot for 3 days.")
             except Exception as cleanup_error:
                 print("Blocked-user cleanup error:", cleanup_error)
 
-            conn = db()
-
-            try:
-                cur = conn.cursor()
-
-                cur.execute("""
-                    SELECT user_id
-                    FROM users
-                    WHERE ban_until IS NOT NULL
-                      AND ban_until <= CURRENT_TIMESTAMP
-                """)
-
-                expired = [
-                    row[0]
-                    for row in cur.fetchall()
-                ]
-
-                if expired:
-                    cur.execute("""
-                        UPDATE users
-                        SET ban_until = NULL,
-                            ban_reason = NULL
-                        WHERE ban_until IS NOT NULL
-                          AND ban_until <= CURRENT_TIMESTAMP
-                    """)
-
-                conn.commit()
-
-            finally:
-                cur.close()
-                release_db(conn)
+            # Do not let a slow PostgreSQL round trip stall Telegram update handling.
+            expired = await asyncio.to_thread(clear_expired_bans)
 
             for user_id in expired:
                 try:
@@ -3397,7 +3402,8 @@ async def automatic_group_ads_loop(application):
     bot = application.bot
     while True:
         try:
-            groups = get_all_groups()
+            # Keep this periodic database read off the Telegram event loop.
+            groups = await asyncio.to_thread(get_all_groups)
             if groups:
                 conn = db()
                 cur = None
@@ -3600,8 +3606,13 @@ async def automatic_group_ads_loop(application):
                         if template is None:
                             continue
 
-                        bot_info = await bot.get_me()
-                        markup = group_ad_button_rows(bot_info.username, template, group_code)
+                        # Username is cached during startup; avoid an extra Telegram API
+                        # round trip for every scheduled group promotion.
+                        bot_username = application.bot_data.get("bot_username") or bot.username
+                        if not bot_username:
+                            bot_info = await bot.get_me()
+                            bot_username = bot_info.username
+                        markup = group_ad_button_rows(bot_username, template, group_code)
                         await bot.send_message(
                             chat_id=chat_id,
                             text=f"<b>{text_to_send}</b>",
