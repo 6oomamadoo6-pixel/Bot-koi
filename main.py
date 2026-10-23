@@ -7972,7 +7972,7 @@ async def inline_share_handler(update, context):
     # Keep the existing personal share card available, and always show
     # a second result that sends only the bot username.
     get_or_create_user(user.id, user.username, user.full_name)
-    own_link = f"https://t.me/{bot_username}?start={user.id}"
+    own_link = f"https://t.me/{cached_username}?start={user.id}"
     results = [
         InlineQueryResultArticle(
             id="golden-chat-share",
