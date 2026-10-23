@@ -8400,3 +8400,5 @@ if __name__ == "__main__":
         raise
 
 # Redeploy trigger: verified channel-review animation and moderation flow.
+
+# Deployment refresh marker: no runtime behavior change; preserve all existing data.
