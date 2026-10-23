@@ -50,6 +50,7 @@ button,input{font:inherit}button{cursor:pointer}.wrap{max-width:1100px;margin:au
 <section id="toolsPanel" class="card hidden featurePanel"><div class="backrow"><button class="btn ghost" data-back>← بازگشت به پنل</button><h3 class="page-title">ابزارهای کاربر</h3></div><div class="cardhead"><h3>مدیریت مستقیم کاربر</h3></div><div class="notice">شناسه عددی تلگرام کاربر را وارد کن. تغییر نام فقط نام نمایشی ذخیره‌شده در ربات را تغییر می‌دهد.</div>
 <form id="renameForm" class="searchrow"><input id="renameId" required placeholder="آیدی عددی کاربر"><input id="renameName" required placeholder="نام نمایشی جدید"><button class="btn" type="submit">تغییر نام</button></form>
 <form id="dmForm" class="searchrow" style="flex-wrap:wrap"><input id="dmId" required placeholder="آیدی عددی کاربر"><input id="dmText" required placeholder="متن پیام مدیریت"><button class="btn" type="submit">ارسال پیام</button></form>
+<form id="dmButtonForm" style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px"><div class="notice">ارسال مستقیم به یک کاربر، دقیقاً با متن دلخواه و یک دکمهٔ شیشه‌ای؛ هیچ متن اضافه‌ای از طرف مدیریت به پیام اضافه نمی‌شود.</div><div class="searchrow" style="flex-wrap:wrap"><input id="dmButtonId" inputmode="numeric" required placeholder="آیدی عددی کاربر"><input id="dmButtonText" required maxlength="4000" placeholder="متن دقیق پیام"></div><div class="searchrow" style="flex-wrap:wrap"><input id="dmInlineLabel" required maxlength="40" placeholder="متن دکمهٔ شیشه‌ای"><input id="dmInlineUrl" type="url" required placeholder="لینک دکمه (https://…)"></div><button class="btn" type="submit">ارسال بدون متن اضافه + دکمه 🔘</button></form><div id="dmButtonResult" class="notice hidden" style="margin-top:12px"></div>
 <form id="banForm" class="searchrow" style="flex-wrap:wrap"><input id="banId" required placeholder="آیدی عددی کاربر"><input id="banDays" type="number" min="1" max="3650" value="1" required placeholder="مدت به روز"><input id="banReason" required placeholder="دلیل بن"><button class="btn danger" type="submit">بن کاربر</button></form></section>
 <section id="broadcastPanel" class="card hidden featurePanel"><div class="backrow"><button class="btn ghost" data-back>← بازگشت به پنل</button><h3 class="page-title">پیام همگانی</h3></div><div class="cardhead"><h3>ارسال پیام همگانی</h3><span class="pill">ارسال به کاربران ربات</span></div><div class="notice">پیام برای همه کاربران ثبت‌شده ارسال می‌شود. این عملیات قابل برگشت نیست؛ متن را پیش از ارسال بررسی کن.</div><form id="broadcastForm"><textarea id="broadcastText" required rows="5" maxlength="4000" placeholder="متن پیام همگانی…" style="width:100%;background:#0f100e;border:1px solid #414137;color:var(--text);border-radius:12px;padding:12px;resize:vertical"></textarea><button class="btn" type="submit" style="margin-top:12px">ارسال برای همه</button></form><div id="broadcastResult" class="notice hidden" style="margin-top:12px"></div></section>
 <section id="supervisorsPanel" class="card hidden featurePanel"><div class="backrow"><button class="btn ghost" data-back>← بازگشت به پنل</button><h3 class="page-title">مدیریت ناظران</h3></div><div class="cardhead"><h3>مدیریت ناظران</h3><span class="pill">فقط مدیر اصلی مجاز است</span></div><form id="addSupervisorForm" class="searchrow"><input id="supervisorId" required placeholder="آیدی عددی ناظر جدید"><button class="btn" type="submit">افزودن ناظر</button></form><div id="supervisorsTable" class="tablewrap"><div class="empty">در حال دریافت…</div></div></section>
@@ -85,6 +86,7 @@ async function loadSupervisors(){el("supervisorsTable").innerHTML='<div class="e
 el("refreshBans").addEventListener("click",loadBans);el("banSearch").addEventListener("submit",function(e){e.preventDefault();banQuery=el("banQuery").value;loadBans()});
 el("renameForm").addEventListener("submit",async function(e){e.preventDefault();try{await api("users/rename",{method:"POST",body:JSON.stringify({user_id:el("renameId").value,display_name:el("renameName").value})});toast("نام نمایشی تغییر کرد");loadUsers()}catch(x){toast(x.message)}});
 el("dmForm").addEventListener("submit",async function(e){e.preventDefault();if(!confirm("پیام از طرف مدیریت ارسال شود؟"))return;try{await api("users/message",{method:"POST",body:JSON.stringify({user_id:el("dmId").value,text:el("dmText").value})});toast("پیام ارسال شد");el("dmText").value=""}catch(x){toast(x.message)}});
+el("dmButtonForm").addEventListener("submit",async function(e){e.preventDefault();var userId=el("dmButtonId").value.trim(),message=el("dmButtonText").value,buttonText=el("dmInlineLabel").value.trim(),buttonUrl=el("dmInlineUrl").value.trim();if(!/^\d+$/.test(userId)||Number(userId)<=0)return toast("آیدی عددی کاربر معتبر نیست");if(!buttonUrl.toLowerCase().startsWith("https://"))return toast("لینک دکمه باید با https:// شروع شود");if(!confirm("پیام دقیقاً بدون متن اضافه و با دکمهٔ شیشه‌ای برای این کاربر ارسال شود؟"))return;var out=el("dmButtonResult");out.classList.remove("hidden");out.textContent="در حال ارسال…";try{await api("users/message-inline",{method:"POST",body:JSON.stringify({user_id:userId,text:message,button_text:buttonText,button_url:buttonUrl})});out.textContent="پیام با دکمهٔ شیشه‌ای ارسال شد.";toast("ارسال شد");el("dmButtonText").value="";el("dmInlineLabel").value="";el("dmInlineUrl").value=""}catch(x){out.textContent=x.message;toast(x.message)}});
 el("banForm").addEventListener("submit",async function(e){e.preventDefault();if(!confirm("کاربر برای مدت تعیین‌شده بن شود؟"))return;try{await api("bans/ban",{method:"POST",body:JSON.stringify({user_id:el("banId").value,days:el("banDays").value,reason:el("banReason").value})});toast("بن ثبت شد");loadBans()}catch(x){toast(x.message)}});
 el("broadcastForm").addEventListener("submit",async function(e){e.preventDefault();if(!confirm("پیام برای همه کاربران ارسال شود؟ این عملیات قابل برگشت نیست."))return;var out=el("broadcastResult");out.classList.remove("hidden");out.textContent="در حال ارسال…";try{var d=await api("broadcast",{method:"POST",body:JSON.stringify({text:el("broadcastText").value})});out.textContent="ارسال تمام شد؛ موفق: "+d.sent+"، ناموفق: "+d.failed;toast("ارسال همگانی تمام شد")}catch(x){out.textContent=x.message;toast(x.message)}});
 el("addSupervisorForm").addEventListener("submit",async function(e){e.preventDefault();try{await api("supervisors/add",{method:"POST",body:JSON.stringify({user_id:el("supervisorId").value})});el("supervisorId").value="";toast("ناظر اضافه شد");loadSupervisors()}catch(x){toast(x.message)}});
@@ -689,6 +691,43 @@ def message_user():
     try: _telegram_call("sendMessage",{"chat_id":user_id,"text":"📢 پیام از طرف مدیریت گلدن چت:\n\n"+message})
     except Exception as exc: return _json_error("ارسال نشد: "+str(exc),502)
     return jsonify({"ok":True})
+
+
+@admin_panel.post("/api/users/message-inline")
+@_auth_required
+@_csrf_required
+def message_user_with_inline_button():
+    payload = request.get_json(silent=True) or {}
+    try:
+        user_id = int(payload.get("user_id"))
+    except (TypeError, ValueError):
+        return _json_error("شناسه کاربر معتبر نیست.", 400)
+    if user_id <= 0:
+        return _json_error("شناسه کاربر معتبر نیست.", 400)
+
+    message = str(payload.get("text", ""))
+    button_text = str(payload.get("button_text", "")).strip()
+    button_url = str(payload.get("button_url", "")).strip()
+    if not message.strip() or len(message) > 4000:
+        return _json_error("متن پیام خالی یا بیش از حد طولانی است.", 400)
+    if not button_text or len(button_text) > 40:
+        return _json_error("متن دکمه باید بین ۱ تا ۴۰ نویسه باشد.", 400)
+    parsed_url = urlsplit(button_url)
+    if parsed_url.scheme != "https" or not parsed_url.netloc or any(ch.isspace() for ch in button_url):
+        return _json_error("لینک دکمه باید یک آدرس معتبر HTTPS باشد.", 400)
+
+    # Send exactly the admin-provided text. Do not prepend any management notice.
+    try:
+        _telegram_call("sendMessage", {
+            "chat_id": user_id,
+            "text": message,
+            "reply_markup": {
+                "inline_keyboard": [[{"text": button_text, "url": button_url}]]
+            },
+        })
+    except Exception as exc:
+        return _json_error("ارسال نشد: " + str(exc), 502)
+    return jsonify({"ok": True})
 
 
 @admin_panel.post("/api/broadcast")
