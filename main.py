@@ -2,6 +2,7 @@ import os
 import random
 import string
 import asyncio
+import time
 import html
 import json
 from urllib.parse import quote, urlsplit
@@ -7884,8 +7885,13 @@ async def inline_share_handler(update, context):
     if not query or not user:
         return
 
-    bot_info = await context.bot.get_me()
-    bot_username = f"@{bot_info.username}"
+    # Reuse the username fetched during startup instead of making a Telegram
+    # API request for every inline query.
+    cached_username = context.application.bot_data.get("bot_username") or context.bot.username
+    if not cached_username:
+        bot_info = await context.bot.get_me()
+        cached_username = bot_info.username
+    bot_username = f"@{cached_username}"
 
     # Keep the existing personal share card available, and always show
     # a second result that sends only the bot username.
@@ -7922,8 +7928,9 @@ async def inline_share_handler(update, context):
 # =========================================================
 
 async def update_trace_handler(update, context):
-    """Log update arrival without logging private message contents."""
+    """Log update arrival and retain a monotonic start time for slow-update diagnostics."""
     try:
+        context.application.bot_data.setdefault("_perf_update_started", {})[update.update_id] = time.monotonic()
         user = update.effective_user
         chat = update.effective_chat
         message = update.effective_message
@@ -7946,6 +7953,19 @@ async def update_trace_handler(update, context):
         )
     except Exception as trace_error:
         print(f"[UPDATE TRACE ERROR] {type(trace_error).__name__}: {trace_error}", flush=True)
+
+
+async def update_completion_handler(update, context):
+    """Log only slow updates; never log message text or personal content."""
+    started = context.application.bot_data.get("_perf_update_started", {}).pop(update.update_id, None)
+    if started is None:
+        return
+    elapsed_ms = (time.monotonic() - started) * 1000
+    if elapsed_ms >= 500:
+        print(
+            f"[SLOW UPDATE] id={update.update_id} elapsed_ms={elapsed_ms:.0f}",
+            flush=True,
+        )
 
 
 async def error_handler(
@@ -7979,6 +7999,7 @@ async def post_init(
     print("[BOOT] post_init entered; checking Telegram connection.", flush=True)
     try:
         bot_info = await application.bot.get_me()
+        application.bot_data["bot_username"] = bot_info.username
         webhook_info = await application.bot.get_webhook_info()
         print(
             f"[BOOT] Telegram authentication OK: username=@{bot_info.username}, bot_id={bot_info.id}.",
@@ -8261,6 +8282,13 @@ def main():
     application.add_handler(
         TypeHandler(Update, update_trace_handler),
         group=-1,
+    )
+
+    # Runs after normal handlers and reports only updates taking >= 500 ms.
+    # This is intentionally lightweight and does not change update concurrency.
+    application.add_handler(
+        TypeHandler(Update, update_completion_handler),
+        group=99,
     )
 
     application.add_error_handler(
