@@ -123,26 +123,81 @@ def create_db_pool():
             1,
             10,
             dsn=DATABASE_URL,
-            connect_timeout=8,
+            connect_timeout=5,
             keepalives=1,
-            keepalives_idle=30,
-            keepalives_interval=10,
+            keepalives_idle=10,
+            keepalives_interval=5,
             keepalives_count=3,
         )
 
 
 def db():
+    """Borrow a usable connection, discarding stale connections left by network drops."""
     global DB_POOL
 
     if DB_POOL is None:
         create_db_pool()
 
-    return DB_POOL.getconn()
+    conn = DB_POOL.getconn()
+    # A connection whose server-side session died may be returned by the pool.
+    # Never hand an already-closed connection to a handler.
+    if conn.closed:
+        try:
+            DB_POOL.putconn(conn, close=True)
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        conn = DB_POOL.getconn()
+
+    if conn.closed:
+        try:
+            DB_POOL.putconn(conn, close=True)
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        raise psycopg2.OperationalError("PostgreSQL pool returned a closed connection")
+
+    return conn
 
 
 def release_db(conn):
-    if DB_POOL is not None and conn is not None:
-        DB_POOL.putconn(conn)
+    """Return only healthy, transaction-clean connections to the shared pool."""
+    global DB_POOL
+
+    if conn is None:
+        return
+
+    # The pool may already have been closed during process shutdown.
+    if DB_POOL is None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return
+
+    discard = bool(conn.closed)
+    if not discard:
+        try:
+            # Read-only helpers often leave an implicit transaction open.
+            # Roll it back before reuse; discard the connection if cleanup fails.
+            if conn.get_transaction_status() != psycopg2.extensions.TRANSACTION_STATUS_IDLE:
+                conn.rollback()
+        except Exception:
+            discard = True
+
+    try:
+        DB_POOL.putconn(conn, close=discard)
+        if discard:
+            print("[DB POOL] Discarded an unhealthy PostgreSQL connection.", flush=True)
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def save_abuse_report(report_type, reporter_id, reporter_name, reported_user_id,
