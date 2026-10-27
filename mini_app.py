@@ -13,7 +13,7 @@ mini_app = Blueprint("mini_app", __name__, url_prefix="/miniapp")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
-BOT_USERNAME = os.getenv("BOT_USERNAME", "HideMyChatRobot").lstrip("@")
+BOT_USERNAME = os.getenv("BOT_USERNAME", "HidenGoldenChatRoBot").lstrip("@")
 
 PAGE = r"""<!doctype html>
 <html lang="fa" dir="rtl">
