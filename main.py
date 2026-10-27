@@ -5157,8 +5157,8 @@ async def button_handler(
                 f'<a href="tg://user?id={user_id}">'
                 f'{safe_name}'
                 f'</a> جهت مشاهده پیام عضو ربات شوید سپس مجدد روی «مشاهده پیام بزنید» . 👇🏻</b>\n'
-                f'<b><a href="https://t.me/HideMyChatRobot?start">'
-                f'https://t.me/HideMyChatRobot?start'
+                f'<b><a href="https://t.me/HidenGoldenChatRoBot?start">'
+                f'https://t.me/HidenGoldenChatRoBot?start'
                 f'</a></b>'
             )
 
