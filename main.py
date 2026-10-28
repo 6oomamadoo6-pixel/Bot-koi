@@ -25,6 +25,7 @@ from telegram import (
     ReplyKeyboardMarkup,
     KeyboardButton,
     ChatMember,
+    WebAppInfo,
 )
 from telegram.ext import (
     Application,
@@ -86,6 +87,8 @@ ADMIN_ID = 6078875175
 
 CHANNEL_1 = "@hidemychatRobot0"
 CHANNEL_1_URL = "https://t.me/hidemychatRobot0"
+
+MINI_APP_URL = os.getenv("MINI_APP_URL", "https://true-topaz-6511.de.deplexo.com/miniapp/").strip()
 
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -2835,6 +2838,7 @@ def main_keyboard():
             InlineKeyboardButton("لیست مسدودی 🚫", callback_data="block_list", style="danger"),
         ],
         [InlineKeyboardButton("« راهنما❔»", callback_data="help")],
+        [InlineKeyboardButton("باز کردن مینی‌اپ ✨", web_app=WebAppInfo(url=MINI_APP_URL))],
     ]
     return InlineKeyboardMarkup(rows)
 
