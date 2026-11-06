@@ -212,7 +212,8 @@ class ThreadedConnectionPool:
         self._created = 0
         self._closed = False
         for _ in range(max(0, min(int(minconn), self.maxconn))):
-            self._idle.put(connect(self.dsn))
+            conn = connect(self.dsn)
+            self._idle.put(conn)
             self._created += 1
 
     def getconn(self):
@@ -226,8 +227,9 @@ class ThreadedConnectionPool:
         except queue.Empty:
             with self._lock:
                 if self._created < self.maxconn:
+                    conn = connect(self.dsn)
                     self._created += 1
-                    return connect(self.dsn)
+                    return conn
             # All pool slots are busy; wait for one to be returned.
             conn = self._idle.get()
             return connect(self.dsn) if conn.closed else conn
