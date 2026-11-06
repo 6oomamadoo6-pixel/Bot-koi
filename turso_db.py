@@ -106,7 +106,7 @@ class Cursor:
         bound = tuple(_to_db_value(v) for v in params)
         self._skip = False
         self.raw.execute(sql, bound)
-        command = re.match(r"^\\s*([A-Za-z]+)", sql)
+        command = re.match(r"^\s*([A-Za-z]+)", sql)
         command = command.group(1).upper() if command else ""
         if command in ("COMMIT", "END", "ROLLBACK"):
             self.connection._transaction_active = False
