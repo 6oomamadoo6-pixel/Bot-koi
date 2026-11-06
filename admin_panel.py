@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 from datetime import datetime
 from functools import wraps
 
-import psycopg2
+from turso_db import psycopg2
 from flask import Blueprint, current_app, jsonify, request, render_template_string, session
 
 admin_panel = Blueprint("admin_panel", __name__, url_prefix="/admin")
@@ -188,9 +188,9 @@ init();
 
 
 def _db():
-    dsn = os.getenv("DATABASE_URL")
+    dsn = os.getenv("TURSO_DATABASE_URL")
     if not dsn:
-        raise RuntimeError("DATABASE_URL is not configured")
+        raise RuntimeError("TURSO_DATABASE_URL is not configured")
     return psycopg2.connect(dsn, connect_timeout=8)
 
 

@@ -6,13 +6,13 @@ import re
 import time
 from urllib.parse import parse_qsl
 
-import psycopg2
+from turso_db import psycopg2
 from flask import Blueprint, jsonify, make_response, render_template_string, request
 
 mini_app = Blueprint("mini_app", __name__, url_prefix="/miniapp")
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("TURSO_DATABASE_URL")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "HidenGoldenChatRoBot").lstrip("@")
 
 PAGE = r"""<!doctype html>
@@ -248,8 +248,8 @@ def _current_user_id():
 
 
 def _db_connect():
-    if not DATABASE_URL:
-        raise RuntimeError("DATABASE_URL is not configured")
+    if not DATABASE_URL or not os.getenv("TURSO_AUTH_TOKEN"):
+        raise RuntimeError("TURSO_DATABASE_URL and TURSO_AUTH_TOKEN are not configured")
     return psycopg2.connect(DATABASE_URL, connect_timeout=10)
 
 

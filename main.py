@@ -12,8 +12,7 @@ from threading import Thread
 
 from flask import Flask
 
-import psycopg2
-from psycopg2 import pool
+from turso_db import psycopg2, pool
 
 from telegram import (
     Update,
@@ -91,13 +90,13 @@ CHANNEL_1_URL = "https://t.me/hidemychatRobot0"
 MINI_APP_URL = os.getenv("MINI_APP_URL", "https://true-topaz-6511.de.deplexo.com/miniapp/").strip()
 
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("TURSO_DATABASE_URL")
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN environment variable is not set.")
 
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL environment variable is not set.")
+if not DATABASE_URL or not os.getenv("TURSO_AUTH_TOKEN"):
+    raise RuntimeError("TURSO_DATABASE_URL and TURSO_AUTH_TOKEN environment variables are required.")
 
 DB_POOL = None
 GLOBAL_BOT = None
@@ -162,7 +161,7 @@ def db():
                 conn.close()
             except Exception:
                 pass
-        raise psycopg2.OperationalError("PostgreSQL pool returned a closed connection")
+        raise psycopg2.OperationalError("Turso pool returned a closed connection")
 
     return conn
 
