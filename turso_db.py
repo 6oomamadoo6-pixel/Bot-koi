@@ -16,6 +16,7 @@ import turso_serverless
 
 
 TRANSACTION_STATUS_IDLE = 0
+TRANSACTION_STATUS_INTRANS = 2
 
 
 def _to_db_value(value):
@@ -105,6 +106,14 @@ class Cursor:
         bound = tuple(_to_db_value(v) for v in params)
         self._skip = False
         self.raw.execute(sql, bound)
+        command = re.match(r"^\\s*([A-Za-z]+)", sql)
+        command = command.group(1).upper() if command else ""
+        if command in ("COMMIT", "END", "ROLLBACK"):
+            self.connection._transaction_active = False
+        else:
+            # DB-API drivers may retain a transaction after reads as well as writes.
+            # Mark it active; commit/rollback clears the state.
+            self.connection._transaction_active = True
         return self
 
     def fetchone(self):
@@ -144,6 +153,7 @@ class Connection:
     def __init__(self, raw):
         self.raw = raw
         self.closed = False
+        self._transaction_active = False
 
     def cursor(self, *args, **kwargs):
         if self.closed:
@@ -153,10 +163,12 @@ class Connection:
     def commit(self):
         if not self.closed:
             self.raw.commit()
+            self._transaction_active = False
 
     def rollback(self):
         if not self.closed:
             self.raw.rollback()
+            self._transaction_active = False
 
     def close(self):
         if not self.closed:
@@ -164,8 +176,9 @@ class Connection:
             self.closed = True
 
     def get_transaction_status(self):
-        # The remote HTTP driver does not expose PostgreSQL transaction states.
-        return TRANSACTION_STATUS_IDLE
+        # Match psycopg2's status contract so release_db() rolls back any
+        # unfinished DB-API transaction before returning this connection.
+        return TRANSACTION_STATUS_INTRANS if self._transaction_active else TRANSACTION_STATUS_IDLE
 
     def __enter__(self):
         return self
@@ -246,6 +259,7 @@ class ThreadedConnectionPool:
 
 
 pool = SimpleNamespace(ThreadedConnectionPool=ThreadedConnectionPool)
-extensions = SimpleNamespace(TRANSACTION_STATUS_IDLE=TRANSACTION_STATUS_IDLE)
+extensions = SimpleNamespace(TRANSACTION_STATUS_IDLE=TRANSACTION_STATUS_IDLE,
+                             TRANSACTION_STATUS_INTRANS=TRANSACTION_STATUS_INTRANS)
 psycopg2 = SimpleNamespace(connect=connect, OperationalError=OperationalError,
                             pool=pool, extensions=extensions)
