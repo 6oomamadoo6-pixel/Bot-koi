@@ -105,7 +105,17 @@ class Cursor:
         sql = sql.replace("%s", "?")
         bound = tuple(_to_db_value(v) for v in params)
         self._skip = False
-        self.raw.execute(sql, bound)
+        try:
+            self.raw.execute(sql, bound)
+        except Exception as exc:
+            # Turso expires idle Hrana streams. A 404 means this request's
+            # baton is no longer valid; open a new stream and retry once.
+            message = str(exc).lower()
+            if "stream not found" not in message and "stream has expired" not in message:
+                raise
+            self.connection.reconnect()
+            self.raw = self.connection.raw.cursor()
+            self.raw.execute(sql, bound)
         command = re.match(r"^\s*([A-Za-z]+)", sql)
         command = command.group(1).upper() if command else ""
         if command in ("COMMIT", "END", "ROLLBACK"):
@@ -150,8 +160,10 @@ class Cursor:
 
 
 class Connection:
-    def __init__(self, raw):
+    def __init__(self, raw, url, token):
         self.raw = raw
+        self.url = url
+        self.token = token
         self.closed = False
         self._transaction_active = False
 
@@ -160,14 +172,41 @@ class Connection:
             raise OperationalError("Turso connection is closed")
         return Cursor(self)
 
+    def reconnect(self):
+        """Replace an expired Hrana stream with a fresh remote connection."""
+        if self.closed:
+            raise OperationalError("Turso connection is closed")
+        try:
+            self.raw.close()
+        except Exception:
+            pass
+        self.raw = turso_serverless.connect(self.url, auth_token=self.token)
+        self._transaction_active = False
+
     def commit(self):
         if not self.closed:
-            self.raw.commit()
-            self._transaction_active = False
+            try:
+                self.raw.commit()
+                self._transaction_active = False
+            except Exception as exc:
+                if "stream not found" in str(exc).lower() or "stream has expired" in str(exc).lower():
+                    try:
+                        self.reconnect()
+                    except Exception:
+                        pass
+                    raise OperationalError(
+                        "Turso stream expired during commit; any open transaction was rolled back. Retry the operation."
+                    ) from exc
+                raise
 
     def rollback(self):
         if not self.closed:
-            self.raw.rollback()
+            try:
+                self.raw.rollback()
+            except Exception as exc:
+                if "stream not found" not in str(exc).lower() and "stream has expired" not in str(exc).lower():
+                    raise
+                self.reconnect()
             self._transaction_active = False
 
     def close(self):
@@ -198,7 +237,7 @@ def connect(dsn=None, **kwargs):
         raise OperationalError("TURSO_DATABASE_URL and TURSO_AUTH_TOKEN must be configured")
     try:
         raw = turso_serverless.connect(url, auth_token=token)
-        return Connection(raw)
+        return Connection(raw, url, token)
     except Exception as exc:
         raise OperationalError("Could not connect to Turso: " + str(exc)) from exc
 
