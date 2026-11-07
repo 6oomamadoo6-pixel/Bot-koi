@@ -728,63 +728,64 @@ def add_or_restore_user():
         with conn:
             with conn.cursor() as cur:
                 if identifier.lstrip("@").isdigit():
-                user_id = int(identifier.lstrip("@"))
-                if user_id <= 0:
-                    return _json_error("آیدی عددی معتبر نیست.", 400)
-                try:
-                    chat = _telegram_call("getChat", {"chat_id": user_id})
-                except Exception as exc:
-                    return _json_error("تلگرام نتوانست اطلاعات این کاربر را بدهد. کاربر باید قبلاً ربات را شروع کرده باشد. جزئیات: " + str(exc), 404)
-                if chat.get("type") != "private":
-                    return _json_error("این شناسه مربوط به حساب خصوصی کاربر نیست.", 400)
-                username = chat.get("username")
-                first_name = str(chat.get("first_name") or "").strip()
-                last_name = str(chat.get("last_name") or "").strip()
-                full_name = (first_name + (" " + last_name if last_name else "")).strip()
-                display_name = first_name or "کاربر"
-            else:
-                username_query = identifier.lstrip("@").lower()
-                cur.execute("""
-                    SELECT user_id, username, full_name, display_name, link_code, anon_code
-                    FROM users WHERE lower(username)=%s LIMIT 1
-                """, (username_query,))
-                existing = cur.fetchone()
-                if not existing:
-                    return _json_error("این یوزرنیم در اطلاعات ربات پیدا نشد. برای دریافت مشخصات، آیدی عددی کاربر را وارد کن.", 404)
-                return jsonify({
-                    "ok": True, "created": False, "user_id": existing[0],
-                    "username": existing[1], "display_name": existing[3] or existing[2] or "کاربر",
-                    "link": "https://t.me/" + (os.getenv("BOT_USERNAME", "").lstrip("@") or "HidenGoldenChatRoBot") + "?start=" + str(existing[0]),
-                    "anon_code": existing[5]
-                })
+                    user_id = int(identifier.lstrip("@"))
+                    if user_id <= 0:
+                        return _json_error("آیدی عددی معتبر نیست.", 400)
+                    try:
+                        chat = _telegram_call("getChat", {"chat_id": user_id})
+                    except Exception as exc:
+                        return _json_error("تلگرام نتوانست اطلاعات این کاربر را بدهد. کاربر باید قبلاً ربات را شروع کرده باشد. جزئیات: " + str(exc), 404)
+                    if chat.get("type") != "private":
+                        return _json_error("این شناسه مربوط به حساب خصوصی کاربر نیست.", 400)
+                    username = chat.get("username")
+                    first_name = str(chat.get("first_name") or "").strip()
+                    last_name = str(chat.get("last_name") or "").strip()
+                    full_name = (first_name + (" " + last_name if last_name else "")).strip()
+                    display_name = first_name or "کاربر"
+                else:
+                    username_query = identifier.lstrip("@").lower()
+                    cur.execute("""
+                        SELECT user_id, username, full_name, display_name, link_code, anon_code
+                        FROM users WHERE lower(username)=%s LIMIT 1
+                    """, (username_query,))
+                    existing = cur.fetchone()
+                    if not existing:
+                        return _json_error("این یوزرنیم در اطلاعات ربات پیدا نشد. برای دریافت مشخصات، آیدی عددی کاربر را وارد کن.", 404)
+                    return jsonify({
+                        "ok": True, "created": False, "user_id": existing[0],
+                        "username": existing[1], "display_name": existing[3] or existing[2] or "کاربر",
+                        "link": "https://t.me/" + (os.getenv("BOT_USERNAME", "").lstrip("@") or "HidenGoldenChatRoBot") + "?start=" + str(existing[0]),
+                        "anon_code": existing[5]
+                    })
 
-            cur.execute("""
-                INSERT INTO users
-                    (user_id, username, full_name, link_code, anon_code, display_name, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
-                ON CONFLICT(user_id) DO NOTHING
-                RETURNING user_id, username, full_name, display_name, link_code, anon_code
-            """, (user_id, username, full_name, str(user_id), str(secrets.randbelow(9000000) + 1000000), display_name))
-            row = cur.fetchone()
-            created = row is not None
-            if not row:
                 cur.execute("""
-                    SELECT user_id, username, full_name, display_name, link_code, anon_code
-                    FROM users WHERE user_id=%s
-                """, (user_id,))
-                row = cur.fetchone()
-            if not row:
-                return _json_error("ثبت کاربر انجام نشد.", 500)
-            if created:
-                cur.execute("""
-                    INSERT INTO new_user_queue(user_id, created_at, viewed_at)
-                    VALUES(%s, CURRENT_TIMESTAMP, NULL)
+                    INSERT INTO users
+                        (user_id, username, full_name, link_code, anon_code, display_name, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
                     ON CONFLICT(user_id) DO NOTHING
-                """, (user_id,))
+                    RETURNING user_id, username, full_name, display_name, link_code, anon_code
+                """, (user_id, username, full_name, str(user_id), str(secrets.randbelow(9000000) + 1000000), display_name))
+                row = cur.fetchone()
+                created = row is not None
+                if not row:
+                    cur.execute("""
+                        SELECT user_id, username, full_name, display_name, link_code, anon_code
+                        FROM users WHERE user_id=%s
+                    """, (user_id,))
+                    row = cur.fetchone()
+                if not row:
+                    return _json_error("ثبت کاربر انجام نشد.", 500)
+                if created:
+                    cur.execute("""
+                        INSERT INTO new_user_queue(user_id, created_at, viewed_at)
+                        VALUES(%s, CURRENT_TIMESTAMP, NULL)
+                        ON CONFLICT(user_id) DO NOTHING
+                    """, (user_id,))
         bot_username = os.getenv("BOT_USERNAME", "").lstrip("@") or "HidenGoldenChatRoBot"
         return jsonify({
             "ok": True, "created": created, "user_id": row[0], "username": row[1],
-            "display_name": row[3] or display_name, "link": "https://t.me/" + bot_username + "?start=" + str(row[0]),
+            "display_name": row[3] or display_name,
+            "link": "https://t.me/" + bot_username + "?start=" + str(row[0]),
             "anon_code": row[5]
         })
     finally:
