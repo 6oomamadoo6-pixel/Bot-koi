@@ -25,6 +25,7 @@ from telegram import (
     KeyboardButton,
     ChatMember,
     WebAppInfo,
+    MenuButtonWebApp,
 )
 from telegram.ext import (
     Application,
@@ -1157,7 +1158,8 @@ def fill_missing_group_codes():
 def get_or_create_user(
     user_id,
     username,
-    full_name
+    full_name,
+    display_name=None
 ):
     """Fetch or refresh a user in one PostgreSQL round trip, preserving existing codes."""
     conn = db()
@@ -1175,6 +1177,7 @@ def get_or_create_user(
             ON CONFLICT (user_id) DO UPDATE
             SET username = EXCLUDED.username,
                 full_name = EXCLUDED.full_name,
+                display_name = EXCLUDED.display_name,
                 ban_code = COALESCE(users.ban_code, EXCLUDED.ban_code),
                 bot_blocked_at = NULL
             RETURNING link_code, anon_code, (xmax = 0) AS is_new
@@ -1185,7 +1188,7 @@ def get_or_create_user(
                 full_name,
                 str(user_id),
                 generate_anon_code(),
-                full_name or "کاربر",
+                (display_name or full_name or "کاربر").strip(),
                 generate_ban_code(),
             )
         )
@@ -2837,7 +2840,6 @@ def main_keyboard():
             InlineKeyboardButton("لیست مسدودی 🚫", callback_data="block_list", style="danger"),
         ],
         [InlineKeyboardButton("« راهنما❔»", callback_data="help")],
-        [InlineKeyboardButton("باز کردن مینی‌اپ ✨", web_app=WebAppInfo(url=MINI_APP_URL))],
     ]
     return InlineKeyboardMarkup(rows)
 
@@ -3796,7 +3798,7 @@ async def start(
                 context.user_data["pending_link_payload"] = payload
                 await send_join_message(update, context)
                 return
-            get_or_create_user(user.id, user.username, user.full_name)
+            get_or_create_user(user.id, user.username, user.full_name, user.first_name)
             context.user_data.clear()
             await send_main_panel(update, context, show_reply_keyboard=True)
             return
@@ -3810,7 +3812,7 @@ async def start(
             if owner_id == user.id:
                 await update.message.reply_text("🤠 این لینک مخصوص چنل خودته؛ نمی‌تونی برای خودت پیام بفرستی.")
                 return
-            get_or_create_user(user.id, user.username, user.full_name)
+            get_or_create_user(user.id, user.username, user.full_name, user.first_name)
             context.user_data.clear()
             context.user_data["sending_channel_anonymous"] = True
             context.user_data["channel_target_owner_id"] = owner_id
@@ -3847,7 +3849,7 @@ async def start(
                 )
                 return
 
-            get_or_create_user(user.id, user.username, user.full_name)
+            get_or_create_user(user.id, user.username, user.full_name, user.first_name)
 
             group_id = group[0]
             group_title = group[1] or "گروه"
@@ -3928,7 +3930,7 @@ async def start(
             )
             return
 
-        get_or_create_user(user.id, user.username, user.full_name)
+        get_or_create_user(user.id, user.username, user.full_name, user.first_name)
         register_link_view(target_id, user.id)
 
         target_name = (
@@ -3960,7 +3962,7 @@ async def start(
     # پیام معرفی کانال رسمی فقط یک بار در اولین /start ارسال می‌شود.
     first_time_user = get_user(user.id) is None
 
-    get_or_create_user(user.id, user.username, user.full_name)
+    get_or_create_user(user.id, user.username, user.full_name, user.first_name)
     context.user_data.clear()
 
     if first_time_user:
@@ -4389,7 +4391,8 @@ async def show_link(
     get_or_create_user(
         user.id,
         user.username,
-        user.full_name
+        user.full_name,
+        user.first_name
     )
 
     bot_username = await get_cached_bot_username(context)
@@ -4782,7 +4785,8 @@ async def button_handler(
         get_or_create_user(
             user_id,
             user.username,
-            user.full_name
+            user.full_name,
+            user.first_name
         )
 
         await send_main_panel(
@@ -7053,7 +7057,8 @@ async def handle_message(
     get_or_create_user(
         user.id,
         user.username,
-        user.full_name
+        user.full_name,
+        user.first_name
     )
 
     if context.user_data.get("waiting_channel_identifier"):
@@ -7974,7 +7979,7 @@ async def inline_share_handler(update, context):
 
     # Keep the existing personal share card available, and always show
     # a second result that sends only the bot username.
-    get_or_create_user(user.id, user.username, user.full_name)
+    get_or_create_user(user.id, user.username, user.full_name, user.first_name)
     own_link = f"https://t.me/{cached_username}?start={user.id}"
     results = [
         InlineQueryResultArticle(
@@ -8097,6 +8102,18 @@ async def post_init(
         )
 
     GLOBAL_BOT = application.bot
+
+    # Configure Telegram's native chat-menu Mini App button.
+    try:
+        await application.bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="گلدن چت",
+                web_app=WebAppInfo(url=MINI_APP_URL),
+            )
+        )
+        print("[BOOT] Telegram native Mini App menu button configured.", flush=True)
+    except Exception as menu_error:
+        print(f"[BOOT] Could not configure Telegram Mini App menu button: {menu_error}", flush=True)
 
     application.bot_data[
         "ban_expiration_task"
