@@ -725,8 +725,9 @@ def add_or_restore_user():
 
     conn = _db()
     try:
-        with conn.cursor() as cur:
-            if identifier.lstrip("@").isdigit():
+        with conn:
+            with conn.cursor() as cur:
+                if identifier.lstrip("@").isdigit():
                 user_id = int(identifier.lstrip("@"))
                 if user_id <= 0:
                     return _json_error("آیدی عددی معتبر نیست.", 400)
