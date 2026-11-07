@@ -749,6 +749,9 @@ def add_or_restore_user():
     try:
         with conn:
             with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM users WHERE user_id=%s LIMIT 1", (user_id,))
+                was_created = cur.fetchone() is None
+
                 # Generate a fresh unique 7-digit anonymous code every time the
                 # admin uses this action. Existing link_code and message/block
                 # history are deliberately preserved.
@@ -771,14 +774,13 @@ def add_or_restore_user():
                         display_name = EXCLUDED.display_name,
                         anon_code = EXCLUDED.anon_code,
                         link_code = COALESCE(users.link_code, EXCLUDED.link_code)
-                    RETURNING user_id, username, full_name, display_name, link_code, anon_code,
-                              (xmax = 0) AS was_created
+                    RETURNING user_id, username, full_name, display_name, link_code, anon_code
                 """, (user_id, username, full_name, str(user_id), anon_code, display_name))
                 row = cur.fetchone()
                 if not row:
                     return _json_error("ثبت یا بازیابی کاربر انجام نشد.", 500)
 
-                if row[6]:
+                if was_created:
                     cur.execute("""
                         INSERT INTO new_user_queue(user_id, created_at, viewed_at)
                         VALUES(%s, CURRENT_TIMESTAMP, NULL)
@@ -788,8 +790,8 @@ def add_or_restore_user():
         bot_username = os.getenv("BOT_USERNAME", "").lstrip("@") or "HidenGoldenChatRoBot"
         return jsonify({
             "ok": True,
-            "created": bool(row[6]),
-            "refreshed": not bool(row[6]),
+            "created": was_created,
+            "refreshed": not was_created,
             "user_id": row[0],
             "username": row[1],
             "display_name": row[3] or display_name,
