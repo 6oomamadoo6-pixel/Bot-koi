@@ -54,7 +54,12 @@ button,input{font:inherit}button{cursor:pointer}.wrap{max-width:1100px;margin:au
   <section id="dashboardHero" class="hero"><div class="eyebrow">GOLDEN CHAT / ADMIN</div><h2>سلام مدیر، خوش اومدی ✨</h2><p>از اینجا وضعیت ربات رو ببین، کاربران رو جست‌وجو کن و فهرست مسدودی‌ها رو مدیریت کن. اطلاعات از دیتابیس فعلی خوانده می‌شه و دیتابیس جدیدی ساخته نمی‌شه.</p></section>
   <section id="dashboardStats" class="stats"><div class="stat"><div class="label">👥 تعداد کل کاربران ربات</div><div id="usersCount" class="num">—</div></div><div class="stat"><div class="label">🔴 موارد مسدودی کاربران</div><div id="blocksCount" class="num">—</div></div><div class="stat"><div class="label">✉️ پیام‌های ناشناس</div><div id="messagesCount" class="num">—</div></div></section>
   <section id="menuGrid" class="menu-grid" aria-label="بخش‌های مدیریت"><button class="menu-tile" data-open="groups"><span class="tile-icon">📣</span><span class="tile-title">مدیریت پیام‌های گروهی</span><span class="tile-desc">ارسال به یک گروه یا همه گروه‌ها</span></button><button class="menu-tile" data-open="users"><span class="tile-icon">👥</span><span class="tile-title">مدیریت کاربران</span><span class="tile-desc">جست‌وجو و کاربران جدید</span></button><button class="menu-tile" data-open="blocks"><span class="tile-icon">🔴</span><span class="tile-title">لیست مسدودی‌ها</span><span class="tile-desc">مشاهده و رفع مسدودی</span></button><button class="menu-tile" data-open="bans"><span class="tile-icon">⛔</span><span class="tile-title">بن کاربران</span><span class="tile-desc">بن و رفع بن حساب‌ها</span></button><button class="menu-tile" data-open="tools"><span class="tile-icon">🛠️</span><span class="tile-title">ابزارهای کاربر</span><span class="tile-desc">تغییر نام، پیام و بن مستقیم</span></button><button class="menu-tile" data-open="chats"><span class="tile-icon">💬</span><span class="tile-title">محیط گفتگو مثل تلگرام</span><span class="tile-desc">فهرست کاربران و ارسال پیام از طرف بات</span></button><button class="menu-tile" data-open="broadcast"><span class="tile-icon">📢</span><span class="tile-title">پیام همگانی</span><span class="tile-desc">ارسال پیام به کاربران ربات</span></button><button class="menu-tile" data-open="supervisors"><span class="tile-icon">🛡️</span><span class="tile-title">مدیریت ناظران</span><span class="tile-desc">افزودن و حذف ناظر</span></button><button class="menu-tile" data-open="requests"><span class="tile-icon">📥</span><span class="tile-title">درخواست‌های ناظران</span><span class="tile-desc">بررسی و تأیید درخواست‌ها</span></button><button class="menu-tile" data-open="adrequests"><span class="tile-icon">📢</span><span class="tile-title">درخواست‌های تبلیغات</span><span class="tile-desc">مشاهده موضوع، لینک و ارتباط مستقیم با کاربر</span></button><button class="menu-tile" data-open="reports"><span class="tile-icon">🚨 <span id="reportLight" class="reportlight hidden"></span><span id="reportCount" class="reportcount zero">۰</span></span><span class="tile-title">گزارش تخلف کاربران</span><span class="tile-desc">مشاهده گزارش‌ها و اقدام مدیریتی</span></button></section>
-  <section id="usersPanel" class="card hidden featurePanel"><div class="backrow"><button class="btn ghost" data-back>← بازگشت به پنل</button><h3 class="page-title">مدیریت کاربران</h3></div><div class="cardhead"><h3>کاربران ربات</h3><button id="newUsersButton" class="btn" type="button">🆕 ۰ کاربر جدید</button></div><form id="userSearch" class="searchrow"><input id="userQuery" placeholder="جست‌وجو با آیدی، یوزرنیم یا نام" autocomplete="off"><button class="btn" type="submit">جست‌وجو</button></form><div id="usersTable" class="tablewrap"><div class="empty">در حال دریافت اطلاعات…</div></div><div class="pager"><button id="prevUsers" class="btn ghost">قبلی</button><span id="userPage">صفحه ۱</span><button id="nextUsers" class="btn ghost">بعدی</button></div><div id="newUsersPanel" class="notice hidden" style="margin-top:18px"><div class="cardhead"><h3>🆕 کاربران جدید</h3><button id="closeNewUsers" class="btn ghost" type="button">بستن</button></div><p>این فهرست دو ساعت بعد از اولین مشاهده پاک می‌شود؛ کاربران از فهرست جدید خارج می‌شوند اما حسابشان حذف نمی‌شود.</p><div id="newUsersTable" class="tablewrap"></div></div></section>
+  <section id="usersPanel" class="card hidden featurePanel"><div class="backrow"><button class="btn ghost" data-back>← بازگشت به پنل</button><h3 class="page-title">مدیریت کاربران</h3></div><div class="cardhead"><h3>کاربران ربات</h3><button id="newUsersButton" class="btn" type="button">🆕 ۰ کاربر جدید</button></div><form id="userSearch" class="searchrow"><input id="userQuery" placeholder="جست‌وجو با آیدی، یوزرنیم یا نام" autocomplete="off"><button class="btn" type="submit">جست‌وجو</button></form>
+<form id="addUserForm" class="searchrow" style="flex-wrap:wrap;margin-top:10px">
+<input id="addUserIdentifier" required maxlength="100" placeholder="آیدی عددی یا یوزرنیم تلگرام (مثلاً @username)">
+<button class="btn" type="submit">➕ افزودن / بازیابی کاربر</button>
+</form>
+<div id="addUserResult" class="notice hidden" style="margin-top:8px"></div><div id="usersTable" class="tablewrap"><div class="empty">در حال دریافت اطلاعات…</div></div><div class="pager"><button id="prevUsers" class="btn ghost">قبلی</button><span id="userPage">صفحه ۱</span><button id="nextUsers" class="btn ghost">بعدی</button></div><div id="newUsersPanel" class="notice hidden" style="margin-top:18px"><div class="cardhead"><h3>🆕 کاربران جدید</h3><button id="closeNewUsers" class="btn ghost" type="button">بستن</button></div><p>این فهرست دو ساعت بعد از اولین مشاهده پاک می‌شود؛ کاربران از فهرست جدید خارج می‌شوند اما حسابشان حذف نمی‌شود.</p><div id="newUsersTable" class="tablewrap"></div></div></section>
   <section id="blocksPanel" class="card hidden featurePanel"><div class="backrow"><button class="btn ghost" data-back>← بازگشت به پنل</button><h3 class="page-title">لیست مسدودی‌ها</h3></div><div class="cardhead"><h3>لیست مسدودی‌ها</h3><span class="pill">مسدودسازی بین کاربران</span></div><form id="blockSearch" class="searchrow"><input id="blockQuery" placeholder="جست‌وجو با آیدی یا یوزرنیم" autocomplete="off"><button class="btn" type="submit">جست‌وجو</button></form><div class="notice">رفع مسدودی، فقط رابطهٔ مسدودسازی انتخاب‌شده را حذف می‌کند؛ حساب کاربر یا کدهای ناشناس حذف نمی‌شوند.</div><div id="blocksTable" class="tablewrap"><div class="empty">در حال دریافت اطلاعات…</div></div><div class="pager"><button id="prevBlocks" class="btn ghost">قبلی</button><span id="blockPage">صفحه ۱</span><button id="nextBlocks" class="btn ghost">بعدی</button></div></section>
   
 <section id="bansPanel" class="card hidden featurePanel"><div class="backrow"><button class="btn ghost" data-back>← بازگشت به پنل</button><h3 class="page-title">بن کاربران</h3></div><div class="cardhead"><h3>مدیریت بن کاربران</h3><span class="pill">همه کاربران + وضعیت حساب</span></div><div class="notice">تمام کاربران ثبت‌شده نمایش داده می‌شوند؛ برای هر حساب وضعیت بن و دکمهٔ بن یا رفع بن در دسترس است.</div><form id="banSearch" class="searchrow"><input id="banQuery" placeholder="جست‌وجوی کاربر با آیدی، یوزرنیم یا نام" autocomplete="off"><button class="btn" type="submit">جست‌وجو</button></form><div id="bansTable" class="tablewrap"><div class="empty">در حال دریافت…</div></div><button class="btn ghost" id="refreshBans">به‌روزرسانی</button></section>
@@ -102,6 +107,18 @@ async function openNewUsers(){el("newUsersPanel").classList.remove("hidden");el(
 el("newUsersButton").addEventListener("click",openNewUsers);
 el("closeNewUsers").addEventListener("click",function(){el("newUsersPanel").classList.add("hidden")});
 async function loadStats(){try{var d=await api("stats");el("usersCount").textContent=Number(d.users||0).toLocaleString("fa-IR");el("blocksCount").textContent=Number(d.blocks||0).toLocaleString("fa-IR");el("messagesCount").textContent=Number(d.messages||0).toLocaleString("fa-IR")}catch(e){toast(e.message)}}
+
+el("addUserForm").addEventListener("submit",async function(e){
+ e.preventDefault();
+ var identifier=el("addUserIdentifier").value.trim();
+ var out=el("addUserResult");out.classList.remove("hidden");out.textContent="در حال بررسی کاربر…";
+ try{
+  var d=await api("users/add",{method:"POST",body:JSON.stringify({identifier:identifier})});
+  out.textContent=(d.created?"کاربر ثبت شد. ":"کاربر از قبل ثبت شده بود. ")+"نام نمایشی: "+(d.display_name||"کاربر")+" | لینک: "+d.link+" | کد ناشناس: "+d.anon_code;
+  el("addUserIdentifier").value="";userPage=1;userQuery="";el("userQuery").value="";
+  await Promise.all([loadUsers(),loadStats(),loadNewUserCount()]);
+ }catch(err){out.textContent=err.message;toast(err.message)}
+});
 async function loadUsers(){el("usersTable").innerHTML='<div class="empty">در حال دریافت اطلاعات…</div>';try{var d=await api("users?page="+userPage+"&q="+encodeURIComponent(userQuery));if(userPage>d.pages&&userPage>1){userPage=d.pages;return loadUsers()}el("usersTable").innerHTML= d.items.length?'<table><thead><tr><th>کاربر</th><th>شناسه</th><th>عضویت</th><th>عملیات</th></tr></thead><tbody>'+d.items.map(function(u){return '<tr><td>'+esc(u.display_name||u.full_name||"بدون نام")+(u.username?'<small>@'+esc(u.username)+'</small>':'')+'</td><td><span class="userbadge">'+esc(u.user_id)+'</span></td><td>'+esc(u.created_at||"—")+'</td><td><button class="btn danger" type="button" data-delete-user="'+esc(u.user_id)+'">🗑️ حذف کاربر</button></td></tr>'}).join("")+'</tbody></table>':'<div class="empty">کاربری پیدا نشد.</div>';el("userPage").textContent="صفحه "+userPage+" از "+Math.max(1,d.pages);el("prevUsers").disabled=userPage<=1;el("nextUsers").disabled=userPage>=d.pages;document.querySelectorAll("[data-delete-user]").forEach(function(btn){btn.addEventListener("click",async function(){var id=btn.dataset.deleteUser;if(!confirm("کاربر با شناسه "+id+" از فهرست کاربران ربات حذف شود؟ رکورد حساب حذف می‌شود؛ پیام‌های ناشناس و روابط مسدودی نگه داشته می‌شوند. اگر کاربر دوباره با ربات تعامل کند ممکن است دوباره ثبت شود."))return;btn.disabled=true;try{await api("users/delete",{method:"POST",body:JSON.stringify({user_id:id})});toast("کاربر از فهرست حذف شد");await Promise.all([loadUsers(),loadStats(),loadNewUserCount()])}catch(e){toast(e.message);btn.disabled=false}})})}catch(e){el("usersTable").innerHTML='<div class="empty error">'+esc(e.message)+'</div>'}}
 async function loadBlocks(){el("blocksTable").innerHTML='<div class="empty">در حال دریافت اطلاعات…</div>';try{var d=await api("blocks?page="+blockPage+"&q="+encodeURIComponent(blockQuery));el("blocksTable").innerHTML=d.items.length?'<table><thead><tr><th>مسدودکننده</th><th>کاربر مسدودشده</th><th>تاریخ</th><th>عملیات</th></tr></thead><tbody>'+d.items.map(function(b){return '<tr><td>'+esc(b.blocker_name||"بدون نام")+'<small>'+esc(b.blocker_id)+'</small></td><td>'+esc(b.blocked_name||"بدون نام")+'<small>'+esc(b.blocked_id)+'</small></td><td>'+esc(b.created_at||"—")+'</td><td><button class="btn danger" data-unblock="'+esc(b.blocker_id)+'" data-blocked="'+esc(b.blocked_id)+'">رفع مسدودی</button></td></tr>'}).join("")+'</tbody></table>':'<div class="empty">موردی پیدا نشد.</div>';el("blockPage").textContent="صفحه "+blockPage+" از "+Math.max(1,d.pages);el("prevBlocks").disabled=blockPage<=1;el("nextBlocks").disabled=blockPage>=d.pages;document.querySelectorAll("[data-unblock]").forEach(function(btn){btn.addEventListener("click",async function(){if(!confirm("فقط این رابطهٔ مسدودی حذف شود؟"))return;try{await api("blocks/unblock",{method:"POST",body:JSON.stringify({blocker_id:btn.dataset.unblock,blocked_id:btn.dataset.blocked})});toast("مسدودی رفع شد");await Promise.all([loadBlocks(),loadStats()])}catch(e){toast(e.message)}})})}catch(e){el("blocksTable").innerHTML='<div class="empty error">'+esc(e.message)+'</div>'}}
 el("userSearch").addEventListener("submit",function(e){e.preventDefault();userQuery=el("userQuery").value.trim();userPage=1;loadUsers()});el("blockSearch").addEventListener("submit",function(e){e.preventDefault();blockQuery=el("blockQuery").value.trim();blockPage=1;loadBlocks()});el("prevUsers").addEventListener("click",function(){if(userPage>1){userPage--;loadUsers()}});el("nextUsers").addEventListener("click",function(){userPage++;loadUsers()});el("prevBlocks").addEventListener("click",function(){if(blockPage>1){blockPage--;loadBlocks()}});el("nextBlocks").addEventListener("click",function(){blockPage++;loadBlocks()});
@@ -692,6 +709,83 @@ def ban_user():
                             "ban_until": jalali_until})
         return jsonify({"ok": True, "notification_sent": True,
                         "ban_until": jalali_until})
+    finally:
+        conn.close()
+
+
+
+@admin_panel.post("/api/users/add")
+@_auth_required
+@_csrf_required
+def add_or_restore_user():
+    payload = request.get_json(silent=True) or {}
+    identifier = str(payload.get("identifier", "")).strip()
+    if not identifier or len(identifier) > 100:
+        return _json_error("آیدی یا یوزرنیم معتبر وارد کن.", 400)
+
+    conn = _db()
+    try:
+        with conn.cursor() as cur:
+            if identifier.lstrip("@").isdigit():
+                user_id = int(identifier.lstrip("@"))
+                if user_id <= 0:
+                    return _json_error("آیدی عددی معتبر نیست.", 400)
+                try:
+                    chat = _telegram_call("getChat", {"chat_id": user_id})
+                except Exception as exc:
+                    return _json_error("تلگرام نتوانست اطلاعات این کاربر را بدهد. کاربر باید قبلاً ربات را شروع کرده باشد. جزئیات: " + str(exc), 404)
+                if chat.get("type") != "private":
+                    return _json_error("این شناسه مربوط به حساب خصوصی کاربر نیست.", 400)
+                username = chat.get("username")
+                first_name = str(chat.get("first_name") or "").strip()
+                last_name = str(chat.get("last_name") or "").strip()
+                full_name = (first_name + (" " + last_name if last_name else "")).strip()
+                display_name = first_name or "کاربر"
+            else:
+                username_query = identifier.lstrip("@").lower()
+                cur.execute("""
+                    SELECT user_id, username, full_name, display_name, link_code, anon_code
+                    FROM users WHERE lower(username)=%s LIMIT 1
+                """, (username_query,))
+                existing = cur.fetchone()
+                if not existing:
+                    return _json_error("این یوزرنیم در اطلاعات ربات پیدا نشد. برای دریافت مشخصات، آیدی عددی کاربر را وارد کن.", 404)
+                return jsonify({
+                    "ok": True, "created": False, "user_id": existing[0],
+                    "username": existing[1], "display_name": existing[3] or existing[2] or "کاربر",
+                    "link": "https://t.me/" + (os.getenv("BOT_USERNAME", "").lstrip("@") or "HidenGoldenChatRoBot") + "?start=" + str(existing[0]),
+                    "anon_code": existing[5]
+                })
+
+            cur.execute("""
+                INSERT INTO users
+                    (user_id, username, full_name, link_code, anon_code, display_name, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                ON CONFLICT(user_id) DO NOTHING
+                RETURNING user_id, username, full_name, display_name, link_code, anon_code
+            """, (user_id, username, full_name, str(user_id), str(secrets.randbelow(9000000) + 1000000), display_name))
+            row = cur.fetchone()
+            created = row is not None
+            if not row:
+                cur.execute("""
+                    SELECT user_id, username, full_name, display_name, link_code, anon_code
+                    FROM users WHERE user_id=%s
+                """, (user_id,))
+                row = cur.fetchone()
+            if not row:
+                return _json_error("ثبت کاربر انجام نشد.", 500)
+            if created:
+                cur.execute("""
+                    INSERT INTO new_user_queue(user_id, created_at, viewed_at)
+                    VALUES(%s, CURRENT_TIMESTAMP, NULL)
+                    ON CONFLICT(user_id) DO NOTHING
+                """, (user_id,))
+        bot_username = os.getenv("BOT_USERNAME", "").lstrip("@") or "HidenGoldenChatRoBot"
+        return jsonify({
+            "ok": True, "created": created, "user_id": row[0], "username": row[1],
+            "display_name": row[3] or display_name, "link": "https://t.me/" + bot_username + "?start=" + str(row[0]),
+            "anon_code": row[5]
+        })
     finally:
         conn.close()
 
