@@ -56,7 +56,7 @@ button,input{font:inherit}button{cursor:pointer}.wrap{max-width:1100px;margin:au
   <section id="menuGrid" class="menu-grid" aria-label="بخش‌های مدیریت"><button class="menu-tile" data-open="groups"><span class="tile-icon">📣</span><span class="tile-title">مدیریت پیام‌های گروهی</span><span class="tile-desc">ارسال به یک گروه یا همه گروه‌ها</span></button><button class="menu-tile" data-open="users"><span class="tile-icon">👥</span><span class="tile-title">مدیریت کاربران</span><span class="tile-desc">جست‌وجو و کاربران جدید</span></button><button class="menu-tile" data-open="blocks"><span class="tile-icon">🔴</span><span class="tile-title">لیست مسدودی‌ها</span><span class="tile-desc">مشاهده و رفع مسدودی</span></button><button class="menu-tile" data-open="bans"><span class="tile-icon">⛔</span><span class="tile-title">بن کاربران</span><span class="tile-desc">بن و رفع بن حساب‌ها</span></button><button class="menu-tile" data-open="tools"><span class="tile-icon">🛠️</span><span class="tile-title">ابزارهای کاربر</span><span class="tile-desc">تغییر نام، پیام و بن مستقیم</span></button><button class="menu-tile" data-open="chats"><span class="tile-icon">💬</span><span class="tile-title">محیط گفتگو مثل تلگرام</span><span class="tile-desc">فهرست کاربران و ارسال پیام از طرف بات</span></button><button class="menu-tile" data-open="broadcast"><span class="tile-icon">📢</span><span class="tile-title">پیام همگانی</span><span class="tile-desc">ارسال پیام به کاربران ربات</span></button><button class="menu-tile" data-open="supervisors"><span class="tile-icon">🛡️</span><span class="tile-title">مدیریت ناظران</span><span class="tile-desc">افزودن و حذف ناظر</span></button><button class="menu-tile" data-open="requests"><span class="tile-icon">📥</span><span class="tile-title">درخواست‌های ناظران</span><span class="tile-desc">بررسی و تأیید درخواست‌ها</span></button><button class="menu-tile" data-open="adrequests"><span class="tile-icon">📢</span><span class="tile-title">درخواست‌های تبلیغات</span><span class="tile-desc">مشاهده موضوع، لینک و ارتباط مستقیم با کاربر</span></button><button class="menu-tile" data-open="reports"><span class="tile-icon">🚨 <span id="reportLight" class="reportlight hidden"></span><span id="reportCount" class="reportcount zero">۰</span></span><span class="tile-title">گزارش تخلف کاربران</span><span class="tile-desc">مشاهده گزارش‌ها و اقدام مدیریتی</span></button></section>
   <section id="usersPanel" class="card hidden featurePanel"><div class="backrow"><button class="btn ghost" data-back>← بازگشت به پنل</button><h3 class="page-title">مدیریت کاربران</h3></div><div class="cardhead"><h3>کاربران ربات</h3><button id="newUsersButton" class="btn" type="button">🆕 ۰ کاربر جدید</button></div><form id="userSearch" class="searchrow"><input id="userQuery" placeholder="جست‌وجو با آیدی، یوزرنیم یا نام" autocomplete="off"><button class="btn" type="submit">جست‌وجو</button></form>
 <form id="addUserForm" class="searchrow" style="flex-wrap:wrap;margin-top:10px">
-<input id="addUserIdentifier" required maxlength="100" placeholder="فقط آیدی عددی کاربر (مثلاً 123456789)">
+<input id="addUserIdentifier" required maxlength="100" placeholder="آیدی عددی یا یوزرنیم (مثلاً 123456789 یا @username)">
 <button class="btn" type="submit">🔄 ثبت / نوسازی اطلاعات کاربر</button>
 </form>
 <div id="addUserResult" class="notice hidden" style="margin-top:8px"></div><div id="usersTable" class="tablewrap"><div class="empty">در حال دریافت اطلاعات…</div></div><div class="pager"><button id="prevUsers" class="btn ghost">قبلی</button><span id="userPage">صفحه ۱</span><button id="nextUsers" class="btn ghost">بعدی</button></div><div id="newUsersPanel" class="notice hidden" style="margin-top:18px"><div class="cardhead"><h3>🆕 کاربران جدید</h3><button id="closeNewUsers" class="btn ghost" type="button">بستن</button></div><p>این فهرست دو ساعت بعد از اولین مشاهده پاک می‌شود؛ کاربران از فهرست جدید خارج می‌شوند اما حسابشان حذف نمی‌شود.</p><div id="newUsersTable" class="tablewrap"></div></div></section>
@@ -720,41 +720,64 @@ def ban_user():
 def add_or_restore_user():
     payload = request.get_json(silent=True) or {}
     identifier = str(payload.get("identifier", "")).strip()
-    if not identifier or len(identifier) > 100 or not identifier.lstrip("@").isdigit():
-        return _json_error("فقط آیدی عددی تلگرام را وارد کن.", 400)
-
-    user_id = int(identifier.lstrip("@"))
-    if user_id <= 0:
-        return _json_error("آیدی عددی معتبر نیست.", 400)
-
-    # The bot can retrieve a private user's profile only if Telegram permits
-    # this bot to access that chat (normally after the user has started it).
-    try:
-        chat = _telegram_call("getChat", {"chat_id": user_id})
-    except Exception as exc:
-        return _json_error(
-            "اطلاعات کاربر از تلگرام دریافت نشد. مطمئن شو کاربر قبلاً ربات را استارت کرده است. جزئیات: " + str(exc),
-            404
-        )
-    if chat.get("type") != "private":
-        return _json_error("این شناسه مربوط به حساب خصوصی کاربر نیست.", 400)
-
-    username = chat.get("username")
-    first_name = str(chat.get("first_name") or "").strip()
-    last_name = str(chat.get("last_name") or "").strip()
-    full_name = (first_name + (" " + last_name if last_name else "")).strip()
-    display_name = first_name or "کاربر"
+    if not identifier or len(identifier) > 100:
+        return _json_error("آیدی عددی یا یوزرنیم را وارد کن.", 400)
 
     conn = _db()
     try:
         with conn:
             with conn.cursor() as cur:
+                username = None
+                first_name = ""
+                full_name = ""
+                user_id = None
+                was_created = False
+
+                if identifier.lstrip("@").isdigit():
+                    user_id = int(identifier.lstrip("@"))
+                    if user_id <= 0:
+                        return _json_error("آیدی عددی معتبر نیست.", 400)
+                    # getChat is best-effort only. A numeric Telegram ID can still
+                    # be registered even when this user has never started the bot.
+                    try:
+                        chat = _telegram_call("getChat", {"chat_id": user_id}) or {}
+                        if chat.get("type") == "private":
+                            username = chat.get("username")
+                            first_name = str(chat.get("first_name") or "").strip()
+                            last_name = str(chat.get("last_name") or "").strip()
+                            full_name = (first_name + (" " + last_name if last_name else "")).strip()
+                    except Exception:
+                        pass
+                    cur.execute(
+                        "SELECT username, full_name, display_name FROM users WHERE user_id=%s LIMIT 1",
+                        (user_id,)
+                    )
+                    existing = cur.fetchone()
+                    if existing:
+                        username = username or existing[0]
+                        full_name = full_name or existing[1] or ""
+                        first_name = first_name or existing[2] or existing[1] or ""
+                else:
+                    clean_username = identifier.lstrip("@").strip()
+                    if not clean_username or not re.fullmatch(r"[A-Za-z0-9_]{5,32}", clean_username):
+                        return _json_error("یوزرنیم معتبر نیست.", 400)
+                    cur.execute(
+                        "SELECT user_id, username, full_name, display_name FROM users WHERE lower(username)=lower(%s) LIMIT 1",
+                        (clean_username,)
+                    )
+                    existing = cur.fetchone()
+                    if not existing:
+                        return _json_error(
+                            "این یوزرنیم هنوز در دیتابیس ربات شناخته‌شده نیست. برای ساخت حساب جدید، آیدی عددی تلگرام لازم است؛ تلگرام امکان تبدیل یوزرنیم دلخواه به آیدی را نمی‌دهد.",
+                            404
+                        )
+                    user_id, username, full_name, display_name_existing = existing
+                    first_name = display_name_existing or full_name or ""
+
                 cur.execute("SELECT 1 FROM users WHERE user_id=%s LIMIT 1", (user_id,))
                 was_created = cur.fetchone() is None
+                display_name = (first_name or "کاربر").strip()
 
-                # Generate a fresh unique 7-digit anonymous code every time the
-                # admin uses this action. Existing link_code and message/block
-                # history are deliberately preserved.
                 while True:
                     anon_code = str(secrets.randbelow(9000000) + 1000000)
                     cur.execute(
@@ -769,35 +792,27 @@ def add_or_restore_user():
                         (user_id, username, full_name, link_code, anon_code, display_name, created_at)
                     VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
                     ON CONFLICT(user_id) DO UPDATE SET
-                        username = EXCLUDED.username,
-                        full_name = EXCLUDED.full_name,
-                        display_name = EXCLUDED.display_name,
+                        username = COALESCE(EXCLUDED.username, users.username),
+                        full_name = CASE WHEN EXCLUDED.full_name <> '' THEN EXCLUDED.full_name ELSE users.full_name END,
+                        display_name = CASE WHEN EXCLUDED.display_name <> 'کاربر' THEN EXCLUDED.display_name ELSE COALESCE(users.display_name, EXCLUDED.display_name) END,
                         anon_code = EXCLUDED.anon_code,
                         link_code = COALESCE(users.link_code, EXCLUDED.link_code)
-                    RETURNING user_id, username, full_name, display_name, link_code, anon_code
-                """, (user_id, username, full_name, str(user_id), anon_code, display_name))
-                row = cur.fetchone()
-                if not row:
-                    return _json_error("ثبت یا بازیابی کاربر انجام نشد.", 500)
-
-                if was_created:
-                    cur.execute("""
-                        INSERT INTO new_user_queue(user_id, created_at, viewed_at)
-                        VALUES(%s, CURRENT_TIMESTAMP, NULL)
-                        ON CONFLICT(user_id) DO NOTHING
-                    """, (user_id,))
+                """, (user_id, username, full_name or "", str(user_id), anon_code, display_name))
 
         bot_username = os.getenv("BOT_USERNAME", "").lstrip("@") or "HidenGoldenChatRoBot"
         return jsonify({
             "ok": True,
             "created": was_created,
             "refreshed": not was_created,
-            "user_id": row[0],
-            "username": row[1],
-            "display_name": row[3] or display_name,
-            "link": "https://t.me/" + bot_username + "?start=" + str(row[0]),
-            "anon_code": row[5]
+            "user_id": user_id,
+            "username": username,
+            "display_name": display_name,
+            "link": "https://t.me/" + bot_username + "?start=" + str(user_id),
+            "anon_code": anon_code,
+            "can_message": bool(username or was_created is False)
         })
+    except Exception as exc:
+        return _json_error("خطا هنگام ثبت در دیتابیس: " + str(exc)[:500], 500)
     finally:
         conn.close()
 
