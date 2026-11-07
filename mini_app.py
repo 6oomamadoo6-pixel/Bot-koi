@@ -74,7 +74,7 @@ PAGE = r"""<!doctype html>
 (function(){
   var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
   if(tg){tg.ready();tg.expand();try{tg.setHeaderColor("#0b0b0a");tg.setBackgroundColor("#0b0b0a");}catch(e){}}
-  var initData = tg ? tg.initData : "";
+  var initData = (tg && typeof tg.initData === "string") ? tg.initData : "";
   var currentView = "messages";
   var offset = 0, limit = 40, loading = false, hasMore = true;
   var totalMessages = 0;
@@ -199,6 +199,12 @@ PAGE = r"""<!doctype html>
   }
   function fallbackCopy(value){var input=node("textarea","");input.value=value;input.style.position="fixed";input.style.opacity="0";document.body.appendChild(input);input.select();try{document.execCommand("copy");toast("لینک کپی شد ✅");}catch(e){toast("کپی خودکار نشد؛ لینک را انتخاب کن.");}input.remove();}
   async function start(){
+    // Telegram may finish initializing the WebApp bridge just after page scripts run.
+    if(!initData && window.Telegram && window.Telegram.WebApp){
+      tg = window.Telegram.WebApp;
+      try{tg.ready();tg.expand();}catch(e){}
+      initData = typeof tg.initData === "string" ? tg.initData : "";
+    }
     if(!initData){el("status").classList.add("banned");el("status").innerHTML="<span>وضعیت حساب</span><strong>از داخل تلگرام باز کن</strong>";el("messages").replaceChildren(node("div","empty error","این مینی‌اپ باید از دکمه داخل ربات تلگرام باز شود تا هویت حساب تأیید شود."));return;}
     try{var p=await api("me");renderStatus(p);loadMessages(true);}
     catch(e){el("status").classList.add("banned");el("status").innerHTML="<span>وضعیت حساب</span><strong>تأیید ناموفق</strong>";el("messages").replaceChildren(node("div","empty error",e.message));}
