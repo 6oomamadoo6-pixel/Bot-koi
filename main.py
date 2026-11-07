@@ -25,6 +25,7 @@ from telegram import (
     KeyboardButton,
     ChatMember,
     WebAppInfo,
+    MenuButtonWebApp,
 )
 from telegram.ext import (
     Application,
@@ -8101,6 +8102,18 @@ async def post_init(
         )
 
     GLOBAL_BOT = application.bot
+
+    # Configure Telegram's native chat-menu Mini App button.
+    try:
+        await application.bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="گلدن چت",
+                web_app=WebAppInfo(url=MINI_APP_URL),
+            )
+        )
+        print("[BOOT] Telegram native Mini App menu button configured.", flush=True)
+    except Exception as menu_error:
+        print(f"[BOOT] Could not configure Telegram Mini App menu button: {menu_error}", flush=True)
 
     application.bot_data[
         "ban_expiration_task"
