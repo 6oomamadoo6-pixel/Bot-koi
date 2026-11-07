@@ -1176,6 +1176,7 @@ def get_or_create_user(
             ON CONFLICT (user_id) DO UPDATE
             SET username = EXCLUDED.username,
                 full_name = EXCLUDED.full_name,
+                display_name = EXCLUDED.display_name,
                 ban_code = COALESCE(users.ban_code, EXCLUDED.ban_code),
                 bot_blocked_at = NULL
             RETURNING link_code, anon_code, (xmax = 0) AS is_new
@@ -4389,7 +4390,8 @@ async def show_link(
     get_or_create_user(
         user.id,
         user.username,
-        user.full_name
+        user.full_name,
+        user.first_name
     )
 
     bot_username = await get_cached_bot_username(context)
@@ -4782,7 +4784,8 @@ async def button_handler(
         get_or_create_user(
             user_id,
             user.username,
-            user.full_name
+            user.full_name,
+            user.first_name
         )
 
         await send_main_panel(
@@ -7053,7 +7056,8 @@ async def handle_message(
     get_or_create_user(
         user.id,
         user.username,
-        user.full_name
+        user.full_name,
+        user.first_name
     )
 
     if context.user_data.get("waiting_channel_identifier"):
