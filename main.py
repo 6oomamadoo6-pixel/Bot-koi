@@ -3429,6 +3429,7 @@ async def automatic_group_ads_loop(application):
                     cur.execute("""
                         INSERT INTO group_ad_state (chat_id, last_sent_at)
                         SELECT chat_id, CURRENT_TIMESTAMP FROM group_chats
+                        WHERE 1
                         ON CONFLICT (chat_id) DO NOTHING
                     """)
 
@@ -3446,44 +3447,55 @@ async def automatic_group_ads_loop(application):
                                 ELSE CURRENT_TIMESTAMP - INTERVAL '10 hours'
                             END
                         FROM group_chats g
-                        CROSS JOIN (VALUES
-                            ('linkgroup'),
-                            ('user_target'),
-                            ('own_link'),
-                            ('school'),
-                            ('ex_to_user'),
-                            ('channel_auto'),
-                            ('free_ads'),
-                            ('quiet')
-                        ) AS t(template)
+                        CROSS JOIN (
+                            SELECT 'linkgroup' AS template
+                            UNION ALL SELECT 'user_target'
+                            UNION ALL SELECT 'own_link'
+                            UNION ALL SELECT 'school'
+                            UNION ALL SELECT 'ex_to_user'
+                            UNION ALL SELECT 'channel_auto'
+                            UNION ALL SELECT 'free_ads'
+                            UNION ALL SELECT 'quiet'
+                        ) AS t
                         LEFT JOIN group_ad_state s ON s.chat_id = g.chat_id
+                        WHERE 1
                         ON CONFLICT (chat_id, template) DO NOTHING
                     """)
 
                     # Stagger overdue promotion templates when a group is first initialized.
                     # The group-wide cooldown still limits sends to one every 10 hours.
+                    # SQLite/libSQL does not support PostgreSQL data-modifying CTEs.
+                    # Initialize scheduling metadata one group at a time.
                     cur.execute("""
-                        WITH new_groups AS (
-                            INSERT INTO group_ad_schedule_meta (chat_id)
-                            SELECT chat_id FROM group_chats
-                            ON CONFLICT (chat_id) DO NOTHING
-                            RETURNING chat_id
+                        SELECT chat_id
+                        FROM group_chats
+                        WHERE chat_id NOT IN (
+                            SELECT chat_id FROM group_ad_schedule_meta
                         )
-                        UPDATE group_ad_template_state AS state
-                        SET last_sent_at = CASE state.template
-                            WHEN 'linkgroup' THEN CURRENT_TIMESTAMP - INTERVAL '10 hours'
-                            WHEN 'user_target' THEN CURRENT_TIMESTAMP - INTERVAL '9 hours'
-                            WHEN 'own_link' THEN CURRENT_TIMESTAMP - INTERVAL '8 hours'
-                            WHEN 'school' THEN CURRENT_TIMESTAMP - INTERVAL '7 hours'
-                            WHEN 'ex_to_user' THEN CURRENT_TIMESTAMP - INTERVAL '6 hours'
-                            WHEN 'channel_auto' THEN CURRENT_TIMESTAMP - INTERVAL '5 hours'
-                            WHEN 'free_ads' THEN CURRENT_TIMESTAMP - INTERVAL '4 hours'
-                        END
-                        FROM new_groups
-                        WHERE state.chat_id = new_groups.chat_id
-                          AND state.template IN ('linkgroup', 'user_target', 'own_link', 'school', 'ex_to_user', 'channel_auto', 'free_ads')
-                          AND state.last_sent_at <= CURRENT_TIMESTAMP - INTERVAL '10 hours'
                     """)
+                    new_group_ids = [row[0] for row in cur.fetchall()]
+                    for new_chat_id in new_group_ids:
+                        cur.execute("""
+                            INSERT INTO group_ad_schedule_meta (chat_id)
+                            VALUES (%s)
+                            ON CONFLICT (chat_id) DO NOTHING
+                        """, (new_chat_id,))
+                        cur.execute("""
+                            UPDATE group_ad_template_state
+                            SET last_sent_at = CASE template
+                                WHEN 'linkgroup' THEN datetime('now', '-10 hours')
+                                WHEN 'user_target' THEN datetime('now', '-9 hours')
+                                WHEN 'own_link' THEN datetime('now', '-8 hours')
+                                WHEN 'school' THEN datetime('now', '-7 hours')
+                                WHEN 'ex_to_user' THEN datetime('now', '-6 hours')
+                                WHEN 'channel_auto' THEN datetime('now', '-5 hours')
+                                WHEN 'free_ads' THEN datetime('now', '-4 hours')
+                                ELSE last_sent_at
+                            END
+                            WHERE chat_id = %s
+                              AND template IN ('linkgroup', 'user_target', 'own_link', 'school', 'ex_to_user', 'channel_auto', 'free_ads')
+                              AND last_sent_at <= datetime('now', '-10 hours')
+                        """, (new_chat_id,))
                     conn.commit()
                 finally:
                     if cur:
