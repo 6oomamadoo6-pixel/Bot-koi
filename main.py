@@ -3428,9 +3428,18 @@ async def automatic_group_ads_loop(application):
                     # Keep the legacy table populated for compatibility with earlier versions.
                     cur.execute("""
                         INSERT INTO group_ad_state (chat_id, last_sent_at)
-                        SELECT chat_id, CURRENT_TIMESTAMP FROM group_chats
+                        SELECT chat_id, datetime('now', '-10 hours') FROM group_chats
                         WHERE 1
                         ON CONFLICT (chat_id) DO NOTHING
+
+                    # Rows created by an earlier broken scheduler initialization have no
+                    # last_template, so they are not evidence of a successfully sent ad.
+                    cur.execute("""
+                        UPDATE group_ad_state
+                        SET last_sent_at = datetime('now', '-10 hours')
+                        WHERE last_template IS NULL
+                          AND last_sent_at > datetime('now', '-10 hours')
+                    """)
                     """)
 
                     # Migrate existing timing once. The last known template keeps its timestamp;
