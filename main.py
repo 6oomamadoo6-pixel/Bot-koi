@@ -3374,19 +3374,18 @@ def channel_profanity_warning_keyboard():
     ])
 
 
-def main_reply_keyboard():
-    return ReplyKeyboardMarkup(
-        [
-            [
-                KeyboardButton("پیام ناشناس مستقیم به چنل"),
-                KeyboardButton("پیام ناشناس با آیدی")
-            ],
-            [
-                KeyboardButton("پیام ناشناس به گروه 👥")
-            ]
-        ],
-        resize_keyboard=True
-    )
+def main_reply_keyboard(language="fa"):
+    if language == "en":
+        rows = [
+            [KeyboardButton("Anonymous channel message"), KeyboardButton("Anonymous message by ID")],
+            [KeyboardButton("Anonymous group message 👥")],
+        ]
+    else:
+        rows = [
+            [KeyboardButton("پیام ناشناس مستقیم به چنل"), KeyboardButton("پیام ناشناس با آیدی")],
+            [KeyboardButton("پیام ناشناس به گروه 👥")],
+        ]
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 
 def get_channel_terms_accepted(user_id):
@@ -3586,9 +3585,10 @@ async def send_main_panel(
             )
         else:
             text = (
-                "<b>The bot's main menu is open. 🎛️\n\n"
-                "To reopen it at any time, tap Main Menu / Back to Main Menu or send /start. 😄</b>\n\n"
-                "<blockquote>To reopen this menu, send /start</blockquote>"
+                "<b>The main menu is now open for you. 🎛️\\n\\n"
+                "Whenever you want to open it again, tap the “Main Menu” or “Back to Main Menu” button, "
+                "or simply send the /start command. 😄</b>\\n\\n"
+                "<blockquote>Open the menu again: /start</blockquote>"
             )
     else:
         if panel_mode == "first":
@@ -3627,7 +3627,7 @@ async def send_main_panel(
         if show_reply_keyboard:
             await update.message.reply_text(
                 "👇🏻",
-                reply_markup=main_reply_keyboard()
+                reply_markup=main_reply_keyboard(language)
             )
     else:
         await update.callback_query.edit_message_text(
@@ -3638,7 +3638,7 @@ async def send_main_panel(
         if show_reply_keyboard:
             await update.callback_query.message.reply_text(
                 "👇🏻",
-                reply_markup=main_reply_keyboard()
+                reply_markup=main_reply_keyboard(language)
             )
 
 
