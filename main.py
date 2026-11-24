@@ -49,11 +49,29 @@ _EMOJI_RE = re.compile(r'[\U0001F1E6-\U0001F1FF\U0001F300-\U0001FAFF\U00002600-\
 def _clean_button_label(value):
     return _EMOJI_RE.sub('', str(value or '')).strip()
 
+def _default_button_style(text, kwargs):
+    # Preserve an explicitly selected style; otherwise color action buttons consistently.
+    if kwargs.get("style") is not None:
+        return kwargs
+    label = _clean_button_label(text).lower()
+    danger_words = ("بازگشت", "لغو", "انصراف", "حذف", "مسدود", "گزارش تخلف", "خیر")
+    success_words = ("تایید", "تأیید", "بله", "جوین شدم", "ثبت نهایی", "فعال سازی", "فعال‌سازی")
+    if any(word in label for word in danger_words):
+        kwargs["style"] = "danger"
+    elif any(word in label for word in success_words):
+        kwargs["style"] = "success"
+    else:
+        kwargs["style"] = "primary"
+    return kwargs
+
 def InlineKeyboardButton(text, *args, **kwargs):
-    # Keep inline-button labels untouched; only reply-keyboard labels lose emoji.
+    # All buttons are blue by default; destructive/back actions red and confirmations green.
+    kwargs = _default_button_style(text, kwargs)
     return TelegramInlineKeyboardButton(text, *args, **kwargs)
 
 def KeyboardButton(text, *args, **kwargs):
+    # Reply-keyboard buttons use the same color rules while keeping labels emoji-free.
+    kwargs = _default_button_style(text, kwargs)
     return TelegramKeyboardButton(_clean_button_label(text), *args, **kwargs)
 
 
@@ -3013,7 +3031,7 @@ async def is_group_member(
 
 def main_keyboard():
     rows = [
-        [InlineKeyboardButton("دریافت لینک ناشناس 🔗", callback_data="copy_link", style="success")],
+        [InlineKeyboardButton("دریافت لینک ناشناس 🔗", callback_data="copy_link", style="primary")],
         [
             InlineKeyboardButton("تنظیمات ⚙️", callback_data="name_settings", style="primary"),
             InlineKeyboardButton("تبلیغات 📢", callback_data="ads", style="primary"),
