@@ -648,6 +648,26 @@ def init_db():
             )
         """)
 
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS timed_links (
+                link_code TEXT PRIMARY KEY,
+                owner_id BIGINT NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_timed_links_owner
+            ON timed_links(owner_id)
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS user_voice_settings (
+                user_id BIGINT PRIMARY KEY,
+                voice_type TEXT NOT NULL DEFAULT 'original',
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         conn.commit()
 
     finally:
@@ -1331,6 +1351,78 @@ def get_user_by_link(link_code):
 
     finally:
         cur.close()
+        release_db(conn)
+
+
+def create_timed_link(owner_id, hours):
+    conn = db()
+    cur = None
+    try:
+        cur = conn.cursor()
+        while True:
+            code = generate_code(10)
+            cur.execute("SELECT 1 FROM timed_links WHERE link_code = %s", (code,))
+            if not cur.fetchone():
+                break
+        expires_at = datetime.now() + timedelta(hours=int(hours))
+        cur.execute(
+            "INSERT INTO timed_links (link_code, owner_id, expires_at) VALUES (%s, %s, %s)",
+            (code, owner_id, expires_at)
+        )
+        conn.commit()
+        return code, expires_at
+    finally:
+        if cur is not None:
+            cur.close()
+        release_db(conn)
+
+
+def get_timed_link(code):
+    conn = db()
+    cur = None
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT owner_id, expires_at FROM timed_links WHERE lower(link_code) = %s", (str(code).strip().lower(),))
+        return cur.fetchone()
+    finally:
+        if cur is not None:
+            cur.close()
+        release_db(conn)
+
+
+def get_voice_setting(user_id):
+    conn = db()
+    cur = None
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT voice_type FROM user_voice_settings WHERE user_id = %s", (user_id,))
+        row = cur.fetchone()
+        return row[0] if row else "original"
+    finally:
+        if cur is not None:
+            cur.close()
+        release_db(conn)
+
+
+def set_voice_setting(user_id, voice_type):
+    if voice_type not in ("low", "high", "robot"):
+        return False
+    conn = db()
+    cur = None
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO user_voice_settings (user_id, voice_type, updated_at)
+            VALUES (%s, %s, CURRENT_TIMESTAMP)
+            ON CONFLICT (user_id) DO UPDATE
+            SET voice_type = EXCLUDED.voice_type,
+                updated_at = CURRENT_TIMESTAMP
+        """, (user_id, voice_type))
+        conn.commit()
+        return True
+    finally:
+        if cur is not None:
+            cur.close()
         release_db(conn)
 
 
@@ -2844,16 +2936,16 @@ async def is_group_member(
 
 def main_keyboard():
     rows = [
-        [InlineKeyboardButton("دریافت لینک ناشناس 🔗", callback_data="copy_link", style="success")],
+        [InlineKeyboardButton("دریافت لینک ناشناس", callback_data="copy_link")],
         [
-            InlineKeyboardButton("تنظیمات نام ⚙️", callback_data="name_settings", style="primary"),
-            InlineKeyboardButton("تبلیغات 📢", callback_data="ads", style="primary"),
+            InlineKeyboardButton("تنظیمات", callback_data="name_settings"),
+            InlineKeyboardButton("تبلیغات", callback_data="ads"),
         ],
         [
-            InlineKeyboardButton("کانال پشتیبانی 📣", url="https://t.me/SuppoortGoldenchat", style="primary"),
-            InlineKeyboardButton("لیست مسدودی 🚫", callback_data="block_list", style="danger"),
+            InlineKeyboardButton("کانال پشتیبانی", url="https://t.me/SuppoortGoldenchat"),
+            InlineKeyboardButton("لیست مسدودی", callback_data="block_list"),
         ],
-        [InlineKeyboardButton("« راهنما❔»", callback_data="help")],
+        [InlineKeyboardButton("راهنما", callback_data="help")],
     ]
     return InlineKeyboardMarkup(rows)
 
@@ -2891,8 +2983,42 @@ def link_keyboard(share_url):
 
 def name_settings_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("تغییر نام ✏️", callback_data="change_name", style="primary")],
-        [InlineKeyboardButton("بازگشت 🔙", callback_data="back_main", style="danger")],
+        [InlineKeyboardButton("تنظیم نام نمایشی", callback_data="change_name")],
+        [InlineKeyboardButton("تنظیمات صدای ویس", callback_data="voice_settings")],
+        [InlineKeyboardButton("لینک زمان دار", callback_data="timed_link_menu")],
+        [InlineKeyboardButton("بازگشت", callback_data="back_main")],
+    ])
+
+
+def voice_settings_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("انتخاب صدا", callback_data="voice_choose")],
+        [InlineKeyboardButton("تست صدای من", callback_data="voice_test")],
+        [InlineKeyboardButton("بازگشت", callback_data="settings_back")],
+    ])
+
+
+def voice_choices_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("صدای بم", callback_data="voice_select:low")],
+        [InlineKeyboardButton("صدای زیر", callback_data="voice_select:high")],
+        [InlineKeyboardButton("صدای رباتی", callback_data="voice_select:robot")],
+        [InlineKeyboardButton("بازگشت", callback_data="voice_settings")],
+    ])
+
+
+def timed_link_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("۱ ساعت", callback_data="timed_link:1"),
+            InlineKeyboardButton("۲۴ ساعت", callback_data="timed_link:24"),
+        ],
+        [
+            InlineKeyboardButton("۲ روز", callback_data="timed_link:48"),
+            InlineKeyboardButton("۴ روز", callback_data="timed_link:96"),
+        ],
+        [InlineKeyboardButton("۷ روز", callback_data="timed_link:168")],
+        [InlineKeyboardButton("بازگشت", callback_data="settings_back")],
     ])
 
 
@@ -2986,8 +3112,8 @@ def main_reply_keyboard():
     return ReplyKeyboardMarkup(
         [
             [
-                KeyboardButton("پیام ناشناس مستقیم به چنل 📬"),
-                KeyboardButton("پیام ناشناس به کاربر دلخواه 👤")
+                KeyboardButton("پیام ناشناس مستقیم به چنل"),
+                KeyboardButton("پیام ناشناس با آیدی")
             ],
             [
                 KeyboardButton("پیام ناشناس به گروه 👥")
