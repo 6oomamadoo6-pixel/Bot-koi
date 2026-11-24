@@ -5537,12 +5537,14 @@ async def button_handler(
         await query.answer()
         context.user_data.clear()
         touch_user_activity(user_id)
-        text = (
-            "<b>منوی اصلی ربات برای شما باز شد. 🎛️\n\n"
-            "هر زمان برای دریافت منوی اصلی کافیه روی دکمه های « منوی اصلی ، بازگشت به منوی اصلی » و یا از دستور /start استفاده کنید😄</b>\n\n"
-            "<blockquote>دریافت مجدد منو با › /start</blockquote>"
+        # Reuse the main-panel renderer so the saved language is respected
+        # consistently for both the message text and every main-menu button.
+        await send_main_panel(
+            update,
+            context,
+            show_reply_keyboard=False,
+            panel_mode="manual"
         )
-        await query.message.edit_text(text, reply_markup=main_keyboard(), parse_mode="HTML")
         return
 
     # -----------------------------------------------------
