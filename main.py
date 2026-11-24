@@ -6,6 +6,8 @@ import time
 import html
 import json
 import re
+import subprocess
+import tempfile
 from urllib.parse import quote, urlsplit
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -48,9 +50,8 @@ def _clean_button_label(value):
     return _EMOJI_RE.sub('', str(value or '')).strip()
 
 def InlineKeyboardButton(text, *args, **kwargs):
-    callback = str(kwargs.get('callback_data') or '').lower()
-    kwargs['style'] = 'danger' if ('back' in callback or 'بازگشت' in str(text)) else 'primary'
-    return TelegramInlineKeyboardButton(_clean_button_label(text), *args, **kwargs)
+    # Keep inline-button labels untouched; only reply-keyboard labels lose emoji.
+    return TelegramInlineKeyboardButton(text, *args, **kwargs)
 
 def KeyboardButton(text, *args, **kwargs):
     return TelegramKeyboardButton(_clean_button_label(text), *args, **kwargs)
@@ -1390,6 +1391,82 @@ def get_timed_link(code):
         release_db(conn)
 
 
+VOICE_EFFECT_FILTERS = {
+    "low": "asetrate=48000*0.82,aresample=48000,atempo=1.2195",
+    "high": "asetrate=48000*1.18,aresample=48000,atempo=0.8475",
+    "kid": "asetrate=48000*1.38,aresample=48000,atempo=0.7246",
+    "robot": "highpass=f=120,lowpass=f=3600,tremolo=f=28:d=0.85,aecho=0.8:0.88:40:0.35",
+    "alien": "asetrate=48000*0.92,aresample=48000,atempo=1.087,chorus=0.6:0.9:45:0.4:0.25:2",
+    "radio": "highpass=f=350,lowpass=f=2800,acompressor=threshold=0.08:ratio=5:attack=5:release=50",
+    "echo": "aecho=0.8:0.88:100|180|260:0.4|0.25|0.15",
+}
+
+
+async def create_voice_effect(bot, file_id, voice_type):
+    if voice_type not in VOICE_EFFECT_FILTERS:
+        raise ValueError("Unsupported voice effect")
+    import imageio_ffmpeg
+
+    source_path = None
+    output_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as source:
+            source_path = source.name
+        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as output:
+            output_path = output.name
+
+        telegram_file = await bot.get_file(file_id)
+        await telegram_file.download_to_drive(custom_path=source_path)
+
+        command = [
+            imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-hide_banner", "-loglevel", "error",
+            "-i", source_path, "-vn", "-af", VOICE_EFFECT_FILTERS[voice_type],
+            "-c:a", "libopus", "-b:a", "48k", "-vbr", "on",
+            "-application", "voip", "-f", "ogg", output_path
+        ]
+        def run_ffmpeg():
+            result = subprocess.run(command, capture_output=True, text=True, timeout=90)
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr[-1200:] or "ffmpeg processing failed")
+        await asyncio.to_thread(run_ffmpeg)
+        return output_path
+    except Exception:
+        for path in (source_path, output_path):
+            if path:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+        raise
+    finally:
+        if source_path:
+            try:
+                os.remove(source_path)
+            except OSError:
+                pass
+
+
+def remove_temp_voice(path):
+    if path:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def set_anonymous_media_file_id(message_id, file_id):
+    conn = db()
+    cur = None
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE anonymous_messages SET file_id = %s WHERE id = %s", (file_id, message_id))
+        conn.commit()
+    finally:
+        if cur is not None:
+            cur.close()
+        release_db(conn)
+
+
 def get_voice_setting(user_id):
     conn = db()
     cur = None
@@ -1405,7 +1482,7 @@ def get_voice_setting(user_id):
 
 
 def set_voice_setting(user_id, voice_type):
-    if voice_type not in ("low", "high", "robot"):
+    if voice_type not in ("low", "high", "kid", "robot", "alien", "radio", "echo"):
         return False
     conn = db()
     cur = None
@@ -2936,16 +3013,16 @@ async def is_group_member(
 
 def main_keyboard():
     rows = [
-        [InlineKeyboardButton("دریافت لینک ناشناس", callback_data="copy_link")],
+        [InlineKeyboardButton("دریافت لینک ناشناس 🔗", callback_data="copy_link", style="success")],
         [
-            InlineKeyboardButton("تنظیمات", callback_data="name_settings"),
-            InlineKeyboardButton("تبلیغات", callback_data="ads"),
+            InlineKeyboardButton("تنظیمات ⚙️", callback_data="name_settings", style="primary"),
+            InlineKeyboardButton("تبلیغات 📢", callback_data="ads", style="primary"),
         ],
         [
-            InlineKeyboardButton("کانال پشتیبانی", url="https://t.me/SuppoortGoldenchat"),
-            InlineKeyboardButton("لیست مسدودی", callback_data="block_list"),
+            InlineKeyboardButton("کانال پشتیبانی 📣", url="https://t.me/SuppoortGoldenchat", style="primary"),
+            InlineKeyboardButton("لیست مسدودی 🚫", callback_data="block_list", style="danger"),
         ],
-        [InlineKeyboardButton("راهنما", callback_data="help")],
+        [InlineKeyboardButton("راهنما 🤔", callback_data="help")],
     ]
     return InlineKeyboardMarkup(rows)
 
@@ -3000,10 +3077,27 @@ def voice_settings_keyboard():
 
 def voice_choices_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("صدای بم", callback_data="voice_select:low")],
-        [InlineKeyboardButton("صدای زیر", callback_data="voice_select:high")],
-        [InlineKeyboardButton("صدای رباتی", callback_data="voice_select:robot")],
-        [InlineKeyboardButton("بازگشت", callback_data="voice_settings")],
+        [
+            InlineKeyboardButton("صدای بم", callback_data="voice_select:low"),
+            InlineKeyboardButton("صدای زیر", callback_data="voice_select:high"),
+        ],
+        [
+            InlineKeyboardButton("صدای کودکانه", callback_data="voice_select:kid"),
+            InlineKeyboardButton("صدای رباتی", callback_data="voice_select:robot"),
+        ],
+        [
+            InlineKeyboardButton("صدای فضایی", callback_data="voice_select:alien"),
+            InlineKeyboardButton("صدای رادیویی", callback_data="voice_select:radio"),
+        ],
+        [InlineKeyboardButton("صدای اکو", callback_data="voice_select:echo")],
+        [InlineKeyboardButton("بازگشت", callback_data="voice_settings", style="danger")],
+    ])
+
+
+def voice_test_result_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("بازگشت", callback_data="voice_settings", style="danger")],
+        [InlineKeyboardButton("منوی اصلی", callback_data="back_main", style="danger")],
     ])
 
 
@@ -5626,7 +5720,7 @@ async def button_handler(
     if data == "voice_settings":
         await query.answer()
         selected = get_voice_setting(user_id)
-        voice_names = {"original": "تغییر نکرده", "low": "صدای بم", "high": "صدای زیر", "robot": "صدای رباتی"}
+        voice_names = {"original": "تغییر نکرده", "low": "صدای بم", "high": "صدای زیر", "kid": "صدای کودکانه", "robot": "صدای رباتی", "alien": "صدای فضایی", "radio": "صدای رادیویی", "echo": "صدای اکو"}
         await query.edit_message_text(
             "<b>🎙 تغییر صدای ویس</b>\n\n"
             "وقتی برای کسی ویس ناشناس می‌فرستید، صدای شما قبل از ارسال تغییر می‌کند تا هیچ‌کس از روی صدا شما را نشناسد.\n\n"
@@ -5643,7 +5737,7 @@ async def button_handler(
     if data == "voice_choose":
         await query.answer()
         await query.edit_message_text(
-            "<b>نوع صدای موردنظر را انتخاب کنید:</b>",
+            "<b>یکی از ۷ حالت صدا را انتخاب کنید:</b>",
             parse_mode="HTML",
             reply_markup=voice_choices_keyboard()
         )
@@ -5655,19 +5749,24 @@ async def button_handler(
             await query.answer("نوع صدا معتبر نیست.", show_alert=True)
             return
         await query.answer("انتخاب شما ذخیره شد.")
-        selected = {"low": "صدای بم", "high": "صدای زیر", "robot": "صدای رباتی"}.get(voice_type, "انتخاب نشده")
+        selected = {"low": "صدای بم", "high": "صدای زیر", "kid": "صدای کودکانه", "robot": "صدای رباتی", "alien": "صدای فضایی", "radio": "صدای رادیویی", "echo": "صدای اکو"}.get(voice_type, "انتخاب نشده")
         await query.edit_message_text(
-            f"صدای انتخابی شما: <b>{selected}</b>\n\n"
-            "توجه: پردازشگر تغییر صدا هنوز روی سرور فعال نشده؛ تا زمان فعال‌سازی، ویس ناشناس بدون تغییر ارسال نخواهد شد.",
+            f"صدای انتخابی شما ذخیره شد: <b>{selected}</b>\n\n"
+            "از گزینه «تست صدای من» برای شنیدن نمونه استفاده کنید.",
             parse_mode="HTML",
             reply_markup=voice_settings_keyboard()
         )
         return
 
     if data == "voice_test":
-        await query.answer(
-            "پردازشگر تغییر صدا هنوز فعال نشده است. برای حفظ ناشناسی، فعلاً ویس تست ارسال نکنید.",
-            show_alert=True
+        await query.answer()
+        context.user_data["voice_test_waiting"] = True
+        await query.edit_message_text(
+            "یک ویس نمونه از خودتان بفرستید تا با صدای انتخابی پردازش و برایتان ارسال شود. فایل موقت پس از تست حذف می‌شود.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("بازگشت", callback_data="voice_settings", style="danger")],
+                [InlineKeyboardButton("منوی اصلی", callback_data="back_main", style="danger")],
+            ])
         )
         return
 
