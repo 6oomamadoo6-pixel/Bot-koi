@@ -5788,7 +5788,15 @@ async def button_handler(
     if data == "voice_test_main":
         await query.answer()
         context.user_data.clear()
-        await send_main_panel(update, context, show_reply_keyboard=False)
+        panel_text = (
+            "<b>درود!\n"
+            "شما در پنل اصلی « گلدن چت » هستین.🤠\n\n"
+            "میتونید با استفاده از پنل زیر و دکمه های کیبوردی و حتی مینی اپ از قابلیت های ربات استفاده کنید؛⚡\n"
+            "ممنون از انتخاب شما 😉</b>\n\n"
+            "<blockquote>دریافت مجدد منو با › /start</blockquote>"
+        )
+        panel_keyboard = admin_main_keyboard() if user_id == ADMIN_ID else main_keyboard()
+        await query.message.reply_text(panel_text, reply_markup=panel_keyboard, parse_mode="HTML")
         return
 
     if data == "timed_link_menu":
