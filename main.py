@@ -1998,6 +1998,78 @@ def clear_expired_bans():
         release_db(conn)
 
 
+def cleanup_expired_data():
+    """
+    Remove only disposable/expired auxiliary rows.
+    Never delete users, anonymous messages, blocks, abuse reports, reactions,
+    group messages, link-view statistics, or moderation history.
+    """
+    conn = db()
+    cur = None
+    counts = {}
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            DELETE FROM timed_links
+            WHERE expires_at <= CURRENT_TIMESTAMP
+        """)
+        counts["expired_timed_links"] = max(cur.rowcount, 0)
+
+        cur.execute("""
+            DELETE FROM group_ad_activity
+            WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '7 days'
+        """)
+        counts["old_group_activity_samples"] = max(cur.rowcount, 0)
+
+        cur.execute("""
+            DELETE FROM new_user_queue
+            WHERE viewed_at IS NOT NULL
+              AND viewed_at < CURRENT_TIMESTAMP - INTERVAL '30 days'
+        """)
+        counts["old_viewed_queue_rows"] = max(cur.rowcount, 0)
+
+        cur.execute("""
+            DELETE FROM channel_profanity_violations
+            WHERE updated_at < CURRENT_TIMESTAMP - INTERVAL '30 days'
+        """)
+        counts["old_profanity_counters"] = max(cur.rowcount, 0)
+
+        cur.execute("""
+            DELETE FROM user_activity
+            WHERE last_active_at < CURRENT_TIMESTAMP - INTERVAL '90 days'
+              AND user_id NOT IN (SELECT user_id FROM users)
+        """)
+        counts["orphan_activity_rows"] = max(cur.rowcount, 0)
+
+        conn.commit()
+        return counts
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        if cur is not None:
+            cur.close()
+        release_db(conn)
+
+
+async def database_cleanup_loop():
+    """Run a safe initial cleanup, then repeat every 24 hours."""
+    while True:
+        try:
+            counts = await asyncio.to_thread(cleanup_expired_data)
+            removed = sum(counts.values())
+            print(
+                f"[DB CLEANUP] Removed {removed} disposable rows: {counts}",
+                flush=True,
+            )
+        except Exception as cleanup_error:
+            print(
+                f"[DB CLEANUP ERROR] {type(cleanup_error).__name__}: {cleanup_error}",
+                flush=True,
+            )
+        await asyncio.sleep(24 * 60 * 60)
+
+
 async def expire_bans_loop():
     while True:
         try:
@@ -8660,6 +8732,10 @@ async def post_init(
         automatic_group_ads_loop(application)
     )
 
+    application.bot_data["database_cleanup_task"] = asyncio.create_task(
+        database_cleanup_loop()
+    )
+
     try:
         from telegram import BotCommand, BotCommandScopeChat
 
@@ -8713,6 +8789,14 @@ async def post_shutdown(
         ads_task.cancel()
         try:
             await ads_task
+        except asyncio.CancelledError:
+            pass
+
+    cleanup_task = application.bot_data.get("database_cleanup_task")
+    if cleanup_task:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
         except asyncio.CancelledError:
             pass
 
