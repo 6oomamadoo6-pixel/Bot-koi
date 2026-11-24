@@ -4907,6 +4907,7 @@ async def ads_page(
     update,
     context
 ):
+    user = update.effective_user
     await update.callback_query.answer(
         tr(user.id, "ads_message"),
         show_alert=True
