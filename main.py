@@ -1339,6 +1339,21 @@ def get_user_language(user_id):
         release_db(conn)
 
 
+# Centralized user-facing translations. Add new keys here and use tr(user_id, key).
+TEXTS = {
+    "ads_message": {
+        "fa": "برای ثبت تبلیغات از مینی اپ اقدام کنید.📣",
+        "en": "To submit an advertisement, please use the Mini App. 📣",
+    },
+}
+
+
+def tr(user_id, key):
+    language = get_user_language(user_id) or "fa"
+    translations = TEXTS.get(key, {})
+    return translations.get(language) or translations.get("fa") or key
+
+
 def set_user_language(user_id, language):
     if language not in ("fa", "en"):
         raise ValueError("Unsupported language")
@@ -4893,7 +4908,7 @@ async def ads_page(
     context
 ):
     await update.callback_query.answer(
-        "تبلیغات غیرفعال شده است.\nبه زودی فعال میشود\nدرحال آپدیت🫟",
+        tr(user.id, "ads_message"),
         show_alert=True
     )
 
@@ -6095,7 +6110,7 @@ async def button_handler(
 
     if data == "ads":
         await query.answer(
-            "تبلیغات غیرفعال شده است.\nبه زودی فعال میشود\nدرحال آپدیت🫟",
+            tr(user_id, "ads_message"),
             show_alert=True
         )
         return
