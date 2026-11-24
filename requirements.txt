@@ -2,3 +2,4 @@
 python-telegram-bot
 turso_serverless
 flask
+imageio-ffmpeg>=0.5.1
