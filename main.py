@@ -3038,7 +3038,7 @@ def main_keyboard():
         ],
         [
             InlineKeyboardButton("کانال پشتیبانی 📣", url="https://t.me/SuppoortGoldenchat", style="primary"),
-            InlineKeyboardButton("لیست مسدودی 🚫", callback_data="block_list", style="danger"),
+            InlineKeyboardButton("لیست مسدودی 🚫", callback_data="block_list", style="primary"),
         ],
         [InlineKeyboardButton("راهنما 🤔", callback_data="help")],
     ]
