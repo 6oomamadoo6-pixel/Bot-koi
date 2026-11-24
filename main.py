@@ -6523,6 +6523,14 @@ async def media_handler(update, context):
                 "شما نمیتوانید به این مقصد پیامی ارسال کنید🙈\n\n"
                 "« گلدن چت »", reply_markup=back_keyboard(), parse_mode="HTML")
             return
+        if media_type == "voice" and get_voice_setting(user.id) != "original":
+            context.user_data.clear()
+            await message.reply_text(
+                "پردازشگر تغییر صدا هنوز فعال نشده است؛ برای حفظ ناشناسی، ویس شما ارسال نشد.",
+                reply_markup=back_keyboard()
+            )
+            return
+
         mid = save_anonymous_message(user.id, target_id, caption, media_type, file_id, caption, message.message_id, target_id)
         keyboard = anonymous_message_keyboard(mid, user.id, True, True)
         row = get_user(user.id)
@@ -7919,7 +7927,7 @@ async def handle_message(
     # =====================================================
     # CHANNEL ANONYMOUS BUTTON
     # =====================================================
-    if text.strip() == "پیام ناشناس مستقیم به چنل 📬":
+    if text.strip() in ("پیام ناشناس مستقیم به چنل", "پیام ناشناس مستقیم به چنل 📬"):
         context.user_data.clear()
         if get_channel_terms_accepted(user.id):
             rows = get_owner_channel_links(user.id)
@@ -7982,7 +7990,7 @@ async def handle_message(
     # GROUP BUTTON
     # =====================================================
 
-    if text == "پیام ناشناس به گروه 👥" or text == "ارسال پیام ناشناس به گروه 👥":
+    if text.strip() in ("پیام ناشناس به گروه", "پیام ناشناس به گروه 👥", "ارسال پیام ناشناس به گروه 👥"):
         await show_group_list(
             update,
             context
