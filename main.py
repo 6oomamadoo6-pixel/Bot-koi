@@ -292,10 +292,12 @@ def init_db():
                 display_name TEXT,
                 created_at TIMESTAMP,
                 ban_code TEXT UNIQUE,
-                ban_until TIMESTAMP,
-                ban_reason TEXT
+                ban_until TIMESTAMP,                ban_reason TEXT,
+                language TEXT
             )
         """)
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS language TEXT")
+        cur.execute("UPDATE users SET language = 'fa' WHERE language IS NULL")
 
         cur.execute("""
             CREATE TABLE IF NOT EXISTS user_activity (
@@ -1321,6 +1323,45 @@ def cleanup_blocked_users():
     finally:
         cur.close()
         release_db(conn)
+
+
+def get_user_language(user_id):
+    conn = db()
+    cur = None
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT language FROM users WHERE user_id = %s", (user_id,))
+        row = cur.fetchone()
+        return row[0] if row and row[0] in ("fa", "en") else None
+    finally:
+        if cur is not None:
+            cur.close()
+        release_db(conn)
+
+
+def set_user_language(user_id, language):
+    if language not in ("fa", "en"):
+        raise ValueError("Unsupported language")
+    conn = db()
+    cur = None
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE users SET language = %s WHERE user_id = %s", (language, user_id))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        if cur is not None:
+            cur.close()
+        release_db(conn)
+
+
+def language_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("فارسی 🇮🇷🦁", callback_data="language_select:fa", style="primary")],
+        [InlineKeyboardButton("English 🇺🇸", callback_data="language_select:en", style="primary")],
+    ])
 
 
 def get_user_activity(user_id):
@@ -3142,24 +3183,26 @@ async def is_group_member(
 # KEYBOARDS
 # =========================================================
 
-def main_keyboard():
+def main_keyboard(language="fa"):
+    english = language == "en"
     rows = [
-        [InlineKeyboardButton("دریافت لینک ناشناس 🔗", callback_data="copy_link", style="primary")],
+        [InlineKeyboardButton("Get anonymous link 🔗" if english else "دریافت لینک ناشناس 🔗", callback_data="copy_link", style="primary")],
         [
-            InlineKeyboardButton("تنظیمات ⚙️", callback_data="name_settings", style="primary"),
-            InlineKeyboardButton("تبلیغات 📣", callback_data="ads", style="primary"),
+            InlineKeyboardButton("Settings ⚙️" if english else "تنظیمات ⚙️", callback_data="name_settings", style="primary"),
+            InlineKeyboardButton("Ads 📣" if english else "تبلیغات 📣", callback_data="ads", style="primary"),
         ],
         [
-            InlineKeyboardButton("کانال پشتیبانی 📢", url="https://t.me/SuppoortGoldenchat", style="primary"),
-            InlineKeyboardButton("لیست مسدودی 🚫", callback_data="block_list", style="primary"),
+            InlineKeyboardButton("Support channel 📢" if english else "کانال پشتیبانی 📢", url="https://t.me/SuppoortGoldenchat", style="primary"),
+            InlineKeyboardButton("Blocked list 🚫" if english else "لیست مسدودی 🚫", callback_data="block_list", style="primary"),
         ],
-        [InlineKeyboardButton("«  راهنما ❔ »", callback_data="help", style="primary")],
+        [InlineKeyboardButton("«  Help ❔ »" if english else "«  راهنما ❔ »", callback_data="help", style="primary")],
     ]
     return InlineKeyboardMarkup(rows)
 
-def admin_main_keyboard():
+
+def admin_main_keyboard(language="fa"):
     """Keep the admin's user-facing main menu identical to the regular user's menu."""
-    return main_keyboard()
+    return main_keyboard(language)
 
 
 def back_keyboard():
@@ -3189,12 +3232,18 @@ def link_keyboard(share_url):
     ])
 
 
-def name_settings_keyboard():
+def name_settings_keyboard(language="fa"):
+    english = language == "en"
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("تنظیم نام نمایشی", callback_data="change_name")],
-        [InlineKeyboardButton("تنظیمات صدای ویس", callback_data="voice_settings")],
-        [InlineKeyboardButton("لینک زمان دار", callback_data="timed_link_menu")],
-        [InlineKeyboardButton("بازگشت", callback_data="back_main")],
+        [
+            InlineKeyboardButton("Display name" if english else "نام نمایشی", callback_data="change_name"),
+            InlineKeyboardButton("Timed link" if english else "لینک زمان دار", callback_data="timed_link_menu"),
+        ],
+        [
+            InlineKeyboardButton("Change voice" if english else "تغییر صدا", callback_data="voice_settings"),
+            InlineKeyboardButton("Change language" if english else "انتخاب زبان", callback_data="language_settings"),
+        ],
+        [InlineKeyboardButton("Back" if english else "بازگشت", callback_data="back_main", style="danger")],
     ])
 
 
@@ -3541,7 +3590,8 @@ async def send_main_panel(
         )
 
     user = update.effective_user
-    panel_keyboard = admin_main_keyboard() if user and user.id == ADMIN_ID else main_keyboard()
+    language = get_user_language(user.id) if user else "fa"
+    panel_keyboard = admin_main_keyboard(language) if user and user.id == ADMIN_ID else main_keyboard(language)
 
     if update.message:
         await update.message.reply_text(
@@ -4172,6 +4222,15 @@ async def start(
         "group",
         "supergroup"
     ):
+        return
+
+    get_or_create_user(user.id, user.username, user.full_name, user.first_name)
+    if not get_user_language(user.id):
+        context.user_data["pending_language_start"] = context.args[0].strip() if context.args else ""
+        await update.message.reply_text(
+            "لطفا زبان کشور خودتان را انتخاب کنید.\nPlease select your country's language.",
+            reply_markup=language_keyboard()
+        )
         return
 
     if user.id != ADMIN_ID:
@@ -4870,16 +4929,23 @@ async def name_settings(
     context
 ):
     user = update.effective_user
-
-    current_name = get_display_name(
-        user.id
-    )
-
+    current_name = get_display_name(user.id)
+    language = get_user_language(user.id) or "fa"
+    if language == "en":
+        text = (
+            "<b>Settings</b>\n\n"
+            f"Your current name: {html.escape(str(current_name))}\n\n"
+            "This name is shown to the sender when you receive an anonymous message."
+        )
+    else:
+        text = (
+            "<b>تنظیمات</b>\n\n"
+            f"نام فعلی شما: {html.escape(str(current_name))}\n\n"
+            "این نام هنگام ارسال پیام ناشناس به فرستنده نمایش داده می‌شود."
+        )
     await update.callback_query.edit_message_text(
-        "<b>تنظیمات</b>\n\n"
-        f"نام فعلی شما: {html.escape(str(current_name))}\n\n"
-        "این نام هنگام ارسال پیام ناشناس به فرستنده نمایش داده می‌شود.",
-        reply_markup=name_settings_keyboard(),
+        text,
+        reply_markup=name_settings_keyboard(language),
         parse_mode="HTML"
     )
 
@@ -5813,6 +5879,41 @@ async def button_handler(
             parse_mode="HTML"
         )
 
+        return
+
+    # -----------------------------------------------------
+    # LANGUAGE SETTINGS
+    # -----------------------------------------------------
+    if data == "language_settings":
+        await query.answer()
+        await query.edit_message_text(
+            "لطفا زبان کشور خودتان را انتخاب کنید.\nPlease select your country's language.",
+            reply_markup=language_keyboard()
+        )
+        return
+
+    if data.startswith("language_select:"):
+        selected_language = data.split(":", 1)[1]
+        if selected_language not in ("fa", "en"):
+            await query.answer("Invalid language", show_alert=True)
+            return
+        set_user_language(user_id, selected_language)
+        await query.answer("Language saved" if selected_language == "en" else "زبان ذخیره شد")
+        pending_payload = context.user_data.pop("pending_language_start", "")
+        if pending_payload:
+            bot_username = await get_cached_bot_username(context)
+            resume_url = f"https://t.me/{bot_username}?start={quote(pending_payload, safe='')}"
+            await query.edit_message_text(
+                "Language saved. Tap below to continue." if selected_language == "en" else "زبان ذخیره شد. برای ادامه روی دکمه زیر بزنید.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("Continue ▶️" if selected_language == "en" else "ادامه ▶️", url=resume_url)
+                ]])
+            )
+        else:
+            await query.edit_message_text(
+                "Language saved. Welcome to Golden Chat!" if selected_language == "en" else "زبان ذخیره شد. به گلدن چت خوش اومدی!",
+                reply_markup=main_keyboard(selected_language)
+            )
         return
 
     # -----------------------------------------------------
