@@ -6525,6 +6525,31 @@ async def media_handler(update, context):
         await send_join_message(update, context)
         return
 
+    if context.user_data.get("voice_test_waiting"):
+        if media_type != "voice":
+            await message.reply_text("لطفاً یک ویس ارسال کنید تا صدای انتخابی تست شود.")
+            return
+        voice_type = get_voice_setting(user.id)
+        temp_path = None
+        try:
+            voice_source = file_id
+            if voice_type != "original":
+                temp_path = await create_voice_effect(context.bot, file_id, voice_type)
+                voice_source = temp_path
+            await context.bot.send_voice(
+                chat_id=user.id,
+                voice=voice_source,
+                reply_markup=voice_test_result_keyboard()
+            )
+            await message.reply_text("تست صدا انجام شد.")
+        except Exception as e:
+            print(f"[VOICE TEST] {type(e).__name__}: {e}", flush=True)
+            await message.reply_text("پردازش ویس انجام نشد. لطفاً دوباره امتحان کنید.")
+        finally:
+            remove_temp_voice(temp_path)
+            context.user_data.pop("voice_test_waiting", None)
+        return
+
     if context.user_data.get("sending_channel_anonymous"):
         if media_type != "voice":
             await message.reply_text(" برای پیام ناشناس چنل فقط متن و ویس قابل ارسال است.")
@@ -6535,24 +6560,34 @@ async def media_handler(update, context):
             context.user_data.clear()
             await message.reply_text(" اطلاعات چنل پیدا نشد.", reply_markup=back_keyboard())
             return
-        row = get_user(user.id)
-        anon_code = row[4] if row else "0000000"
-        message_id = save_anonymous_message(user.id, owner_id, "[پیام صوتی]", "voice", file_id, caption, message.message_id, owner_id)
-        keyboard = channel_message_keyboard(message_id, user.id)
+        voice_temp_path = None
         try:
+            voice_source = file_id
+            voice_type = get_voice_setting(user.id)
+            if voice_type != "original":
+                voice_temp_path = await create_voice_effect(context.bot, file_id, voice_type)
+                voice_source = voice_temp_path
+            row = get_user(user.id)
+            anon_code = row[4] if row else "0000000"
+            message_id = save_anonymous_message(user.id, owner_id, "[پیام صوتی]", "voice", file_id, caption, message.message_id, owner_id)
+            keyboard = channel_message_keyboard(message_id, user.id)
             await context.bot.send_message(chat_id=channel_id, text=f"<b>پیام ناشناس از طرف کاربر {anon_code}</b>", parse_mode="HTML")
-            await context.bot.send_voice(chat_id=channel_id, voice=file_id, caption=caption or None)
+            sent_voice = await context.bot.send_voice(chat_id=channel_id, voice=voice_source, caption=caption or None)
+            if sent_voice.voice:
+                set_anonymous_media_file_id(message_id, sent_voice.voice.file_id)
             await context.bot.send_message(
                 chat_id=owner_id,
                 text=f"<b>پیام ناشناسی از طرف کاربر {anon_code} برای چنل شما ارسال شد.</b>\n\n<b>پیام : پیام صوتی</b>\n\n<b>گزارش تخلف و بلاک 👇🏻</b>",
                 parse_mode="HTML",
                 reply_markup=keyboard
             )
-            await context.bot.send_voice(chat_id=owner_id, voice=file_id)
+            await context.bot.send_voice(chat_id=owner_id, voice=sent_voice.voice.file_id if sent_voice.voice else voice_source)
             await message.reply_text("✅ ویس ناشناس با موفقیت به چنل ارسال شد.", reply_markup=back_keyboard())
-        except TelegramError as e:
-            print(f"Anonymous channel voice send error: {e}")
-            await message.reply_text(" ارسال ویس به چنل ناموفق بود. دسترسی ادمین ربات را بررسی کنید.")
+        except Exception as e:
+            print(f"Anonymous channel voice send error: {type(e).__name__}: {e}", flush=True)
+            await message.reply_text("ارسال ویس به چنل ناموفق بود. دسترسی ادمین ربات را بررسی کنید.")
+        finally:
+            remove_temp_voice(voice_temp_path)
         context.user_data.clear()
         return
 
@@ -6568,7 +6603,14 @@ async def media_handler(update, context):
         keyboard = anonymous_message_keyboard(
             new_id, user.id, True, True, include_new_message=True
         )
+        voice_temp_path = None
         try:
+            voice_source = file_id
+            if media_type == "voice":
+                voice_type = get_voice_setting(user.id)
+                if voice_type != "original":
+                    voice_temp_path = await create_voice_effect(context.bot, file_id, voice_type)
+                    voice_source = voice_temp_path
             row = get_user(user.id)
             anon_code = row[4] if row else "0000000"
             conversation_owner_id = original[10] or original[2]
@@ -6591,8 +6633,10 @@ async def media_handler(update, context):
                     )
                 )
             delivered = await send_anonymous_media(
-                context.bot, sender_id, media_type, file_id, caption, keyboard
+                context.bot, sender_id, media_type, voice_source, caption, keyboard
             )
+            if media_type == "voice" and delivered.voice:
+                set_anonymous_media_file_id(new_id, delivered.voice.file_id)
 
             try:
                 set_delivered_message_id(new_id, delivered.message_id)
@@ -6600,9 +6644,11 @@ async def media_handler(update, context):
                 print(f"Reply delivered id save error: {e}")
 
             await message.reply_text("✅ پاسخ شما با موفقیت ارسال شد.", reply_markup=back_keyboard())
-        except TelegramError as e:
-            print(f"Reply media Telegram error: {e}")
-            await message.reply_text(" ارسال پاسخ با خطا مواجه شد.")
+        except Exception as e:
+            print(f"Reply media send error: {type(e).__name__}: {e}", flush=True)
+            await message.reply_text("ارسال پاسخ با خطا مواجه شد.")
+        finally:
+            remove_temp_voice(voice_temp_path)
         context.user_data.clear()
         return
 
@@ -6623,13 +6669,19 @@ async def media_handler(update, context):
                 "شما نمیتوانید به این مقصد پیامی ارسال کنید🙈\n\n"
                 "« گلدن چت »", reply_markup=back_keyboard(), parse_mode="HTML")
             return
-        if media_type == "voice" and get_voice_setting(user.id) != "original":
-            context.user_data.clear()
-            await message.reply_text(
-                "پردازشگر تغییر صدا هنوز فعال نشده است؛ برای حفظ ناشناسی، ویس شما ارسال نشد.",
-                reply_markup=back_keyboard()
-            )
-            return
+        voice_temp_path = None
+        voice_source = file_id
+        if media_type == "voice":
+            voice_type = get_voice_setting(user.id)
+            if voice_type != "original":
+                try:
+                    voice_temp_path = await create_voice_effect(context.bot, file_id, voice_type)
+                    voice_source = voice_temp_path
+                except Exception as e:
+                    print(f"[VOICE EFFECT] {type(e).__name__}: {e}", flush=True)
+                    context.user_data.clear()
+                    await message.reply_text("تغییر صدا انجام نشد و برای حفظ ناشناسی ویس ارسال نشد.", reply_markup=back_keyboard())
+                    return
 
         mid = save_anonymous_message(user.id, target_id, caption, media_type, file_id, caption, message.message_id, target_id)
         keyboard = anonymous_message_keyboard(mid, user.id, True, True)
@@ -6642,13 +6694,18 @@ async def media_handler(update, context):
                 parse_mode="HTML"
             )
             delivered = await send_anonymous_media(
-                context.bot, target_id, media_type, file_id, caption, keyboard,
+                context.bot, target_id, media_type, voice_source, caption, keyboard,
                 reply_to_message_id=header.message_id
             )
+            if media_type == "voice" and delivered.voice:
+                set_anonymous_media_file_id(mid, delivered.voice.file_id)
             set_delivered_message_id(mid, delivered.message_id)
             await message.reply_text("✅ پیام ناشناس با موفقیت ارسال شد.", reply_markup=back_keyboard())
-        except TelegramError:
-            await message.reply_text(" خطا در ارسال پیام.")
+        except Exception as e:
+            print(f"Anonymous media send error: {type(e).__name__}: {e}", flush=True)
+            await message.reply_text("خطا در ارسال پیام.")
+        finally:
+            remove_temp_voice(voice_temp_path)
         context.user_data.clear()
         return
 
