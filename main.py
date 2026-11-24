@@ -298,6 +298,13 @@ def init_db():
         """)
 
         cur.execute("""
+            CREATE TABLE IF NOT EXISTS user_activity (
+                user_id BIGINT PRIMARY KEY,
+                last_active_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS blocks (
                 blocker_id BIGINT NOT NULL,
                 blocked_id BIGINT NOT NULL,
@@ -1313,6 +1320,40 @@ def cleanup_blocked_users():
         raise
     finally:
         cur.close()
+        release_db(conn)
+
+
+def get_user_activity(user_id):
+    conn = db()
+    cur = None
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT last_active_at FROM user_activity WHERE user_id = %s", (user_id,))
+        row = cur.fetchone()
+        return row[0] if row else None
+    finally:
+        if cur is not None:
+            cur.close()
+        release_db(conn)
+
+
+def touch_user_activity(user_id):
+    if not user_id:
+        return
+    conn = db()
+    cur = None
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO user_activity (user_id, last_active_at)
+            VALUES (%s, CURRENT_TIMESTAMP)
+            ON CONFLICT (user_id) DO UPDATE
+            SET last_active_at = CURRENT_TIMESTAMP
+        """, (user_id,))
+        conn.commit()
+    finally:
+        if cur is not None:
+            cur.close()
         release_db(conn)
 
 
@@ -3034,13 +3075,13 @@ def main_keyboard():
         [InlineKeyboardButton("دریافت لینک ناشناس 🔗", callback_data="copy_link", style="primary")],
         [
             InlineKeyboardButton("تنظیمات ⚙️", callback_data="name_settings", style="primary"),
-            InlineKeyboardButton("تبلیغات 📢", callback_data="ads", style="primary"),
+            InlineKeyboardButton("تبلیغات 📣", callback_data="ads", style="primary"),
         ],
         [
-            InlineKeyboardButton("کانال پشتیبانی 📣", url="https://t.me/SuppoortGoldenchat", style="primary"),
+            InlineKeyboardButton("کانال پشتیبانی 📢", url="https://t.me/SuppoortGoldenchat", style="primary"),
             InlineKeyboardButton("لیست مسدودی 🚫", callback_data="block_list", style="primary"),
         ],
-        [InlineKeyboardButton("راهنما 🤔", callback_data="help")],
+        [InlineKeyboardButton("«  راهنما ❔ »", callback_data="help", style="primary")],
     ]
     return InlineKeyboardMarkup(rows)
 
@@ -3401,15 +3442,31 @@ async def send_join_message(
 async def send_main_panel(
     update,
     context,
-    show_reply_keyboard=True
+    show_reply_keyboard=True,
+    panel_mode="manual"
 ):
-    text = (
-        "<b>درود!\n"
-        "شما در پنل اصلی « گلدن چت » هستین.🤠\n\n"
-        "میتونید با استفاده از پنل زیر و دکمه های کیبوردی و حتی مینی اپ از قابلیت های ربات استفاده کنید؛⚡\n"
-        "ممنون از انتخاب شما 😉</b>\n\n"
-        "<blockquote>دریافت مجدد منو با › /start</blockquote>"
-    )
+    if panel_mode == "first":
+        text = (
+            "<b>درود بر شما خوش آمدید.\n"
+            "شما در پنل اصلی « گلدن چت » هستید.🤠\n\n"
+            "میتونید با استفاده از پنل زیر و دکمه های کیبوردی و مینی اپ از قابلیت های ربات استفاده کنید ⚡\n\n"
+            "ممنون از اینکه ما رو انتخاب کردین 😚</b>\n\n"
+            "<blockquote>دریافت مجدد منو با › /start</blockquote>"
+        )
+    elif panel_mode == "inactive":
+        text = (
+            "<b>مجددا به ربات «گلدن چت» خوش اومدی. 😃\n\n"
+            "خوبه باز اومدی به ربات سر بزنی\n"
+            "حتما کاری داری با حسابت\n"
+            "از منوی اصلی استفاده کن🙂‍↕️</b>\n\n"
+            "<blockquote>دریافت مجدد منو با › /start</blockquote>"
+        )
+    else:
+        text = (
+            "<b>منوی اصلی ربات برای شما باز شد. 🎛️\n\n"
+            "هر زمان برای دریافت منوی اصلی کافیه روی دکمه های « منوی اصلی ، بازگشت به منوی اصلی » و یا از دستور /start استفاده کنید😄</b>\n\n"
+            "<blockquote>دریافت مجدد منو با › /start</blockquote>"
+        )
 
     user = update.effective_user
     panel_keyboard = admin_main_keyboard() if user and user.id == ADMIN_ID else main_keyboard()
@@ -4262,9 +4319,12 @@ async def start(
         return
 
     # برای کاربرانی که قبلاً در دیتابیس ثبت نشده‌اند،
-    # پیام معرفی کانال رسمی فقط یک بار در اولین /start ارسال می‌شود.
+    # تشخیص اولین ورود یا بازگشت پس از بیش از یک ساعت عدم فعالیت.
     first_time_user = get_user(user.id) is None
-
+    last_activity = get_user_activity(user.id)
+    now = datetime.now()
+    inactive_user = bool(last_activity and (now - last_activity.replace(tzinfo=None)) > timedelta(hours=1))
+    touch_user_activity(user.id)
     get_or_create_user(user.id, user.username, user.full_name, user.first_name)
     context.user_data.clear()
 
@@ -4290,7 +4350,8 @@ async def start(
     # پنل اصلی به‌صورت یک پیام جداگانه، زیر پیام معرفی ارسال می‌شود.
     await send_main_panel(
         update,
-        context
+        context,
+        panel_mode=("first" if first_time_user else "inactive" if inactive_user else "manual")
     )
 
 
@@ -4834,6 +4895,7 @@ async def button_handler(
         return
 
     user_id = user.id
+    touch_user_activity(user_id)
     data = query.data or ""
 
     # =====================================================
@@ -5295,21 +5357,13 @@ async def button_handler(
     if data == "back_main":
         await query.answer()
         context.user_data.clear()
-
+        touch_user_activity(user_id)
         text = (
-            "<b>درود!\n"
-            "شما در پنل اصلی « گلدن چت » هستین.🤠\n\n"
-            "میتونید با استفاده از پنل زیر و دکمه های کیبوردی و حتی مینی اپ از قابلیت های ربات استفاده کنید؛⚡\n"
-            "ممنون از انتخاب شما 😉</b>\n\n"
+            "<b>منوی اصلی ربات برای شما باز شد. 🎛️\n\n"
+            "هر زمان برای دریافت منوی اصلی کافیه روی دکمه های « منوی اصلی ، بازگشت به منوی اصلی » و یا از دستور /start استفاده کنید😄</b>\n\n"
             "<blockquote>دریافت مجدد منو با › /start</blockquote>"
         )
-
-        # فقط همان پیام فعلی ویرایش می‌شود؛ پیام جدید و 👇🏻 ارسال نمی‌شود.
-        await query.message.edit_text(
-            text,
-            reply_markup=main_keyboard(),
-            parse_mode="HTML"
-        )
+        await query.message.edit_text(text, reply_markup=main_keyboard(), parse_mode="HTML")
         return
 
     # -----------------------------------------------------
