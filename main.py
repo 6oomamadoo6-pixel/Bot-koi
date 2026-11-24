@@ -49,7 +49,7 @@ def _clean_button_label(value):
 
 def InlineKeyboardButton(text, *args, **kwargs):
     callback = str(kwargs.get('callback_data') or '').lower()
-    kwargs['style'] = 'danger' if 'back' in callback else 'primary'
+    kwargs['style'] = 'danger' if ('back' in callback or 'بازگشت' in str(text)) else 'primary'
     return TelegramInlineKeyboardButton(_clean_button_label(text), *args, **kwargs)
 
 def KeyboardButton(text, *args, **kwargs):
@@ -3996,7 +3996,7 @@ async def start(
             context.user_data["target_id"] = target_id
             context.user_data["sending_anonymous"] = True
             await update.message.reply_text(
-                f"شما در حال ارسال پیام ناشناس به {html.escape(str(target_name))} هستید.\\n\\n"
+                f"شما در حال ارسال پیام ناشناس به {html.escape(str(target_name))} هستید.\n\n"
                 "پیام خود را بنویسید 💌 :",
                 reply_markup=cancel_keyboard()
             )
@@ -5628,12 +5628,12 @@ async def button_handler(
         selected = get_voice_setting(user_id)
         voice_names = {"original": "تغییر نکرده", "low": "صدای بم", "high": "صدای زیر", "robot": "صدای رباتی"}
         await query.edit_message_text(
-            "<b>🎙 تغییر صدای ویس</b>\\n\\n"
-            "وقتی برای کسی ویس ناشناس می‌فرستید، صدای شما قبل از ارسال تغییر می‌کند تا هیچ‌کس از روی صدا شما را نشناسد.\\n\\n"
-            f"<b>صدای فعلی انتخابی شما :</b> {voice_names.get(selected, 'انتخاب نشده')}\\n\\n"
-            "روی «<b>انتخاب صدا</b>» بزنید و سپس نوع صدا را انتخاب کنید.\\n\\n"
-            "برای تست صدای انتخاب شده روی «<b>تست صدای من</b>» بزنید و یک ویس نمونه از خودتان بفرستید تا صدای نمونه برای شما ارسال شود.\\n\\n"
-            "<blockquote>خیالتان راحت!\\nویس شما فقط برای تست هست و برای چند ثانیه روی دیتابیس میماند و بعد از دیتابیس حذف میشود.</blockquote>",
+            "<b>🎙 تغییر صدای ویس</b>\n\n"
+            "وقتی برای کسی ویس ناشناس می‌فرستید، صدای شما قبل از ارسال تغییر می‌کند تا هیچ‌کس از روی صدا شما را نشناسد.\n\n"
+            f"<b>صدای فعلی انتخابی شما :</b> {voice_names.get(selected, 'انتخاب نشده')}\n\n"
+            "روی «<b>انتخاب صدا</b>» بزنید و سپس نوع صدا را انتخاب کنید.\n\n"
+            "برای تست صدای انتخاب شده روی «<b>تست صدای من</b>» بزنید و یک ویس نمونه از خودتان بفرستید تا صدای نمونه برای شما ارسال شود.\n\n"
+            "<blockquote>خیالتان راحت!\nویس شما فقط برای تست هست و برای چند ثانیه روی دیتابیس میماند و بعد از دیتابیس حذف میشود.</blockquote>",
             parse_mode="HTML",
             reply_markup=voice_settings_keyboard()
         )
@@ -5656,7 +5656,7 @@ async def button_handler(
         await query.answer("انتخاب شما ذخیره شد.")
         selected = {"low": "صدای بم", "high": "صدای زیر", "robot": "صدای رباتی"}.get(voice_type, "انتخاب نشده")
         await query.edit_message_text(
-            f"صدای انتخابی شما: <b>{selected}</b>\\n\\n"
+            f"صدای انتخابی شما: <b>{selected}</b>\n\n"
             "توجه: پردازشگر تغییر صدا هنوز روی سرور فعال نشده؛ تا زمان فعال‌سازی، ویس ناشناس بدون تغییر ارسال نخواهد شد.",
             parse_mode="HTML",
             reply_markup=voice_settings_keyboard()
@@ -5673,7 +5673,7 @@ async def button_handler(
     if data == "timed_link_menu":
         await query.answer()
         await query.edit_message_text(
-            "<b>روی یکی از زمان‌های دلخواه کلیک کنید تا لینک شما ساخته شود.</b>\\n\\n"
+            "<b>روی یکی از زمان‌های دلخواه کلیک کنید تا لینک شما ساخته شود.</b>\n\n"
             "لینک‌های زمان‌دار بعد از تایم انتخابی دیگر قابل دسترسی نخواهند بود و اگر کاربری بخواهد با آن لینک برای شما پیامی ارسال کند، پیام «این لینک زمان‌دار بوده و منقضی شده است» دریافت می‌کند.",
             parse_mode="HTML",
             reply_markup=timed_link_keyboard()
@@ -5694,7 +5694,7 @@ async def button_handler(
         timed_url = f"https://t.me/{bot_username}?start=t_{code}"
         await query.answer("لینک ساخته شد.")
         await query.edit_message_text(
-            "<b>لینک زمان‌دار شما :</b>\\n"
+            "<b>لینک زمان‌دار شما :</b>\n"
             f'<a href="{html.escape(timed_url, quote=True)}">{html.escape(timed_url)}</a>',
             parse_mode="HTML",
             disable_web_page_preview=True,
