@@ -5618,6 +5618,90 @@ async def button_handler(
 
         return
 
+    if data == "settings_back":
+        await query.answer()
+        await name_settings(update, context)
+        return
+
+    if data == "voice_settings":
+        await query.answer()
+        selected = get_voice_setting(user_id)
+        voice_names = {"original": "تغییر نکرده", "low": "صدای بم", "high": "صدای زیر", "robot": "صدای رباتی"}
+        await query.edit_message_text(
+            "<b>🎙 تغییر صدای ویس</b>\\n\\n"
+            "وقتی برای کسی ویس ناشناس می‌فرستید، صدای شما قبل از ارسال تغییر می‌کند تا هیچ‌کس از روی صدا شما را نشناسد.\\n\\n"
+            f"<b>صدای فعلی انتخابی شما :</b> {voice_names.get(selected, 'انتخاب نشده')}\\n\\n"
+            "روی «<b>انتخاب صدا</b>» بزنید و سپس نوع صدا را انتخاب کنید.\\n\\n"
+            "برای تست صدای انتخاب شده روی «<b>تست صدای من</b>» بزنید و یک ویس نمونه از خودتان بفرستید تا صدای نمونه برای شما ارسال شود.\\n\\n"
+            "<blockquote>خیالتان راحت!\\nویس شما فقط برای تست هست و برای چند ثانیه روی دیتابیس میماند و بعد از دیتابیس حذف میشود.</blockquote>",
+            parse_mode="HTML",
+            reply_markup=voice_settings_keyboard()
+        )
+        return
+
+    if data == "voice_choose":
+        await query.answer()
+        await query.edit_message_text(
+            "<b>نوع صدای موردنظر را انتخاب کنید:</b>",
+            parse_mode="HTML",
+            reply_markup=voice_choices_keyboard()
+        )
+        return
+
+    if data.startswith("voice_select:"):
+        voice_type = data.split(":", 1)[1]
+        if not set_voice_setting(user_id, voice_type):
+            await query.answer("نوع صدا معتبر نیست.", show_alert=True)
+            return
+        await query.answer("انتخاب شما ذخیره شد.")
+        selected = {"low": "صدای بم", "high": "صدای زیر", "robot": "صدای رباتی"}.get(voice_type, "انتخاب نشده")
+        await query.edit_message_text(
+            f"صدای انتخابی شما: <b>{selected}</b>\\n\\n"
+            "توجه: پردازشگر تغییر صدا هنوز روی سرور فعال نشده؛ تا زمان فعال‌سازی، ویس ناشناس بدون تغییر ارسال نخواهد شد.",
+            parse_mode="HTML",
+            reply_markup=voice_settings_keyboard()
+        )
+        return
+
+    if data == "voice_test":
+        await query.answer(
+            "پردازشگر تغییر صدا هنوز فعال نشده است. برای حفظ ناشناسی، فعلاً ویس تست ارسال نکنید.",
+            show_alert=True
+        )
+        return
+
+    if data == "timed_link_menu":
+        await query.answer()
+        await query.edit_message_text(
+            "<b>روی یکی از زمان‌های دلخواه کلیک کنید تا لینک شما ساخته شود.</b>\\n\\n"
+            "لینک‌های زمان‌دار بعد از تایم انتخابی دیگر قابل دسترسی نخواهند بود و اگر کاربری بخواهد با آن لینک برای شما پیامی ارسال کند، پیام «این لینک زمان‌دار بوده و منقضی شده است» دریافت می‌کند.",
+            parse_mode="HTML",
+            reply_markup=timed_link_keyboard()
+        )
+        return
+
+    if data.startswith("timed_link:"):
+        try:
+            hours = int(data.split(":", 1)[1])
+        except (ValueError, IndexError):
+            await query.answer("زمان نامعتبر است.", show_alert=True)
+            return
+        if hours not in (1, 24, 48, 96, 168):
+            await query.answer("زمان نامعتبر است.", show_alert=True)
+            return
+        code, expires_at = create_timed_link(user_id, hours)
+        bot_username = await get_cached_bot_username(context)
+        timed_url = f"https://t.me/{bot_username}?start=t_{code}"
+        await query.answer("لینک ساخته شد.")
+        await query.edit_message_text(
+            "<b>لینک زمان‌دار شما :</b>\\n"
+            f'<a href="{html.escape(timed_url, quote=True)}">{html.escape(timed_url)}</a>',
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+            reply_markup=back_keyboard()
+        )
+        return
+
     if data == "change_name":
         await query.answer()
 
