@@ -5,6 +5,7 @@ import asyncio
 import time
 import html
 import json
+import re
 from urllib.parse import quote, urlsplit
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -16,13 +17,13 @@ from turso_db import psycopg2, pool
 
 from telegram import (
     Update,
-    InlineKeyboardButton,
+    InlineKeyboardButton as TelegramInlineKeyboardButton,
     InlineKeyboardMarkup,
     InlineQueryResultArticle,
     InputTextMessageContent,
     ReplyParameters,
     ReplyKeyboardMarkup,
-    KeyboardButton,
+    KeyboardButton as TelegramKeyboardButton,
     ChatMember,
     WebAppInfo,
     MenuButtonWebApp,
@@ -40,6 +41,19 @@ from telegram.ext import (
     filters,
 )
 from telegram.error import TelegramError
+
+_EMOJI_RE = re.compile(r'[\U0001F1E6-\U0001F1FF\U0001F300-\U0001FAFF\U00002600-\U000027BF\U00002B00-\U00002BFF\u200d\ufe0e\ufe0f\u20e3\U0001F3FB-\U0001F3FF]')
+
+def _clean_button_label(value):
+    return _EMOJI_RE.sub('', str(value or '')).strip()
+
+def InlineKeyboardButton(text, *args, **kwargs):
+    callback = str(kwargs.get('callback_data') or '').lower()
+    kwargs['style'] = 'danger' if 'back' in callback else 'primary'
+    return TelegramInlineKeyboardButton(_clean_button_label(text), *args, **kwargs)
+
+def KeyboardButton(text, *args, **kwargs):
+    return TelegramKeyboardButton(_clean_button_label(text), *args, **kwargs)
 
 
 # =========================================================
