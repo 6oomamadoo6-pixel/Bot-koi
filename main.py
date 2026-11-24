@@ -1410,13 +1410,11 @@ def get_timed_link(code):
 
 
 VOICE_EFFECT_FILTERS = {
-    "low": "asetrate=48000*0.82,aresample=48000,atempo=1.2195",
-    "high": "asetrate=48000*1.18,aresample=48000,atempo=0.8475",
-    "kid": "asetrate=48000*1.38,aresample=48000,atempo=0.7246",
-    "robot": "highpass=f=120,lowpass=f=3600,tremolo=f=28:d=0.85,aecho=0.8:0.88:40:0.35",
-    "alien": "asetrate=48000*0.92,aresample=48000,atempo=1.087,chorus=0.6:0.9:45:0.4:0.25:2",
-    "radio": "highpass=f=350,lowpass=f=2800,acompressor=threshold=0.08:ratio=5:attack=5:release=50",
-    "echo": "aecho=0.8:0.88:100|180|260:0.4|0.25|0.15",
+    "girl": "asetrate=48000*1.52,aresample=48000,atempo=0.6579,highpass=f=180,equalizer=f=3200:t=q:w=1.2:g=5,acompressor=threshold=0.12:ratio=2.5:attack=8:release=70",
+    "oldman": "asetrate=48000*0.72,aresample=48000,atempo=1.3889,highpass=f=65,equalizer=f=420:t=q:w=1:g=5,equalizer=f=1800:t=q:w=1:g=-3,acrusher=bits=15:mix=0.10,acompressor=threshold=0.10:ratio=3:attack=12:release=100",
+    "giant": "asetrate=48000*0.56,aresample=48000,atempo=1.7857,lowpass=f=4200,bass=g=9:f=110,equalizer=f=180:t=q:w=1.1:g=7,aecho=0.8:0.82:70|140:0.28|0.16,acompressor=threshold=0.08:ratio=4:attack=10:release=120",
+    "robot": "highpass=f=100,lowpass=f=4200,aresample=48000,aformat=sample_fmts=fltp,tremolo=f=42:d=0.95,acrusher=bits=8:mix=0.32,aphaser=in_gain=0.7:out_gain=0.8:delay=3:decay=0.4:speed=0.7",
+    "thin": "asetrate=48000*1.34,aresample=48000,atempo=0.7463,highpass=f=260,equalizer=f=2400:t=q:w=1.1:g=7,equalizer=f=650:t=q:w=1:g=-5,treble=g=5:f=4200,acompressor=threshold=0.11:ratio=3:attack=5:release=60",
 }
 
 
@@ -1492,7 +1490,9 @@ def get_voice_setting(user_id):
         cur = conn.cursor()
         cur.execute("SELECT voice_type FROM user_voice_settings WHERE user_id = %s", (user_id,))
         row = cur.fetchone()
-        return row[0] if row else "original"
+        saved = row[0] if row else "original"
+        legacy = {"low": "oldman", "high": "thin", "kid": "girl", "alien": "giant", "radio": "robot", "echo": "giant"}
+        return legacy.get(saved, saved)
     finally:
         if cur is not None:
             cur.close()
@@ -1500,7 +1500,7 @@ def get_voice_setting(user_id):
 
 
 def set_voice_setting(user_id, voice_type):
-    if voice_type not in ("low", "high", "kid", "robot", "alien", "radio", "echo"):
+    if voice_type not in ("girl", "oldman", "giant", "robot", "thin"):
         return False
     conn = db()
     cur = None
@@ -3095,27 +3095,19 @@ def voice_settings_keyboard():
 
 def voice_choices_keyboard():
     return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("صدای بم", callback_data="voice_select:low"),
-            InlineKeyboardButton("صدای زیر", callback_data="voice_select:high"),
-        ],
-        [
-            InlineKeyboardButton("صدای کودکانه", callback_data="voice_select:kid"),
-            InlineKeyboardButton("صدای رباتی", callback_data="voice_select:robot"),
-        ],
-        [
-            InlineKeyboardButton("صدای فضایی", callback_data="voice_select:alien"),
-            InlineKeyboardButton("صدای رادیویی", callback_data="voice_select:radio"),
-        ],
-        [InlineKeyboardButton("صدای اکو", callback_data="voice_select:echo")],
+        [InlineKeyboardButton("👧 دختر‌بچه", callback_data="voice_select:girl", style="primary"),
+         InlineKeyboardButton("👴 پیرمرد", callback_data="voice_select:oldman", style="primary")],
+        [InlineKeyboardButton("👹 غول", callback_data="voice_select:giant", style="primary"),
+         InlineKeyboardButton("🤖 ربات", callback_data="voice_select:robot", style="primary")],
+        [InlineKeyboardButton("🪶 نازک", callback_data="voice_select:thin", style="primary")],
         [InlineKeyboardButton("بازگشت", callback_data="voice_settings", style="danger")],
     ])
 
 
 def voice_test_result_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("بازگشت", callback_data="voice_settings", style="danger")],
-        [InlineKeyboardButton("منوی اصلی", callback_data="back_main", style="danger")],
+        [InlineKeyboardButton("بازگشت به تنظیمات صدا", callback_data="voice_test_back", style="danger")],
+        [InlineKeyboardButton("منوی اصلی", callback_data="voice_test_main", style="danger")],
     ])
 
 
@@ -5738,12 +5730,12 @@ async def button_handler(
     if data == "voice_settings":
         await query.answer()
         selected = get_voice_setting(user_id)
-        voice_names = {"original": "تغییر نکرده", "low": "صدای بم", "high": "صدای زیر", "kid": "صدای کودکانه", "robot": "صدای رباتی", "alien": "صدای فضایی", "radio": "صدای رادیویی", "echo": "صدای اکو"}
+        voice_names = {"original": "تغییر نکرده", "girl": "دختر‌بچه", "oldman": "پیرمرد", "giant": "غول", "robot": "ربات", "thin": "نازک"}
         await query.edit_message_text(
             "<b>🎙 تغییر صدای ویس</b>\n\n"
             "وقتی برای کسی ویس ناشناس می‌فرستید، صدای شما قبل از ارسال تغییر می‌کند تا هیچ‌کس از روی صدا شما را نشناسد.\n\n"
             f"<b>صدای فعلی انتخابی شما :</b> {voice_names.get(selected, 'انتخاب نشده')}\n\n"
-            "روی «<b>انتخاب صدا</b>» بزنید و سپس نوع صدا را انتخاب کنید.\n\n"
+            "روی «<b>انتخاب صدا</b>» بزنید و سپس یکی از پنج حالت جدید را انتخاب کنید.\n\n"
             "برای تست صدای انتخاب شده روی «<b>تست صدای من</b>» بزنید و یک ویس نمونه از خودتان بفرستید تا صدای نمونه برای شما ارسال شود.\n\n"
             "<blockquote>خیالتان راحت!\nویس شما فقط برای تست است و فقط برای چند ثانیه در فضای موقت سرور پردازش می‌شود؛ سپس فایل موقت حذف خواهد شد.</blockquote>",
             parse_mode="HTML",
@@ -5766,7 +5758,7 @@ async def button_handler(
             await query.answer("نوع صدا معتبر نیست.", show_alert=True)
             return
         await query.answer("انتخاب شما ذخیره شد.")
-        selected = {"low": "صدای بم", "high": "صدای زیر", "kid": "صدای کودکانه", "robot": "صدای رباتی", "alien": "صدای فضایی", "radio": "صدای رادیویی", "echo": "صدای اکو"}.get(voice_type, "انتخاب نشده")
+        selected = {"girl": "دختر‌بچه", "oldman": "پیرمرد", "giant": "غول", "robot": "ربات", "thin": "نازک"}.get(voice_type, "انتخاب نشده")
         await query.edit_message_text(
             f"صدای انتخابی شما ذخیره شد: <b>{selected}</b>\n\n"
             "از گزینه «تست صدای من» برای شنیدن نمونه استفاده کنید.",
@@ -5777,15 +5769,26 @@ async def button_handler(
 
     if data == "voice_test":
         await query.answer()
-        context.user_data.clear()
         context.user_data["voice_test_waiting"] = True
         await query.edit_message_text(
-            "یک ویس نمونه از خودتان بفرستید تا با صدای انتخابی پردازش و برایتان ارسال شود. فایل موقت پس از تست حذف می‌شود.",
+            "🎙 یک ویس ۳ تا ۲۰ ثانیه‌ای بفرست تا افکت انتخابی را روی آن اعمال کنم. فایل موقت بعد از تست پاک می‌شود.",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("بازگشت", callback_data="voice_settings", style="danger")],
                 [InlineKeyboardButton("منوی اصلی", callback_data="back_main", style="danger")],
             ])
         )
+        return
+
+    if data == "voice_test_back":
+        await query.answer()
+        context.user_data.pop("voice_test_waiting", None)
+        await query.message.reply_text("🎙 تنظیمات صدای ویس", reply_markup=voice_settings_keyboard())
+        return
+
+    if data == "voice_test_main":
+        await query.answer()
+        context.user_data.clear()
+        await send_main_panel(update, context, show_reply_keyboard=False)
         return
 
     if data == "timed_link_menu":
@@ -6554,11 +6557,13 @@ async def media_handler(update, context):
             if voice_type != "original":
                 temp_path = await create_voice_effect(context.bot, file_id, voice_type)
                 voice_source = temp_path
-            await context.bot.send_voice(
-                chat_id=user.id,
-                voice=voice_source,
-                reply_markup=voice_test_result_keyboard()
-            )
+            if temp_path:
+                with open(temp_path, "rb") as processed_voice:
+                    await context.bot.send_voice(chat_id=user.id, voice=processed_voice,
+                                                  reply_markup=voice_test_result_keyboard())
+            else:
+                await context.bot.send_voice(chat_id=user.id, voice=voice_source,
+                                             reply_markup=voice_test_result_keyboard())
             await message.reply_text("تست صدا انجام شد.")
         except Exception as e:
             print(f"[VOICE TEST] {type(e).__name__}: {e}", flush=True)
