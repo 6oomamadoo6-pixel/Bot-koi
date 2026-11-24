@@ -3587,7 +3587,7 @@ async def send_main_panel(
             text = (
                 "<b>The main menu is now open for you. 🎛️\\n\\n"
                 "Whenever you want to open it again, tap the “Main Menu” or “Back to Main Menu” button, "
-                "or simply send the /start command. 😄</b>\\n\\n"
+                "or simply send the /start command. 😄</b>\n\n"
                 "<blockquote>Open the menu again: /start</blockquote>"
             )
     else:
@@ -3610,7 +3610,7 @@ async def send_main_panel(
         else:
             text = (
                 "<b>منوی اصلی ربات برای شما باز شد. 🎛️\n\n"
-                "هر زمان برای دریافت منوی اصلی کافیه روی دکمه های « منوی اصلی ، بازگشت به منوی اصلی » و یا از دستور /start استفاده کنید😄</b>\n\n"
+                "هر زمان برای دریافت منوی اصلی کافیه روی دکمه‌های «منوی اصلی»، «بازگشت به منوی اصلی» یا از دستور /start استفاده کنید😄</b>\n\n"
                 "<blockquote>دریافت مجدد منو با › /start</blockquote>"
             )
 
