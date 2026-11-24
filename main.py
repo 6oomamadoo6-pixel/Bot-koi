@@ -3964,6 +3964,44 @@ async def start(
             await send_main_panel(update, context, show_reply_keyboard=True)
             return
 
+        if payload.startswith("t_"):
+            timed = get_timed_link(payload[2:])
+            if not timed:
+                await update.message.reply_text("این لینک زمان دار بوده و منقضی شده است")
+                return
+            target_id, expires_at = timed
+            if isinstance(expires_at, str):
+                try:
+                    expires_at = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                except ValueError:
+                    expires_at = None
+            if not expires_at or expires_at <= datetime.now():
+                await update.message.reply_text("این لینک زمان دار بوده و منقضی شده است")
+                return
+            target = get_user_by_link(str(target_id))
+            if not target:
+                await update.message.reply_text("این لینک زمان دار بوده و منقضی شده است")
+                return
+            if target_id == user.id:
+                await update.message.reply_text("این لینک متعلق به حساب خودته.", reply_markup=back_keyboard())
+                return
+            if not await is_member(context.bot, user.id):
+                context.user_data["pending_link_payload"] = payload
+                await send_join_message(update, context)
+                return
+            get_or_create_user(user.id, user.username, user.full_name, user.first_name)
+            register_link_view(target_id, user.id)
+            target_name = target[2] or target[1] or "کاربر"
+            context.user_data.clear()
+            context.user_data["target_id"] = target_id
+            context.user_data["sending_anonymous"] = True
+            await update.message.reply_text(
+                f"شما در حال ارسال پیام ناشناس به {html.escape(str(target_name))} هستید.\\n\\n"
+                "پیام خود را بنویسید 💌 :",
+                reply_markup=cancel_keyboard()
+            )
+            return
+
         if payload.startswith("c_"):
             channel = get_channel_by_link(payload[2:])
             if not channel:
@@ -4113,7 +4151,7 @@ async def start(
         await update.message.reply_text(
             f"شما در حال ارسال پیام ناشناس به "
             f"{target_name} هستید.\n\n"
-            "پیام خود را بنویسید 💌",
+            "پیام خود را بنویسید 💌 :",
             reply_markup=cancel_keyboard()
         )
 
@@ -4601,11 +4639,11 @@ async def name_settings(
     )
 
     await update.callback_query.edit_message_text(
-        "⚙️ تنظیمات نام\n\n"
-        f"نام فعلی شما:\n{current_name}\n\n"
-        "این نام هنگام ارسال پیام ناشناس "
-        "به فرستنده نمایش داده می‌شود.",
-        reply_markup=name_settings_keyboard()
+        "<b>تنظیمات</b>\n\n"
+        f"نام فعلی شما: {html.escape(str(current_name))}\n\n"
+        "این نام هنگام ارسال پیام ناشناس به فرستنده نمایش داده می‌شود.",
+        reply_markup=name_settings_keyboard(),
+        parse_mode="HTML"
     )
 
 
@@ -7838,7 +7876,7 @@ async def handle_message(
     # USER TARGET BUTTON
     # =====================================================
 
-    if text.strip() == "پیام ناشناس به کاربر دلخواه 👤" or text.strip() == "ارسال پیام ناشناس به کاربر دلخواه 👤":
+    if text.strip() in ("پیام ناشناس با آیدی", "پیام ناشناس به کاربر دلخواه 👤", "ارسال پیام ناشناس به کاربر دلخواه 👤"):
         context.user_data.clear()
 
         context.user_data[
@@ -7846,11 +7884,11 @@ async def handle_message(
         ] = True
 
         await message.reply_text(
-            "آیدی عددی یا آیدی کاربر را ارسال کنید.\n"
-            "مثال : \n"
-            "@username \n"
-            "123456789\n"
-            "ربات بررسی میکند در صورت عضو بودن کاربر در ربات میتوانید به او پیام ناشناس ارسال کنید❤️‍🔥",
+            "<b>آیدی یا آیدی عددی کاربر.</b>\n"
+            "نمونه مثل یکی از آیدی های زیر !\n\n"
+            "<blockquote>@username\n987654321</blockquote>\n"
+            "اگر کاربر عضو ربات باشد فرایند ارسال پیام ناشناس شروع میشود.🙍‍♂️",
+            parse_mode="HTML",
             reply_markup=back_keyboard()
         )
 
@@ -7925,8 +7963,8 @@ async def handle_message(
 
         await message.reply_text(
             f"شما در حال ارسال پیام ناشناس به "
-            f"{target_name} هستید.\n\n"
-            "پیام خود را بنویسید : 💤",
+            f"{html.escape(str(target_name))} هستید.\n\n"
+            "پیام خود را بنویسید 💌 :",
             reply_markup=cancel_keyboard()
         )
 
