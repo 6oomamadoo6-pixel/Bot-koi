@@ -6599,6 +6599,7 @@ async def media_handler(update, context):
     message = update.message
     if not user or not message or message.chat.type in ("group", "supergroup"):
         return
+    touch_user_activity(user.id)
     media_type, file_id, caption = get_message_payload(message)
     if not media_type or media_type == "text":
         return
@@ -6810,6 +6811,7 @@ async def handle_message(
 
     if not user or not message:
         return
+    touch_user_activity(user.id)
 
     # =====================================================
     # GROUP SAFETY
