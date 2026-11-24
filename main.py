@@ -3566,30 +3566,55 @@ async def send_main_panel(
     show_reply_keyboard=True,
     panel_mode="manual"
 ):
-    if panel_mode == "first":
-        text = (
-            "<b>درود بر شما خوش آمدید.\n"
-            "شما در پنل اصلی « گلدن چت » هستید.🤠\n\n"
-            "میتونید با استفاده از پنل زیر و دکمه های کیبوردی و مینی اپ از قابلیت های ربات استفاده کنید ⚡\n\n"
-            "ممنون از اینکه ما رو انتخاب کردین 😚</b>\n\n"
-            "<blockquote>دریافت مجدد منو با › /start</blockquote>"
-        )
-    elif panel_mode == "inactive":
-        text = (
-            "<b>مجددا به ربات «گلدن چت» خوش اومدی. 😃\n\n"
-            "خوبه باز اومدی به ربات سر بزنی\n"
-            "حتما کاری داری با حسابت\n"
-            "از منوی اصلی استفاده کن🙂‍↕️</b>\n\n"
-            "<blockquote>دریافت مجدد منو با › /start</blockquote>"
-        )
-    else:
-        text = (
-            "<b>منوی اصلی ربات برای شما باز شد. 🎛️\n\n"
-            "هر زمان برای دریافت منوی اصلی کافیه روی دکمه های « منوی اصلی ، بازگشت به منوی اصلی » و یا از دستور /start استفاده کنید😄</b>\n\n"
-            "<blockquote>دریافت مجدد منو با › /start</blockquote>"
-        )
-
     user = update.effective_user
+    language = get_user_language(user.id) if user else "fa"
+    english = language == "en"
+
+    if english:
+        if panel_mode == "first":
+            text = (
+                "<b>Welcome!\nYou are now in the main Golden Chat panel. 🤠\n\n"
+                "Use the buttons and Mini App below to explore the bot's features. ⚡\n\n"
+                "Thank you for choosing us! 😚</b>\n\n"
+                "<blockquote>To reopen this menu, send /start</blockquote>"
+            )
+        elif panel_mode == "inactive":
+            text = (
+                "<b>Welcome back to Golden Chat! 😃\n\n"
+                "Glad to see you again. Use the main menu whenever you need anything. 🙂‍↕️</b>\n\n"
+                "<blockquote>To reopen this menu, send /start</blockquote>"
+            )
+        else:
+            text = (
+                "<b>The bot's main menu is open. 🎛️\n\n"
+                "To reopen it at any time, tap Main Menu / Back to Main Menu or send /start. 😄</b>\n\n"
+                "<blockquote>To reopen this menu, send /start</blockquote>"
+            )
+    else:
+        if panel_mode == "first":
+            text = (
+                "<b>درود بر شما خوش آمدید.\n"
+                "شما در پنل اصلی « گلدن چت » هستید.🤠\n\n"
+                "میتونید با استفاده از پنل زیر و دکمه های کیبوردی و مینی اپ از قابلیت های ربات استفاده کنید ⚡\n\n"
+                "ممنون از اینکه ما رو انتخاب کردین 😚</b>\n\n"
+                "<blockquote>دریافت مجدد منو با › /start</blockquote>"
+            )
+        elif panel_mode == "inactive":
+            text = (
+                "<b>مجددا به ربات «گلدن چت» خوش اومدی. 😃\n\n"
+                "خوبه باز اومدی به ربات سر بزنی\n"
+                "حتما کاری داری با حسابت\n"
+                "از منوی اصلی استفاده کن🙂‍↕️</b>\n\n"
+                "<blockquote>دریافت مجدد منو با › /start</blockquote>"
+            )
+        else:
+            text = (
+                "<b>منوی اصلی ربات برای شما باز شد. 🎛️\n\n"
+                "هر زمان برای دریافت منوی اصلی کافیه روی دکمه های « منوی اصلی ، بازگشت به منوی اصلی » و یا از دستور /start استفاده کنید😄</b>\n\n"
+                "<blockquote>دریافت مجدد منو با › /start</blockquote>"
+            )
+
+
     language = get_user_language(user.id) if user else "fa"
     panel_keyboard = admin_main_keyboard(language) if user and user.id == ADMIN_ID else main_keyboard(language)
 
