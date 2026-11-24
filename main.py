@@ -5759,6 +5759,7 @@ async def button_handler(
 
     if data == "voice_test":
         await query.answer()
+        context.user_data.clear()
         context.user_data["voice_test_waiting"] = True
         await query.edit_message_text(
             "یک ویس نمونه از خودتان بفرستید تا با صدای انتخابی پردازش و برایتان ارسال شود. فایل موقت پس از تست حذف می‌شود.",
