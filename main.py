@@ -4830,27 +4830,50 @@ async def changeusername_command(
 async def test_premium_emoji_command(update, context):
     user = update.effective_user
     chat = update.effective_chat
+    message = update.effective_message
 
-    # This diagnostic is intentionally restricted to the bot owner and private chats.
-    if not user or user.id != ADMIN_ID:
-        return
-    if not chat or chat.type != "private" or not update.message:
+    if not user or not message:
         return
 
-    # A public custom-emoji ID used only for this one-off capability test.
-    emoji_id = "5368324170671202286"
+    # Give a useful answer instead of silently ignoring the command when ADMIN_ID
+    # does not match the Telegram account that is testing the bot.
+    if user.id != ADMIN_ID:
+        await message.reply_text(
+            "⛔ این دستور فقط برای مالک ربات فعال است.\n"
+            f"شناسه عددی حساب شما: `{user.id}`\n"
+            "اگر مالک ربات هستی، باید همین شناسه در مقدار ADMIN_ID ثبت شده باشد."
+        )
+        return
+
+    if not chat or chat.type != "private":
+        await message.reply_text("⚠️ لطفاً این دستور را در گفتگوی خصوصی ربات اجرا کن.")
+        return
+
+    # Usage: /testemoji <custom_emoji_id>
+    # If no ID is supplied, use the built-in sample ID.
+    supplied_id = context.args[0].strip() if context.args else ""
+    emoji_id = supplied_id or "5368324170671202286"
+    if not emoji_id.isdigit():
+        await message.reply_text(
+            "شناسه ایموجی باید فقط عدد باشد.\n"
+            "روش استفاده: /testemoji 5368324170671202286"
+        )
+        return
+
+    await message.reply_text("🔎 دارم شناسه ایموجی را از تلگرام بررسی می‌کنم...")
 
     try:
         stickers = await context.bot.get_custom_emoji_stickers([emoji_id])
         if not stickers:
-            await update.message.reply_text(
-                "❌ تلگرام ایموجی نمونه را پیدا نکرد. تست انجام نشد."
+            await message.reply_text(
+                "❌ تلگرام برای این شناسه ایموجی‌ای پیدا نکرد.\n"
+                "شناسه را دوباره از ربات استخراج‌کننده کپی کن و به شکل زیر بفرست:\n"
+                "/testemoji 1234567890123456789"
             )
             return
 
-        # Use the ID returned by Telegram, not just the requested sample ID.
         sticker = stickers[0]
-        emoji_id = sticker.custom_emoji_id or emoji_id
+        actual_id = sticker.custom_emoji_id or emoji_id
         fallback_emoji = sticker.emoji or "🔥"
         emoji_length = len(fallback_emoji.encode("utf-16-le")) // 2
 
@@ -4862,37 +4885,43 @@ async def test_premium_emoji_command(update, context):
                     type=MessageEntity.CUSTOM_EMOJI,
                     offset=0,
                     length=emoji_length,
-                    custom_emoji_id=emoji_id,
+                    custom_emoji_id=actual_id,
                 )
             ],
         )
 
-        # A successful send alone does NOT prove Telegram kept the custom emoji entity.
         sent_entities = sent_message.entities or []
         custom_entity = next(
             (
                 entity for entity in sent_entities
                 if entity.type == MessageEntity.CUSTOM_EMOJI
-                and entity.custom_emoji_id == emoji_id
+                and entity.custom_emoji_id == actual_id
             ),
             None,
         )
 
         if custom_entity:
-            await update.message.reply_text(
-                "✅ تلگرام واقعاً Entity ایموجی سفارشی را در پیام ثبت کرد.\n"
-                "اگر هنوز آن را عادی می‌بینی، احتمالاً نمایشگر/نسخه تلگرام آن را رندر نکرده؛ "
-                "این بار نتیجه از روی Entity برگشتی بررسی شده است."
+            await message.reply_text(
+                "✅ تست موفق بود! تلگرام Entity ایموجی سفارشی را در پیام ثبت کرد.\n"
+                f"ایموجی آزمایش‌شده: {fallback_emoji}\n"
+                f"شناسه: `{actual_id}`"
             )
         else:
-            await update.message.reply_text(
-                "⚠️ پیام ارسال شد، اما تلگرام Entity ایموجی پریمیوم را در پاسخ نگه نداشت.\n"
-                "پس این ارسال موفقیتِ ایموجی پریمیوم محسوب نمی‌شود."
+            await message.reply_text(
+                "⚠️ پیام ارسال شد، اما تلگرام Entity ایموجی سفارشی را در پاسخ نگه نداشت.\n"
+                "پس این تست موفق محسوب نمی‌شود.\n"
+                f"شناسه بررسی‌شده: `{actual_id}`"
             )
     except TelegramError as error:
-        await update.message.reply_text(
-            "❌ ارسال ایموجی پریمیوم ناموفق بود.\n"
-            f"خطای تلگرام: {str(error)[:800]}"
+        await message.reply_text(
+            "❌ تلگرام ارسال ایموجی سفارشی را رد کرد.\n"
+            f"خطا: {str(error)[:800]}\n"
+            "اگر مالک حساب سازنده ربات Premium ندارد، ممکن است محدودیت از همین‌جا باشد."
+        )
+    except Exception as error:
+        await message.reply_text(
+            "❌ خطای داخلی هنگام تست ایموجی رخ داد.\n"
+            f"{type(error).__name__}: {str(error)[:500]}"
         )
 
 
