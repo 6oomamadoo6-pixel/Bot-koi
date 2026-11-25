@@ -4877,9 +4877,10 @@ async def test_premium_emoji_command(update, context):
         fallback_emoji = sticker.emoji or "🔥"
         emoji_length = len(fallback_emoji.encode("utf-16-le")) // 2
 
+        test_text = f"{fallback_emoji} این یک تست است."
         sent_message = await context.bot.send_message(
             chat_id=chat.id,
-            text=fallback_emoji,
+            text=test_text,
             entities=[
                 MessageEntity(
                     type=MessageEntity.CUSTOM_EMOJI,
