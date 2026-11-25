@@ -19,6 +19,7 @@ from turso_db import psycopg2, pool
 
 from telegram import (
     Update,
+    MessageEntity,
     InlineKeyboardButton as TelegramInlineKeyboardButton,
     InlineKeyboardMarkup,
     InlineQueryResultArticle,
@@ -4826,6 +4827,52 @@ async def changeusername_command(
 # SUPERVISOR COMMANDS / MANAGEMENT
 # =========================================================
 
+async def test_premium_emoji_command(update, context):
+    user = update.effective_user
+    chat = update.effective_chat
+
+    # This diagnostic is intentionally restricted to the bot owner and private chats.
+    if not user or user.id != ADMIN_ID:
+        return
+    if not chat or chat.type != "private" or not update.message:
+        return
+
+    # A public custom-emoji ID used only for this one-off capability test.
+    emoji_id = "5368324170671202286"
+
+    try:
+        stickers = await context.bot.get_custom_emoji_stickers([emoji_id])
+        if not stickers:
+            await update.message.reply_text(
+                "❌ تلگرام ایموجی نمونه را پیدا نکرد. تست انجام نشد."
+            )
+            return
+
+        fallback_emoji = stickers[0].emoji or "🔥"
+        emoji_length = len(fallback_emoji.encode("utf-16-le")) // 2
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=fallback_emoji,
+            entities=[
+                MessageEntity(
+                    type=MessageEntity.CUSTOM_EMOJI,
+                    offset=0,
+                    length=emoji_length,
+                    custom_emoji_id=emoji_id,
+                )
+            ],
+        )
+        await update.message.reply_text(
+            "✅ تلگرام پیام دارای ایموجی سفارشی را پذیرفت. "
+            "نمایش آن را در پیام بالا بررسی کن."
+        )
+    except TelegramError as error:
+        await update.message.reply_text(
+            "❌ ارسال ایموجی پریمیوم ناموفق بود.\n"
+            f"خطای تلگرام: {str(error)[:800]}"
+        )
+
+
 async def cdb_command(update, context):
     user = update.effective_user
     if not user or not is_supervisor(user.id):
@@ -9005,6 +9052,13 @@ def main():
         CommandHandler(
             "start",
             start
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "testemoji",
+            test_premium_emoji_command
         )
     )
 
