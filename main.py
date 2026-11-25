@@ -4848,9 +4848,13 @@ async def test_premium_emoji_command(update, context):
             )
             return
 
-        fallback_emoji = stickers[0].emoji or "🔥"
+        # Use the ID returned by Telegram, not just the requested sample ID.
+        sticker = stickers[0]
+        emoji_id = sticker.custom_emoji_id or emoji_id
+        fallback_emoji = sticker.emoji or "🔥"
         emoji_length = len(fallback_emoji.encode("utf-16-le")) // 2
-        await context.bot.send_message(
+
+        sent_message = await context.bot.send_message(
             chat_id=chat.id,
             text=fallback_emoji,
             entities=[
@@ -4862,10 +4866,29 @@ async def test_premium_emoji_command(update, context):
                 )
             ],
         )
-        await update.message.reply_text(
-            "✅ تلگرام پیام دارای ایموجی سفارشی را پذیرفت. "
-            "نمایش آن را در پیام بالا بررسی کن."
+
+        # A successful send alone does NOT prove Telegram kept the custom emoji entity.
+        sent_entities = sent_message.entities or []
+        custom_entity = next(
+            (
+                entity for entity in sent_entities
+                if entity.type == MessageEntity.CUSTOM_EMOJI
+                and entity.custom_emoji_id == emoji_id
+            ),
+            None,
         )
+
+        if custom_entity:
+            await update.message.reply_text(
+                "✅ تلگرام واقعاً Entity ایموجی سفارشی را در پیام ثبت کرد.\n"
+                "اگر هنوز آن را عادی می‌بینی، احتمالاً نمایشگر/نسخه تلگرام آن را رندر نکرده؛ "
+                "این بار نتیجه از روی Entity برگشتی بررسی شده است."
+            )
+        else:
+            await update.message.reply_text(
+                "⚠️ پیام ارسال شد، اما تلگرام Entity ایموجی پریمیوم را در پاسخ نگه نداشت.\n"
+                "پس این ارسال موفقیتِ ایموجی پریمیوم محسوب نمی‌شود."
+            )
     except TelegramError as error:
         await update.message.reply_text(
             "❌ ارسال ایموجی پریمیوم ناموفق بود.\n"
